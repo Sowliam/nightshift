@@ -60,8 +60,10 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
 
     const parseResult = CreateServerSchema.safeParse(request.body);
     if (!parseResult.success) {
+      const fieldErrors = parseResult.error.flatten().fieldErrors;
+      const firstError = Object.values(fieldErrors).flat()[0] || 'Invalid server details';
       return reply.status(400).send({
-        error: 'Invalid server details',
+        error: firstError,
         details: parseResult.error.flatten(),
       });
     }
@@ -241,8 +243,10 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
 
     const parseResult = CreateChannelSchema.safeParse(request.body);
     if (!parseResult.success) {
+      const fieldErrors = parseResult.error.flatten().fieldErrors;
+      const firstError = Object.values(fieldErrors).flat()[0] || 'Invalid channel details';
       return reply.status(400).send({
-        error: 'Invalid channel details',
+        error: firstError,
         details: parseResult.error.flatten(),
       });
     }
@@ -559,8 +563,10 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
 
     const parseResult = JoinInviteSchema.safeParse(request.body);
     if (!parseResult.success) {
+      const fieldErrors = parseResult.error.flatten().fieldErrors;
+      const firstError = Object.values(fieldErrors).flat()[0] || 'Invalid invite code format';
       return reply.status(400).send({
-        error: 'Invalid invite code format',
+        error: firstError,
         details: parseResult.error.flatten(),
       });
     }

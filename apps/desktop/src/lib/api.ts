@@ -11,9 +11,39 @@ import {
 
 export const getApiBase = (): string => {
   if (typeof window !== 'undefined') {
+    // 1. Support ?api=https://... or #api=https://... URL parameter for instant 1-click cloud backend connection
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryApi = searchParams.get('api');
+      if (queryApi && queryApi.trim().startsWith('http')) {
+        const clean = queryApi.trim().replace(/\/$/, '');
+        localStorage.setItem('nightshift_api_url', clean);
+        return clean;
+      }
+
+      if (window.location.hash.includes('api=')) {
+        const hashApi = window.location.hash.split('api=')[1]?.split('&')[0];
+        if (hashApi && decodeURIComponent(hashApi).trim().startsWith('http')) {
+          const clean = decodeURIComponent(hashApi).trim().replace(/\/$/, '');
+          localStorage.setItem('nightshift_api_url', clean);
+          return clean;
+        }
+      }
+    } catch {}
+
+    // 2. Custom URL saved by user in localStorage
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       return custom.trim().replace(/\/$/, '');
+    }
+
+    // 3. Prevent Mixed Content block on HTTPS deployments (e.g. Vercel)
+    // If running on HTTPS and default is http://localhost, use same-origin relative
+    if (
+      window.location.protocol === 'https:' &&
+      (!import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL.startsWith('http://localhost'))
+    ) {
+      return window.location.origin;
     }
   }
   return (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -74,24 +104,76 @@ class ApiClient {
     return headers;
   }
 
+  private async fetchWithHandling(url: string, init?: RequestInit): Promise<Response> {
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    if (isHttps && url.startsWith('http://')) {
+      throw new Error(
+        'Browser Blocked Insecure Connection: Cannot connect to an insecure http:// address from an https:// website. Please set your Backend Server URL to your secure HTTPS URL (e.g. https://your-server.onrender.com or https://...up.railway.app).'
+      );
+    }
+
+    try {
+      const res = await fetch(url, init);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('text/html') && url.includes('/api/')) {
+        throw new Error(
+          `Backend connection error: Received HTML instead of API JSON. Please configure your Backend API URL (Render or Railway) in Settings or click "Change URL" above.`
+        );
+      }
+      return res;
+    } catch (err: any) {
+      if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection error'))) {
+        throw err;
+      }
+      if (isHttps && url.startsWith('http://')) {
+        throw new Error(
+          'Browser security blocked connection to http:// backend. Please change Backend URL to your HTTPS deployment.'
+        );
+      }
+      throw new Error(
+        `Cannot reach backend server at ${this.getBaseUrl()}. Please ensure your backend is online and the URL is correct.`
+      );
+    }
+  }
+
+  private async parseError(res: Response, defaultMessage: string): Promise<Error> {
+    try {
+      const err = await res.json();
+      if (res.status === 401) {
+        return new Error(err.error || 'Unauthorized: Please sign in again.');
+      }
+      if (err.details && typeof err.details === 'object') {
+        const fieldErrors = (err.details as any).fieldErrors;
+        if (fieldErrors && typeof fieldErrors === 'object') {
+          const firstKey = Object.keys(fieldErrors)[0];
+          if (firstKey && fieldErrors[firstKey]?.[0]) {
+            return new Error(`${firstKey}: ${fieldErrors[firstKey][0]}`);
+          }
+        }
+      }
+      return new Error(err.error || err.message || defaultMessage);
+    } catch {
+      return new Error(`${defaultMessage} (Status ${res.status})`);
+    }
+  }
+
   // --- Health ---
   async getHealth() {
-    const res = await fetch(`${this.getBaseUrl()}/api/health`);
-    if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/health`);
+    if (!res.ok) throw await this.parseError(res, `Health check failed: ${res.statusText}`);
     return res.json();
   }
 
   // --- Auth ---
   async registerUser(username: string, displayName: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${this.getBaseUrl()}/api/auth/register`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, displayName, password }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to register account');
+      throw await this.parseError(res, 'Failed to register account');
     }
 
     const data: AuthResponse = await res.json();
@@ -100,15 +182,14 @@ class ApiClient {
   }
 
   async loginUser(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${this.getBaseUrl()}/api/auth/login`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Invalid username or password');
+      throw await this.parseError(res, 'Invalid username or password');
     }
 
     const data: AuthResponse = await res.json();
@@ -121,7 +202,7 @@ class ApiClient {
     if (!t) return null;
 
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/auth/me`, {
+      const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/me`, {
         headers: this.getHeaders(),
       });
 
@@ -140,15 +221,14 @@ class ApiClient {
   }
 
   async updateProfile(displayName: string): Promise<UserDto> {
-    const res = await fetch(`${this.getBaseUrl()}/api/auth/profile`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/profile`, {
       method: 'PATCH',
-      headers: this.getHeaders(),
+      headers: this.getHeaders(true),
       body: JSON.stringify({ displayName }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to update profile');
+      throw await this.parseError(res, 'Failed to update profile');
     }
 
     const data = await res.json();
@@ -157,7 +237,7 @@ class ApiClient {
 
   async sendHeartbeat(): Promise<boolean> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/auth/heartbeat`, {
+      const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/heartbeat`, {
         method: 'POST',
         headers: this.getHeaders(),
       });
@@ -169,13 +249,12 @@ class ApiClient {
 
   // --- Servers ---
   async getServers(): Promise<ServerSummaryDto[]> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers`, {
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to fetch servers');
+      throw await this.parseError(res, 'Failed to fetch servers');
     }
 
     const data = await res.json();
@@ -183,44 +262,41 @@ class ApiClient {
   }
 
   async createServer(name: string, description?: string): Promise<{ server: ServerSummaryDto; channels: ChannelDto[] }> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ name, description }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create server');
+      throw await this.parseError(res, 'Failed to create server');
     }
 
     return res.json();
   }
 
   async deleteServer(serverId: string): Promise<boolean> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to delete server');
+      throw await this.parseError(res, 'Failed to delete server');
     }
 
     return true;
   }
 
   async leaveServer(serverId: string): Promise<boolean> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/leave`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/leave`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({}),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || err.error || 'Failed to leave server');
+      throw await this.parseError(res, 'Failed to leave server');
     }
 
     return true;
@@ -228,13 +304,12 @@ class ApiClient {
 
   // --- Channels ---
   async getChannels(serverId: string): Promise<ChannelDto[]> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/channels`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/channels`, {
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to fetch channels');
+      throw await this.parseError(res, 'Failed to fetch channels');
     }
 
     const data = await res.json();
@@ -242,15 +317,14 @@ class ApiClient {
   }
 
   async createChannel(serverId: string, name: string, type: 'text' | 'voice'): Promise<ChannelDto> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/channels`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/channels`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ name, type }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create channel');
+      throw await this.parseError(res, 'Failed to create channel');
     }
 
     const data = await res.json();
@@ -258,29 +332,27 @@ class ApiClient {
   }
 
   async deleteChannel(serverId: string, channelId: string): Promise<boolean> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/channels/${channelId}`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/channels/${channelId}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to delete channel');
+      throw await this.parseError(res, 'Failed to delete channel');
     }
 
     return true;
   }
 
   async joinVoiceChannel(channelId: string): Promise<VoiceJoinResponse> {
-    const res = await fetch(`${this.getBaseUrl()}/api/channels/${channelId}/join`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/channels/${channelId}/join`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({}),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || err.error || 'Failed to join voice channel');
+      throw await this.parseError(res, 'Failed to join voice channel');
     }
 
     return res.json();
@@ -288,13 +360,12 @@ class ApiClient {
 
   // --- Members & Moderation ---
   async getServerMembers(serverId: string): Promise<ServerMemberDto[]> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/members`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/members`, {
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to load members');
+      throw await this.parseError(res, 'Failed to load members');
     }
 
     const data = await res.json();
@@ -307,15 +378,14 @@ class ApiClient {
     action: 'mute' | 'unmute' | 'deafen' | 'undeafen' | 'kick' | 'ban' | 'unban',
     reason?: string
   ): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/members/${targetUserId}/moderate`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/members/${targetUserId}/moderate`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ action, reason }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Moderation action failed');
+      throw await this.parseError(res, 'Moderation action failed');
     }
 
     return res.json();
@@ -323,15 +393,14 @@ class ApiClient {
 
   // --- Invites ---
   async createInvite(serverId: string, maxUses = 0, expiresInHours = 72): Promise<ServerInviteDto> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/invites`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/invites`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ maxUses, expiresInHours }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create invite');
+      throw await this.parseError(res, 'Failed to create invite');
     }
 
     const data = await res.json();
@@ -339,13 +408,12 @@ class ApiClient {
   }
 
   async getServerInvites(serverId: string): Promise<ServerInviteDto[]> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/invites`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/invites`, {
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to fetch invites');
+      throw await this.parseError(res, 'Failed to fetch invites');
     }
 
     const data = await res.json();
@@ -353,29 +421,27 @@ class ApiClient {
   }
 
   async revokeInvite(serverId: string, code: string): Promise<boolean> {
-    const res = await fetch(`${this.getBaseUrl()}/api/servers/${serverId}/invites/${code}`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/invites/${code}`, {
       method: 'DELETE',
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to revoke invite');
+      throw await this.parseError(res, 'Failed to revoke invite');
     }
 
     return true;
   }
 
   async joinServerByInvite(code: string): Promise<ServerSummaryDto> {
-    const res = await fetch(`${this.getBaseUrl()}/api/invites/join`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/invites/join`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ code: code.trim() }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || err.error || 'Failed to join server using this invite');
+      throw await this.parseError(res, 'Failed to join server using this invite');
     }
 
     const data = await res.json();
@@ -384,13 +450,12 @@ class ApiClient {
 
   // --- Messages & Upload ---
   async getChannelMessages(channelId: string): Promise<MessageDto[]> {
-    const res = await fetch(`${this.getBaseUrl()}/api/channels/${channelId}/messages`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/channels/${channelId}/messages`, {
       headers: this.getHeaders(),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || err.error || 'Failed to fetch messages');
+      throw await this.parseError(res, 'Failed to fetch messages');
     }
 
     const data = await res.json();
@@ -403,15 +468,14 @@ class ApiClient {
     attachmentUrl?: string,
     attachmentType?: string
   ): Promise<MessageDto> {
-    const res = await fetch(`${this.getBaseUrl()}/api/channels/${channelId}/messages`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/channels/${channelId}/messages`, {
       method: 'POST',
       headers: this.getHeaders(true),
       body: JSON.stringify({ content, attachmentUrl, attachmentType }),
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to send message');
+      throw await this.parseError(res, 'Failed to send message');
     }
 
     const data = await res.json();
@@ -428,15 +492,14 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${t}`;
     }
 
-    const res = await fetch(`${this.getBaseUrl()}/api/upload`, {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/upload`, {
       method: 'POST',
       headers,
       body: formData,
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to upload image. Must be legitimate PNG or JPEG under 5MB.');
+      throw await this.parseError(res, 'Failed to upload image. Must be legitimate PNG or JPEG under 5MB.');
     }
 
     return res.json();

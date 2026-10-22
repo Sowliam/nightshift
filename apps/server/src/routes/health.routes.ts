@@ -6,7 +6,7 @@ import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { config } from '../config.js';
 
 export const healthRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/api/health', async () => {
+  const getHealthHandler = async () => {
     let dbStatus = false;
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -46,5 +46,9 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
         livekitError: livekitHealth.error,
       },
     };
-  });
+  };
+
+  fastify.get('/api/health', getHealthHandler);
+  fastify.get('/health', getHealthHandler);
+  fastify.get('/', getHealthHandler);
 };

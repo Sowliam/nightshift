@@ -50,13 +50,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
 
       const ok = await register(cleanUsername, cleanDisplayName, password);
       if (!ok) {
-        setErrorMsg(useAuthStore.getState().error || 'Registration failed');
+        const err = useAuthStore.getState().error || 'Registration failed';
+        setErrorMsg(err);
+        if (err.includes('reach backend') || err.includes('Insecure Connection') || err.includes('connection error')) {
+          setShowServerConfig(true);
+        }
         setIsSubmitting(false);
       }
     } else {
       const ok = await login(cleanUsername, password);
       if (!ok) {
-        setErrorMsg(useAuthStore.getState().error || 'Invalid username or password');
+        const err = useAuthStore.getState().error || 'Invalid username or password';
+        setErrorMsg(err);
+        if (err.includes('reach backend') || err.includes('Insecure Connection') || err.includes('connection error')) {
+          setShowServerConfig(true);
+        }
         setIsSubmitting(false);
       }
     }

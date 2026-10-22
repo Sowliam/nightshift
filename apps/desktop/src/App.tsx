@@ -34,14 +34,21 @@ export const App: React.FC = () => {
   useEffect(() => {
     const initialize = async () => {
       try {
+        await api.getHealth();
+        setServerError(null);
+      } catch (err: any) {
+        console.warn('Backend connection check:', err);
+        setServerError(err.message || `Cannot connect to NIGHTSHIFT backend at ${getApiBase()}.`);
+      }
+
+      try {
         await initAuth();
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
           await fetchServers();
         }
       } catch (err: any) {
-        console.error('Initialization error:', err);
-        setServerError('Cannot connect to NIGHTSHIFT server. Please make sure the backend is active.');
+        console.error('Auth initialization error:', err);
       }
     };
 
@@ -130,9 +137,14 @@ export const App: React.FC = () => {
 
   const handleRetryConnection = async () => {
     setServerError(null);
-    await initAuth();
-    if (useAuthStore.getState().user) {
-      await fetchServers();
+    try {
+      await api.getHealth();
+      await initAuth();
+      if (useAuthStore.getState().user) {
+        await fetchServers();
+      }
+    } catch (err: any) {
+      setServerError(err.message || `Cannot connect to NIGHTSHIFT backend at ${getApiBase()}`);
     }
   };
 

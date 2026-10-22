@@ -13,6 +13,7 @@ import {
   UserPlus,
   FolderPlus,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
@@ -68,10 +69,19 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
   const [isServerMenuOpen, setIsServerMenuOpen] = useState(false);
   const [isCreatingServer, setIsCreatingServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
+  const [isServerSubmitting, setIsServerSubmitting] = useState(false);
+  const [serverCreateError, setServerCreateError] = useState<string | null>(null);
+
   const [isCreatingChannel, setIsCreatingChannel] = useState<'text' | 'voice' | null>(null);
   const [newChannelName, setNewChannelName] = useState('');
+  const [isChannelSubmitting, setIsChannelSubmitting] = useState(false);
+  const [channelCreateError, setChannelCreateError] = useState<string | null>(null);
+
   const [joinInviteCode, setJoinInviteCode] = useState('');
   const [isJoiningInvite, setIsJoiningInvite] = useState(false);
+  const [isJoinSubmitting, setIsJoinSubmitting] = useState(false);
+  const [joinInviteError, setJoinInviteError] = useState<string | null>(null);
+
   const isJoiningRef = useRef(false);
 
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
@@ -132,30 +142,108 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
   const handleCreateServerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newServerName.trim()) return;
-    await createServer(newServerName.trim());
-    setNewServerName('');
-    setIsCreatingServer(false);
-    setIsServerMenuOpen(false);
+    const cleanName = newServerName.trim();
+    if (!cleanName) {
+      setServerCreateError('Please enter a server name');
+      return;
+    }
+    if (cleanName.length < 2) {
+      setServerCreateError('Server name must be at least 2 characters');
+      return;
+    }
+    if (cleanName.length > 50) {
+      setServerCreateError('Server name cannot exceed 50 characters');
+      return;
+    }
+
+    setIsServerSubmitting(true);
+    setServerCreateError(null);
+
+    try {
+      const created = await createServer(cleanName);
+      if (created) {
+        setNewServerName('');
+        setServerCreateError(null);
+        setIsCreatingServer(false);
+        setIsServerMenuOpen(false);
+      } else {
+        const lastErr = useServerStore.getState().error;
+        setServerCreateError(lastErr || 'Could not create server. Please check your backend connection.');
+      }
+    } catch (err: any) {
+      setServerCreateError(err.message || 'Failed to create server');
+    } finally {
+      setIsServerSubmitting(false);
+    }
   };
 
   const handleJoinInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinInviteCode.trim()) return;
-    const joined = await useServerStore.getState().joinByInvite(joinInviteCode.trim());
-    if (joined) {
-      setJoinInviteCode('');
-      setIsJoiningInvite(false);
-      setIsServerMenuOpen(false);
+    const cleanCode = joinInviteCode.trim();
+    if (!cleanCode) {
+      setJoinInviteError('Please enter an invite code');
+      return;
+    }
+    if (cleanCode.length < 4) {
+      setJoinInviteError('Invite code must be at least 4 characters');
+      return;
+    }
+
+    setIsJoinSubmitting(true);
+    setJoinInviteError(null);
+
+    try {
+      const joined = await useServerStore.getState().joinByInvite(cleanCode);
+      if (joined) {
+        setJoinInviteCode('');
+        setJoinInviteError(null);
+        setIsJoiningInvite(false);
+        setIsServerMenuOpen(false);
+      } else {
+        const lastErr = useServerStore.getState().error;
+        setJoinInviteError(lastErr || 'Invalid or expired invite code');
+      }
+    } catch (err: any) {
+      setJoinInviteError(err.message || 'Failed to join server');
+    } finally {
+      setIsJoinSubmitting(false);
     }
   };
 
   const handleCreateChannelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newChannelName.trim() || !activeServerId || !isCreatingChannel) return;
-    await createChannel(activeServerId, newChannelName.trim(), isCreatingChannel);
-    setNewChannelName('');
-    setIsCreatingChannel(null);
+    const cleanName = newChannelName.trim();
+    if (!cleanName || !activeServerId || !isCreatingChannel) {
+      setChannelCreateError('Please enter a channel name');
+      return;
+    }
+    if (cleanName.length < 2) {
+      setChannelCreateError('Channel name must be at least 2 characters');
+      return;
+    }
+    if (cleanName.length > 50) {
+      setChannelCreateError('Channel name cannot exceed 50 characters');
+      return;
+    }
+
+    setIsChannelSubmitting(true);
+    setChannelCreateError(null);
+
+    try {
+      const created = await createChannel(activeServerId, cleanName, isCreatingChannel);
+      if (created) {
+        setNewChannelName('');
+        setChannelCreateError(null);
+        setIsCreatingChannel(null);
+      } else {
+        const lastErr = useServerStore.getState().error;
+        setChannelCreateError(lastErr || 'Failed to create channel');
+      }
+    } catch (err: any) {
+      setChannelCreateError(err.message || 'Failed to create channel');
+    } finally {
+      setIsChannelSubmitting(false);
+    }
   };
 
   const textChannels = channels.filter((c) => c.type === 'text');
@@ -508,26 +596,49 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                 <input
                   type="text"
                   autoFocus
+                  disabled={isServerSubmitting}
                   placeholder="e.g. Nightshift Squad"
                   value={newServerName}
-                  onChange={(e) => setNewServerName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight"
+                  onChange={(e) => {
+                    setNewServerName(e.target.value);
+                    if (serverCreateError) setServerCreateError(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight disabled:opacity-50"
                 />
               </div>
+
+              {serverCreateError && (
+                <div className="p-2.5 rounded-xl bg-destructive/15 border border-destructive/30 text-destructive text-xs font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex-1 leading-relaxed">{serverCreateError}</div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsCreatingServer(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary"
+                  disabled={isServerSubmitting}
+                  onClick={() => {
+                    setIsCreatingServer(false);
+                    setServerCreateError(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!newServerName.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white text-highlight-text font-bold text-xs"
+                  disabled={isServerSubmitting || newServerName.trim().length < 2}
+                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed text-highlight-text font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
                 >
-                  Create
+                  {isServerSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create'
+                  )}
                 </button>
               </div>
             </form>
@@ -546,26 +657,49 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                 <input
                   type="text"
                   autoFocus
+                  disabled={isJoinSubmitting}
                   placeholder="e.g. 8-letter code"
                   value={joinInviteCode}
-                  onChange={(e) => setJoinInviteCode(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight font-mono"
+                  onChange={(e) => {
+                    setJoinInviteCode(e.target.value);
+                    if (joinInviteError) setJoinInviteError(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight font-mono disabled:opacity-50"
                 />
               </div>
+
+              {joinInviteError && (
+                <div className="p-2.5 rounded-xl bg-destructive/15 border border-destructive/30 text-destructive text-xs font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex-1 leading-relaxed">{joinInviteError}</div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsJoiningInvite(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary"
+                  disabled={isJoinSubmitting}
+                  onClick={() => {
+                    setIsJoiningInvite(false);
+                    setJoinInviteError(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!joinInviteCode.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white text-highlight-text font-bold text-xs"
+                  disabled={isJoinSubmitting || joinInviteCode.trim().length < 4}
+                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed text-highlight-text font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
                 >
-                  Join Server
+                  {isJoinSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Joining...
+                    </>
+                  ) : (
+                    'Join Server'
+                  )}
                 </button>
               </div>
             </form>
@@ -586,26 +720,49 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                 <input
                   type="text"
                   autoFocus
+                  disabled={isChannelSubmitting}
                   placeholder={isCreatingChannel === 'text' ? 'new-channel' : 'Voice Lounge'}
                   value={newChannelName}
-                  onChange={(e) => setNewChannelName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight"
+                  onChange={(e) => {
+                    setNewChannelName(e.target.value);
+                    if (channelCreateError) setChannelCreateError(null);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight disabled:opacity-50"
                 />
               </div>
+
+              {channelCreateError && (
+                <div className="p-2.5 rounded-xl bg-destructive/15 border border-destructive/30 text-destructive text-xs font-medium flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex-1 leading-relaxed">{channelCreateError}</div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsCreatingChannel(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary"
+                  disabled={isChannelSubmitting}
+                  onClick={() => {
+                    setIsCreatingChannel(null);
+                    setChannelCreateError(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={!newChannelName.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white text-highlight-text font-bold text-xs"
+                  disabled={isChannelSubmitting || newChannelName.trim().length < 2}
+                  className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed text-highlight-text font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
                 >
-                  Create
+                  {isChannelSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create'
+                  )}
                 </button>
               </div>
             </form>
