@@ -118,8 +118,26 @@ class ApiClient {
       );
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, {
+        ...init,
+        signal: init?.signal || controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const renderRouting = res.headers.get('x-render-routing');
+      if (res.status === 404 && (renderRouting === 'blocked-render-subdomain' || (url.includes('.onrender.com') && !url.includes('/api/health')))) {
+        // If it's a blocked subdomain on Render
+        if (renderRouting === 'blocked-render-subdomain') {
+          throw new Error(
+            `Render Error: Render is blocking requests to this URL (x-render-routing: blocked-render-subdomain). In your Render Dashboard: 1) Verify the service is not Suspended, 2) In Settings -> Custom Domains, ensure 'Render Subdomain' is Enabled, 3) Confirm the exact URL.`
+          );
+        }
+      }
+
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('text/html') && url.includes('/api/')) {
         throw new Error(
@@ -128,7 +146,13 @@ class ApiClient {
       }
       return res;
     } catch (err: any) {
-      if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection error'))) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        throw new Error(
+          `Backend connection timed out (20s). Render free instances take ~50s to wake up on first request, or the backend is currently offline.`
+        );
+      }
+      if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection') || err.message.includes('Render Error'))) {
         throw err;
       }
       if (isHttps && url.startsWith('http://')) {
@@ -143,6 +167,13 @@ class ApiClient {
   }
 
   private async parseError(res: Response, defaultMessage: string): Promise<Error> {
+    const renderRouting = res.headers.get('x-render-routing');
+    if (renderRouting === 'blocked-render-subdomain') {
+      return new Error(
+        `Render Error: Render blocked this subdomain (x-render-routing: blocked-render-subdomain). Check Render Dashboard: Service must not be Suspended & Render Subdomain must be Enabled in Settings.`
+      );
+    }
+
     try {
       const err = await res.json();
       if (res.status === 401) {
@@ -159,6 +190,11 @@ class ApiClient {
       }
       return new Error(err.error || err.message || defaultMessage);
     } catch {
+      if (res.status === 404 && this.getBaseUrl().includes('onrender.com')) {
+        return new Error(
+          `Render Error (404 Not Found): The service at ${this.getBaseUrl()} was not found or is suspended on Render.`
+        );
+      }
       return new Error(`${defaultMessage} (Status ${res.status})`);
     }
   }
