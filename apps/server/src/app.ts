@@ -26,7 +26,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   // Gracefully handle empty body with application/json header
-  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body: string, done) => {
+  (app as any).addContentTypeParser('application/json', { parseAs: 'string' }, (_req: any, body: string, done: any) => {
     if (!body || body.trim() === '') {
       done(null, {});
       return;

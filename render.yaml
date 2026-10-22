@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: npm install && npm run build --workspace=@nightshift/shared && npm run db:generate --workspace=@nightshift/server && npm run build --workspace=@nightshift/server
+    buildCommand: npm install --include=dev && npm run build --workspace=@nightshift/shared && npm run db:generate --workspace=@nightshift/server && npm run build --workspace=@nightshift/server
     startCommand: npm run start:server
     healthCheckPath: /api/health
     envVars:
