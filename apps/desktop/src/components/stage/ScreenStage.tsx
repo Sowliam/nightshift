@@ -24,6 +24,7 @@ import { VoiceGrid } from '../voice/VoiceGrid';
 import { CallControlBar } from '../controls/CallControlBar';
 import { ConnectionState } from 'livekit-client';
 import { api } from '../../lib/api';
+import { DEFAULT_PRODUCTION_WEB } from '@nightshift/shared';
 
 interface ScreenStageProps {
   onOpenScreenShareModal: () => void;
@@ -176,7 +177,10 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     try {
       if (activeChannel?.serverId) {
         const invite = await api.createInvite(activeChannel.serverId);
-        const inviteUrl = `${window.location.origin}#invite=${invite.code}`;
+        const origin = (typeof window !== 'undefined' && window.location.origin && !window.location.origin.startsWith('file:') && !window.location.origin.includes('localhost') && !window.location.origin.includes('127.0.0.1'))
+          ? window.location.origin
+          : DEFAULT_PRODUCTION_WEB;
+        const inviteUrl = `${origin}#invite=${invite.code}`;
         await navigator.clipboard.writeText(inviteUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);

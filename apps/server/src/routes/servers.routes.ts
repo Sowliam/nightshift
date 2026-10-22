@@ -11,6 +11,7 @@ import {
   ChannelDto,
   ServerMemberDto,
   ServerInviteDto,
+  extractInviteCode,
 } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
 import { getLiveKitRoomParticipants } from '../services/livekit.service.js';
@@ -462,7 +463,10 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
     const parseResult = CreateInviteSchema.safeParse(request.body);
     const maxUses = parseResult.success ? parseResult.data.maxUses : 0;
     const expiresInHours = parseResult.success ? parseResult.data.expiresInHours : 72;
-    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+    // 0 means never expires (expiresAt = null)
+    const expiresAt = (expiresInHours > 0)
+      ? new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
+      : null;
 
     const code = nanoid(8);
 
@@ -571,7 +575,8 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const { code } = parseResult.data;
+    const rawCode = parseResult.data.code;
+    const code = extractInviteCode(rawCode);
 
     const invite = await prisma.serverInvite.findUnique({
       where: { code },

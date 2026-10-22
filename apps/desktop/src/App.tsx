@@ -14,6 +14,7 @@ import { useLiveKitStore } from './stores/livekit.store';
 import { useSettingsStore } from './stores/settings.store';
 import { ShieldAlert, RefreshCw, Server, Check } from 'lucide-react';
 import { getApiBase, setApiBase, api } from './lib/api';
+import { extractInviteCode } from '@nightshift/shared';
 
 export const App: React.FC = () => {
   const [isMembersOpen, setIsMembersOpen] = useState(true);
@@ -54,14 +55,25 @@ export const App: React.FC = () => {
 
     initialize();
 
-    // Check for invite links in URL hash: #invite=code
-    if (window.location.hash.includes('invite=')) {
-      const code = window.location.hash.split('invite=')[1]?.split('&')[0];
+    // Check for invite links in URL query (?invite=code) or hash (#invite=code) or path (/invite/code)
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryInvite = searchParams.get('invite');
+      let hashInvite: string | null = null;
+      if (window.location.hash.includes('invite=')) {
+        hashInvite = window.location.hash.split('invite=')[1]?.split('&')[0];
+      }
+      let pathInvite: string | null = null;
+      if (window.location.pathname.includes('/invite/')) {
+        pathInvite = window.location.pathname.split('/invite/')[1]?.split('/')[0];
+      }
+      const rawInvite = queryInvite || hashInvite || pathInvite || '';
+      const code = extractInviteCode(rawInvite);
       if (code) {
         setInviteInitialCode(code);
         setIsInviteOpen(true);
       }
-    }
+    } catch {}
   }, []);
 
   // When user signs in or changes, load servers

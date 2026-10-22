@@ -12,7 +12,11 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
-import { ServerInviteDto } from '@nightshift/shared';
+import {
+  ServerInviteDto,
+  DEFAULT_PRODUCTION_WEB,
+  extractInviteCode,
+} from '@nightshift/shared';
 
 interface InviteModalProps {
   isOpen: boolean;
@@ -88,15 +92,20 @@ export const InviteModal: React.FC<InviteModalProps> = ({
     }
   };
 
-  const currentOrigin =
-    typeof window !== 'undefined' &&
-    window.location.origin &&
-    !window.location.origin.startsWith('file:')
-      ? window.location.origin
-      : 'http://localhost:5173';
+  const getShareableBaseUrl = () => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      const origin = window.location.origin;
+      // If deployed on Vercel or any real web domain, use that domain!
+      if (!origin.startsWith('file:') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return origin;
+      }
+    }
+    // In desktop Electron or local dev, always generate public Vercel links for friends!
+    return DEFAULT_PRODUCTION_WEB;
+  };
 
   const defaultInviteUrl = createdInvite
-    ? `${currentOrigin}#invite=${createdInvite.code}`
+    ? `${getShareableBaseUrl()}#invite=${createdInvite.code}`
     : '';
 
   const handleCopyLink = async () => {
@@ -124,11 +133,13 @@ export const InviteModal: React.FC<InviteModalProps> = ({
     if (e) e.preventDefault();
     if (!joinInput.trim()) return;
 
-    let cleanCode = joinInput.trim();
-    if (cleanCode.includes('#invite=')) {
-      cleanCode = cleanCode.split('#invite=')[1].split('&')[0];
-    } else if (cleanCode.includes('/invite/')) {
-      cleanCode = cleanCode.split('/invite/')[1].split('&')[0];
+    const cleanCode = extractInviteCode(joinInput);
+    if (!cleanCode) {
+      setJoinStatus({
+        success: false,
+        message: 'Please enter a valid invite code or link.',
+      });
+      return;
     }
 
     setIsJoining(true);
@@ -388,7 +399,7 @@ export const InviteModal: React.FC<InviteModalProps> = ({
                   type="text"
                   value={joinInput}
                   onChange={(e) => setJoinInput(e.target.value)}
-                  placeholder="e.g. k8X9mP21 or http://localhost:5173#invite=k8X9mP21"
+                  placeholder="e.g. k8X9mP21 or https://dist-three-gray-67.vercel.app#invite=k8X9mP21"
                   className="w-full px-3 py-2.5 rounded-xl bg-bg-elevated border border-border-subtle focus:border-highlight text-xs text-text-primary placeholder:text-text-muted focus:outline-none font-mono"
                   autoFocus
                 />

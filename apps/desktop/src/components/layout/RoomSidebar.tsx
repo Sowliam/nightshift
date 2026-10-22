@@ -22,6 +22,7 @@ import { useLiveKitStore } from '../../stores/livekit.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { api } from '../../lib/api';
+import { extractInviteCode } from '@nightshift/shared';
 import { ConnectionState } from 'livekit-client';
 import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
 
@@ -189,9 +190,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
   const handleJoinInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanCode = joinInviteCode.trim();
+    const cleanCode = extractInviteCode(joinInviteCode);
     if (!cleanCode) {
-      setJoinInviteError('Please enter an invite code');
+      setJoinInviteError('Please enter an invite code or link');
       return;
     }
     if (cleanCode.length < 4) {

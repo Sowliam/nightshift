@@ -7,9 +7,12 @@ import {
   ServerInviteDto,
   MessageDto,
   VoiceJoinResponse,
+  DEFAULT_PRODUCTION_API,
+  DEFAULT_PRODUCTION_WEB,
+  extractInviteCode,
 } from '@nightshift/shared';
 
-export const DEFAULT_PRODUCTION_API = 'https://nightshift-server-cfch.onrender.com';
+export { DEFAULT_PRODUCTION_API, DEFAULT_PRODUCTION_WEB, extractInviteCode };
 
 export const getApiBase = (): string => {
   if (typeof window !== 'undefined') {
@@ -43,16 +46,15 @@ export const getApiBase = (): string => {
       }
     }
 
-    // 3. Prevent Mixed Content block on HTTPS deployments (e.g. Vercel)
-    // Default to the live Render cloud backend
-    if (
-      window.location.protocol === 'https:' ||
-      window.location.hostname.includes('vercel.app')
-    ) {
-      return DEFAULT_PRODUCTION_API;
+    // 3. Explicit VITE_API_URL from environment if not default localhost
+    if (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('localhost:3001')) {
+      return import.meta.env.VITE_API_URL.replace(/\/$/, '');
     }
+
+    // 4. Default to live Render cloud backend for production web, electron, and cross-user invites
+    return DEFAULT_PRODUCTION_API;
   }
-  return (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
+  return (import.meta.env.VITE_API_URL || DEFAULT_PRODUCTION_API).replace(/\/$/, '');
 };
 
 export const setApiBase = (url: string | null) => {
@@ -476,10 +478,11 @@ class ApiClient {
   }
 
   async joinServerByInvite(code: string): Promise<ServerSummaryDto> {
+    const cleanCode = extractInviteCode(code);
     const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/invites/join`, {
       method: 'POST',
       headers: this.getHeaders(true),
-      body: JSON.stringify({ code: code.trim() }),
+      body: JSON.stringify({ code: cleanCode }),
     });
 
     if (!res.ok) {

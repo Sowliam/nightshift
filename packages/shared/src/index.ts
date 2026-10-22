@@ -86,7 +86,7 @@ export type CreateChannelInput = z.infer<typeof CreateChannelSchema>;
 
 export const CreateInviteSchema = z.object({
   maxUses: z.number().int().min(0).default(0), // 0 = unlimited
-  expiresInHours: z.number().int().min(1).default(72),
+  expiresInHours: z.number().int().min(0).default(72), // 0 = never expire
 });
 
 export type CreateInviteInput = z.infer<typeof CreateInviteSchema>;
@@ -258,3 +258,38 @@ export const DEFAULT_VOICE_SETTINGS: UserVoiceSettings = {
   isSelfMuted: false,
   isSelfDeafened: false,
 };
+
+// Production deployment constants
+export const DEFAULT_PRODUCTION_API = 'https://nightshift-server-cfch.onrender.com';
+export const DEFAULT_PRODUCTION_WEB = 'https://dist-three-gray-67.vercel.app';
+
+/**
+ * Extracts a clean 8-character invite code from raw codes, URLs, hash links, query parameters, or deep links.
+ * Examples:
+ *   - "k8X9mP21" -> "k8X9mP21"
+ *   - "https://dist-three-gray-67.vercel.app#invite=k8X9mP21" -> "k8X9mP21"
+ *   - "http://localhost:5173#invite=k8X9mP21" -> "k8X9mP21"
+ *   - "https://dist-three-gray-67.vercel.app?invite=k8X9mP21" -> "k8X9mP21"
+ *   - "https://dist-three-gray-67.vercel.app/invite/k8X9mP21" -> "k8X9mP21"
+ *   - "nightshift://invite/k8X9mP21" -> "k8X9mP21"
+ */
+export function extractInviteCode(input: string): string {
+  if (!input) return '';
+  let clean = input.trim();
+
+  if (clean.includes('#invite=')) {
+    clean = clean.split('#invite=')[1].split('&')[0];
+  } else if (clean.includes('?invite=')) {
+    clean = clean.split('?invite=')[1].split('&')[0];
+  } else if (clean.includes('&invite=')) {
+    clean = clean.split('&invite=')[1].split('&')[0];
+  } else if (clean.includes('/invite/')) {
+    clean = clean.split('/invite/')[1].split(/[/?&#]/)[0];
+  } else if (clean.includes('nightshift://invite/')) {
+    clean = clean.split('nightshift://invite/')[1].split(/[/?&#]/)[0];
+  }
+
+  // Remove any lingering URL fragments or trailing slashes
+  clean = clean.split(/[?&#/]/)[0].trim();
+  return clean;
+}
