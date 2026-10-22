@@ -25,6 +25,7 @@ import { api } from '../../lib/api';
 import { extractInviteCode } from '@nightshift/shared';
 import { ConnectionState } from 'livekit-client';
 import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
+import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 
 interface RoomSidebarProps {
   onOpenInvite: () => void;
@@ -75,8 +76,21 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
   } = useLiveKitStore();
 
   const { setSelfMuted, setSelfDeafened } = useSettingsStore();
+  const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const { user } = useAuthStore();
+
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    target: UserContextMenuTarget | null;
+  }>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    target: null,
+  });
 
   const [isServerMenuOpen, setIsServerMenuOpen] = useState(false);
   const [isCreatingServer, setIsCreatingServer] = useState(false);
@@ -581,13 +595,29 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                               const isSpeaking = activeSpeakers.has(p.identity) || p.isSpeaking;
                               const isSharing = p.isScreenShareEnabled || (activeScreenTrack && screenSharerIdentity === p.identity);
                               const isRemoteMuted = !p.isMicrophoneEnabled;
+                              const isLocallyMuted = !!localMutedUsers[p.identity];
                               const serverMember = members.find((m) => m.userId === p.identity || m.username === p.identity);
                               const displayName = p.name || serverMember?.displayName || p.identity;
 
                               return (
                                 <div
                                   key={p.identity}
-                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs"
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setContextMenu({
+                                      isOpen: true,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                      target: {
+                                        identity: p.identity,
+                                        name: displayName,
+                                        isLocal: false,
+                                        isScreenSharing: !!isSharing,
+                                      },
+                                    });
+                                  }}
+                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs cursor-context-menu"
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
                                     <div
@@ -605,6 +635,11 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                   </div>
 
                                   <div className="flex items-center gap-1.5 shrink-0">
+                                    {isLocallyMuted && (
+                                      <span title="Muted for you (بی‌صدا شده برای شما)">
+                                        <VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                      </span>
+                                    )}
                                     {isSharing && (
                                       <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
                                         <Monitor className="w-2.5 h-2.5" />
@@ -907,6 +942,15 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
           </div>
         </div>
       )}
+
+      {/* User Context Menu */}
+      <UserContextMenu
+        isOpen={contextMenu.isOpen}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        target={contextMenu.target}
+        onClose={() => setContextMenu((c) => ({ ...c, isOpen: false }))}
+      />
     </div>
   );
 };

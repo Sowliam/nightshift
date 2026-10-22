@@ -84,6 +84,21 @@ async function createWindow() {
     }
   });
 
+  // Enable system audio loopback capture for screen sharing in Electron
+  if (session.defaultSession && (session.defaultSession as any).setDisplayMediaRequestHandler) {
+    (session.defaultSession as any).setDisplayMediaRequestHandler((_request: any, callback: any) => {
+      desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
+        if (sources && sources.length > 0) {
+          callback({ video: sources[0], audio: 'loopback' });
+        } else {
+          callback({});
+        }
+      }).catch(() => {
+        callback({});
+      });
+    });
+  }
+
   // Allow F5 and Ctrl+R to reload the window, and F12 / Ctrl+Shift+I to toggle DevTools
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F5' || ((input.control || input.meta) && input.key.toLowerCase() === 'r')) {

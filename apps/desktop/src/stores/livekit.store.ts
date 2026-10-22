@@ -64,6 +64,7 @@ interface LiveKitState {
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
   setPushToTalkActive: (active: boolean) => Promise<void>;
   setParticipantVolume: (identity: string, volumePercent: number) => void;
+  toggleMuteForMyself: (identity: string) => void;
   broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
 }
 
@@ -273,10 +274,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   };
 
   const applyDeafenToRemoteTracks = (room: Room, deafened: boolean) => {
+    const localMuted = useSettingsStore.getState().localMutedUsers;
+    const volumes = useSettingsStore.getState().participantVolumes;
+
     room.remoteParticipants.forEach((participant) => {
+      const isLocallyMuted = !!localMuted[participant.identity];
+      const vol = volumes[participant.identity] ?? 100;
+
       participant.audioTrackPublications.forEach((pub) => {
         if (pub.track && pub.track.mediaStreamTrack) {
-          pub.track.mediaStreamTrack.enabled = !deafened;
+          pub.track.mediaStreamTrack.enabled = !deafened && !isLocallyMuted;
+        }
+        if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+          (pub.track as RemoteAudioTrack).setVolume(deafened || isLocallyMuted ? 0 : vol / 100);
         }
       });
     });
@@ -359,17 +369,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
-          const element = track.attach();
-          element.autoplay = true;
+          if (track.source === Track.Source.Microphone) {
+            let container = document.getElementById('nightshift-voice-audio-container');
+            if (!container) {
+              container = document.createElement('div');
+              container.id = 'nightshift-voice-audio-container';
+              container.style.display = 'none';
+              document.body.appendChild(container);
+            }
+            const element = track.attach();
+            element.autoplay = true;
+            container.appendChild(element);
 
-          // Apply saved per-participant volume if any
-          const savedVol = useSettingsStore.getState().participantVolumes[participant.identity];
-          if (typeof savedVol === 'number' && typeof (track as RemoteAudioTrack).setVolume === 'function') {
-            (track as RemoteAudioTrack).setVolume(savedVol / 100);
-          }
+            // Apply saved per-participant volume and local mute
+            const isLocallyMuted = !!useSettingsStore.getState().localMutedUsers[participant.identity];
+            const savedVol = useSettingsStore.getState().participantVolumes[participant.identity] ?? 100;
+            if (typeof (track as RemoteAudioTrack).setVolume === 'function') {
+              (track as RemoteAudioTrack).setVolume(isLocallyMuted || get().isDeafened ? 0 : savedVol / 100);
+            }
 
-          if (get().isDeafened && track.mediaStreamTrack) {
-            track.mediaStreamTrack.enabled = false;
+            if ((get().isDeafened || isLocallyMuted) && track.mediaStreamTrack) {
+              track.mediaStreamTrack.enabled = false;
+            }
           }
         }
         updateScreenShareState(room);
@@ -644,7 +665,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             constraints.video.mandatory.maxHeight = 1440;
           }
 
-          const stream = await (navigator.mediaDevices as any).getUserMedia(constraints);
+          let stream: MediaStream;
+          try {
+            stream = await (navigator.mediaDevices as any).getUserMedia(constraints);
+          } catch (audioErr) {
+            if (opts.includeAudio) {
+              console.warn('Screen capture with audio failed, falling back to video only:', audioErr);
+              constraints.audio = false;
+              stream = await (navigator.mediaDevices as any).getUserMedia(constraints);
+            } else {
+              throw audioErr;
+            }
+          }
 
           const videoTrack = stream.getVideoTracks()[0];
           if (!videoTrack) throw new Error('No video track returned from screen capture');
@@ -686,7 +718,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               await room.localParticipant.publishTrack(localAudioTrack, {
                 name: 'screen-audio',
                 source: Track.Source.ScreenShareAudio,
+                dtx: false,
               });
+              console.log('[LiveKit] Screen audio track published successfully');
             } catch (audioPubErr) {
               console.warn('Could not publish system audio track:', audioPubErr);
             }
@@ -805,14 +839,38 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     setParticipantVolume: (identity: string, volumePercent: number) => {
       useSettingsStore.getState().setParticipantVolume(identity, volumePercent);
-      const { room } = get();
+      const { room, isDeafened } = get();
+      if (!room) return;
+
+      const isLocallyMuted = !!useSettingsStore.getState().localMutedUsers[identity];
+      const remote = room.remoteParticipants.get(identity);
+      if (remote) {
+        remote.audioTrackPublications.forEach((pub) => {
+          if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+            (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : volumePercent / 100);
+          }
+          if (pub.track && pub.track.mediaStreamTrack) {
+            pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+          }
+        });
+      }
+    },
+
+    toggleMuteForMyself: (identity: string) => {
+      useSettingsStore.getState().toggleLocalMute(identity);
+      const isLocallyMuted = !!useSettingsStore.getState().localMutedUsers[identity];
+      const currentVol = useSettingsStore.getState().participantVolumes[identity] ?? 100;
+      const { room, isDeafened } = get();
       if (!room) return;
 
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
           if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-            (pub.track as RemoteAudioTrack).setVolume(volumePercent / 100);
+            (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : currentVol / 100);
+          }
+          if (pub.track && pub.track.mediaStreamTrack) {
+            pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
           }
         });
       }

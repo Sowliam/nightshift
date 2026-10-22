@@ -14,12 +14,27 @@ import {
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { useSettingsStore } from '../../stores/settings.store';
+import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { ServerMemberDto } from '@nightshift/shared';
 
 export const ParticipantPanel: React.FC = () => {
   const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
   const { activeSpeakers, isLocallySpeaking } = useLiveKitStore();
+  const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
+
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    target: UserContextMenuTarget | null;
+  }>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    target: null,
+  });
 
   const [activeMenuUserId, setActiveMenuUserId] = useState<string | null>(null);
   const [modActionPending, setModActionPending] = useState<string | null>(null);
@@ -113,7 +128,24 @@ export const ParticipantPanel: React.FC = () => {
     return (
       <div
         key={member.id}
-        className="relative group flex items-center justify-between p-1.5 rounded-xl hover:bg-bg-elevated/50 transition-colors cursor-pointer"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setContextMenu({
+            isOpen: true,
+            x: e.clientX,
+            y: e.clientY,
+            target: {
+              identity: member.userId,
+              name: member.displayName || member.username,
+              isLocal: isMe,
+              role: member.role,
+              isServerMuted: member.isServerMuted,
+              isServerDeafened: member.isServerDeafened,
+            },
+          });
+        }}
+        className="relative group flex items-center justify-between p-1.5 rounded-xl hover:bg-bg-elevated/50 transition-colors cursor-context-menu"
         onClick={(e) => {
           e.stopPropagation();
           if (hasModPermissions) {
@@ -179,8 +211,16 @@ export const ParticipantPanel: React.FC = () => {
           </div>
         </div>
 
-        {/* Server Muted / Deafened Indicators & Moderation Button */}
+        {/* Server Muted / Deafened / Local Muted Indicators & Moderation Button */}
         <div className="flex items-center gap-1 shrink-0">
+          {localMutedUsers[member.userId] && !isMe && (
+            <span
+              className="p-1 rounded bg-destructive/20 text-destructive border border-destructive/40"
+              title="Muted for you (بی‌صدا شده برای شما)"
+            >
+              <VolumeX className="w-3 h-3" />
+            </span>
+          )}
           {member.isServerMuted && (
             <span
               className="p-1 rounded bg-destructive/15 text-destructive"
@@ -386,6 +426,38 @@ export const ParticipantPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* User Context Menu for Right-Click on Members */}
+      <UserContextMenu
+        isOpen={contextMenu.isOpen}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        target={contextMenu.target}
+        onClose={() => setContextMenu((c) => ({ ...c, isOpen: false }))}
+        canModerate={
+          contextMenu.target
+            ? canModerate(
+                members.find((m) => m.userId === contextMenu.target?.identity) || ({} as any)
+              )
+            : false
+        }
+        onServerMute={(userId) => {
+          const m = members.find((x) => x.userId === userId);
+          if (m) handleToggleMute(m);
+        }}
+        onServerDeafen={(userId) => {
+          const m = members.find((x) => x.userId === userId);
+          if (m) handleToggleDeafen(m);
+        }}
+        onKick={(userId) => {
+          const m = members.find((x) => x.userId === userId);
+          if (m) setModPrompt({ member: m, action: 'kick' });
+        }}
+        onBan={(userId) => {
+          const m = members.find((x) => x.userId === userId);
+          if (m) setModPrompt({ member: m, action: 'ban' });
+        }}
+      />
     </div>
   );
 };

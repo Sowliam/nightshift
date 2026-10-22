@@ -1,9 +1,11 @@
-import React from 'react';
-import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X, VolumeX, Volume2, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useRoomStore } from '../../stores/room.store';
 import { useServerStore } from '../../stores/server.store';
+import { useSettingsStore } from '../../stores/settings.store';
+import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { Track } from 'livekit-client';
 
 interface VoiceParticipant {
@@ -43,6 +45,20 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     stopScreenShare,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
+  const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
+  const participantVolumes = useSettingsStore((s) => s.participantVolumes);
+
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    x: number;
+    y: number;
+    target: UserContextMenuTarget | null;
+  }>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    target: null,
+  });
 
   const activeRoom = getActiveRoom();
   const selectedRoom = getSelectedRoom();
@@ -232,10 +248,31 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
 
       <div className={`w-full flex-1 min-h-0 ${gridLayoutClass}`}>
         {participants.map((p) => {
+          const isLocallyMuted = !!localMutedUsers[p.identity];
+          const customVolume = participantVolumes[p.identity];
+          const hasCustomVolume = customVolume !== undefined && customVolume !== 100 && !isLocallyMuted;
+
+          const openUserMenu = (e: React.MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setContextMenu({
+              isOpen: true,
+              x: e.clientX,
+              y: e.clientY,
+              target: {
+                identity: p.identity,
+                name: p.name,
+                isLocal: p.isLocal,
+                isScreenSharing: p.isScreenSharing,
+              },
+            });
+          };
+
           return (
             <div
               key={p.identity}
-              className={`relative rounded-2xl bg-bg-elevated border flex flex-col items-center justify-center overflow-hidden transition-all duration-200 ${
+              onContextMenu={openUserMenu}
+              className={`relative rounded-2xl bg-bg-elevated border flex flex-col items-center justify-center overflow-hidden transition-all duration-200 cursor-context-menu ${
                 count === 1
                   ? 'w-full max-w-xl h-[340px] md:h-[400px] shadow-card'
                   : 'w-full h-full min-h-[160px] shadow-subtle'
@@ -245,6 +282,15 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   : 'border-border-subtle hover:border-border-strong'
               }`}
             >
+              {/* Top-Right Quick Menu Button for easy touch/mouse access */}
+              <button
+                onClick={openUserMenu}
+                className="absolute top-2.5 right-2.5 p-1 rounded-lg bg-black/40 hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer z-10"
+                title="User Options (Right-click or click)"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </button>
+
               {/* Center Avatar with Speaking Glow */}
               <div className="relative">
                 <div
@@ -274,8 +320,30 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   </span>
                 </div>
 
-                {/* Status Badges: Muted, Deafen, Screen Share / Watch button */}
+                {/* Status Badges: Local Mute, Custom Volume, Screen Share, Deafen, Mic Muted */}
                 <div className="flex items-center gap-1.5 pointer-events-auto">
+                  {/* Local Mute Badge (Muted only for me) */}
+                  {isLocallyMuted && !p.isLocal && (
+                    <div
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-destructive/25 border border-destructive/50 text-destructive text-[10px] font-bold"
+                      title="Muted for you (بی‌صدا شده برای شما)"
+                    >
+                      <VolumeX className="w-3 h-3" />
+                      <span className="hidden sm:inline">Muted</span>
+                    </div>
+                  )}
+
+                  {/* Custom Volume Badge */}
+                  {hasCustomVolume && !p.isLocal && (
+                    <div
+                      className="px-1.5 py-0.5 rounded-lg bg-bg-main/80 border border-border-subtle text-[10px] font-mono text-text-secondary flex items-center gap-0.5"
+                      title={`Volume set to ${customVolume}%`}
+                    >
+                      <Volume2 className="w-3 h-3 text-highlight" />
+                      <span>{customVolume}%</span>
+                    </div>
+                  )}
+
                   {p.isScreenSharing && (
                     p.isLocal ? (
                       <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold">
@@ -345,6 +413,15 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
           );
         })}
       </div>
+
+      {/* Right-Click / Tap User Context Menu */}
+      <UserContextMenu
+        isOpen={contextMenu.isOpen}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        target={contextMenu.target}
+        onClose={() => setContextMenu((c) => ({ ...c, isOpen: false }))}
+      />
     </div>
   );
 };

@@ -34,6 +34,7 @@ interface SettingsState {
   inputMode: 'voice-activity' | 'push-to-talk';
   voiceActivationThreshold: number;
   participantVolumes: Record<string, number>;
+  localMutedUsers: Record<string, boolean>;
 
   // Actions
   refreshDevices: () => Promise<void>;
@@ -47,6 +48,8 @@ interface SettingsState {
   setInputMode: (mode: 'voice-activity' | 'push-to-talk') => void;
   setVoiceActivationThreshold: (threshold: number) => void;
   setParticipantVolume: (userId: string, volume: number) => void;
+  setLocalMuted: (userId: string, muted: boolean) => void;
+  toggleLocalMute: (userId: string) => void;
   setDeafened: (val: boolean) => void;
 
   setInputDevice: (deviceId: string) => void;
@@ -83,6 +86,8 @@ function loadPersistedSettings() {
     isSelfDeafened: false,
     soundEffectsEnabled: true,
     soundVolume: 70,
+    participantVolumes: {},
+    localMutedUsers: {},
   };
 }
 
@@ -107,6 +112,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         isSelfDeafened: get().isSelfDeafened,
         soundEffectsEnabled: get().soundEffectsEnabled,
         soundVolume: get().soundVolume,
+        participantVolumes: get().participantVolumes,
+        localMutedUsers: get().localMutedUsers,
         ...partial,
       };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(current));
@@ -134,7 +141,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
 
     inputMode: (initial.pushToTalk ? 'push-to-talk' : 'voice-activity') as 'voice-activity' | 'push-to-talk',
     voiceActivationThreshold: initial.sensitivityThreshold ?? 35,
-    participantVolumes: {},
+    participantVolumes: initial.participantVolumes || {},
+    localMutedUsers: initial.localMutedUsers || {},
 
     refreshDevices: async () => {
       try {
@@ -210,9 +218,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     },
 
     setParticipantVolume: (userId: string, volume: number) => {
-      set((state) => ({
-        participantVolumes: { ...state.participantVolumes, [userId]: volume },
-      }));
+      set((state) => {
+        const updated = { ...state.participantVolumes, [userId]: volume };
+        persist({ participantVolumes: updated });
+        return { participantVolumes: updated };
+      });
+    },
+
+    setLocalMuted: (userId: string, muted: boolean) => {
+      set((state) => {
+        const updated = { ...state.localMutedUsers, [userId]: muted };
+        persist({ localMutedUsers: updated });
+        return { localMutedUsers: updated };
+      });
+    },
+
+    toggleLocalMute: (userId: string) => {
+      const current = !!get().localMutedUsers[userId];
+      get().setLocalMuted(userId, !current);
     },
 
     setDeafened: (val: boolean) => {

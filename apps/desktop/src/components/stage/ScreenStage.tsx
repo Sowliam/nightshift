@@ -25,7 +25,7 @@ import { useSettingsStore } from '../../stores/settings.store';
 import { ParticipantStrip } from './ParticipantStrip';
 import { VoiceGrid } from '../voice/VoiceGrid';
 import { CallControlBar } from '../controls/CallControlBar';
-import { ConnectionState } from 'livekit-client';
+import { ConnectionState, Track, RoomEvent, RemoteAudioTrack } from 'livekit-client';
 import { api } from '../../lib/api';
 import { DEFAULT_PRODUCTION_WEB } from '@nightshift/shared';
 
@@ -47,7 +47,10 @@ const StreamTile: React.FC<StreamTileProps> = ({
   isMulti,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const { room, isDeafened } = useLiveKitStore();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [streamVolume, setStreamVolume] = useState(100);
@@ -71,12 +74,84 @@ const StreamTile: React.FC<StreamTileProps> = ({
     };
   }, [share.publication, share.publication?.track]);
 
+  // Attach remote screen share audio track to audio element
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.volume = isStreamMuted ? 0 : streamVolume / 100;
-      videoRef.current.muted = isStreamMuted;
+    // If local user is broadcasting their own screen, never play local audio to avoid echo loop
+    if (share.isLocal || !room) return;
+
+    const el = audioRef.current;
+    let currentTrack: Track | null = null;
+
+    const attachAudioTrack = (track: Track) => {
+      if (!el) return;
+      track.attach(el);
+      currentTrack = track;
+      const effectiveMuted = isDeafened || isStreamMuted;
+      el.volume = effectiveMuted ? 0 : Math.min(streamVolume / 100, 1.0);
+      el.muted = effectiveMuted;
+      if (typeof (track as RemoteAudioTrack).setVolume === 'function') {
+        (track as RemoteAudioTrack).setVolume(effectiveMuted ? 0 : streamVolume / 100);
+      }
+      el.play().catch((err) => console.warn('Stream audio autoplay prevented:', err));
+    };
+
+    // 1. Check existing participant publications
+    const remote = room.getParticipantByIdentity(share.participantIdentity);
+    if (remote) {
+      const pub = remote.getTrackPublication(Track.Source.ScreenShareAudio);
+      if (pub?.track) {
+        attachAudioTrack(pub.track);
+      }
     }
-  }, [streamVolume, isStreamMuted]);
+
+    // 2. Listen to room track subscribed / unsubscribed
+    const onTrackSubscribed = (track: Track, publication: any, participant: any) => {
+      if (
+        participant.identity === share.participantIdentity &&
+        publication.source === Track.Source.ScreenShareAudio
+      ) {
+        attachAudioTrack(track);
+      }
+    };
+
+    const onTrackUnsubscribed = (track: Track, publication: any, participant: any) => {
+      if (
+        participant.identity === share.participantIdentity &&
+        publication.source === Track.Source.ScreenShareAudio
+      ) {
+        if (el) track.detach(el);
+        if (currentTrack === track) currentTrack = null;
+      }
+    };
+
+    room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
+    room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, onTrackSubscribed);
+      room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+      if (currentTrack && el) {
+        currentTrack.detach(el);
+      }
+    };
+  }, [share.isLocal, share.participantIdentity, room]);
+
+  // Sync volume & mute changes to audio element and LiveKit RemoteAudioTrack
+  useEffect(() => {
+    const el = audioRef.current;
+    const effectiveMuted = isDeafened || isStreamMuted;
+    if (el) {
+      el.volume = effectiveMuted ? 0 : Math.min(streamVolume / 100, 1.0);
+      el.muted = effectiveMuted;
+    }
+    if (room && !share.isLocal) {
+      const remote = room.getParticipantByIdentity(share.participantIdentity);
+      const pub = remote?.getTrackPublication(Track.Source.ScreenShareAudio);
+      if (pub?.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+        (pub.track as RemoteAudioTrack).setVolume(effectiveMuted ? 0 : streamVolume / 100);
+      }
+    }
+  }, [streamVolume, isStreamMuted, isDeafened, room, share.isLocal, share.participantIdentity]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -140,11 +215,22 @@ const StreamTile: React.FC<StreamTileProps> = ({
         ref={videoRef}
         autoPlay
         playsInline
+        muted
         onLoadedMetadata={handleVideoMetadata}
         onDoubleClick={toggleFullscreen}
         className="w-full h-full object-contain cursor-pointer"
         title="Double click for fullscreen"
       />
+
+      {/* Dedicated audio element for remote screen share audio */}
+      {!share.isLocal && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          playsInline
+          className="hidden"
+        />
+      )}
 
       {/* Floating Header Overlay Bar */}
       <div
@@ -189,15 +275,18 @@ const StreamTile: React.FC<StreamTileProps> = ({
             <input
               type="range"
               min="0"
-              max="100"
+              max="200"
               value={isStreamMuted ? 0 : streamVolume}
               onChange={(e) => {
                 setStreamVolume(Number(e.target.value));
                 setIsStreamMuted(false);
               }}
-              className="w-14 h-1 bg-bg-elevated rounded-lg accent-accent cursor-pointer"
+              className="w-16 h-1 bg-bg-elevated rounded-lg accent-accent cursor-pointer"
               title={`Stream volume: ${streamVolume}%`}
             />
+            <span className="text-[10px] text-text-muted font-mono w-7 text-right">
+              {isStreamMuted ? '0%' : `${streamVolume}%`}
+            </span>
           </div>
 
           {/* Picture in Picture */}
