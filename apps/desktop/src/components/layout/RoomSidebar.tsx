@@ -7,6 +7,8 @@ import {
   Mic,
   MicOff,
   Headphones,
+  VolumeX,
+  Monitor,
   Settings,
   Trash2,
   LogOut,
@@ -50,6 +52,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     setActiveVoiceChannel,
     setJoiningVoiceChannel,
     unreadMentions,
+    members,
   } = useServerStore();
 
   const {
@@ -60,6 +63,13 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     isDeafened,
     toggleMute,
     toggleDeafen,
+    localParticipant,
+    remoteParticipants,
+    activeSpeakers,
+    isLocallySpeaking,
+    isScreenSharing,
+    activeScreenTrack,
+    screenSharerIdentity,
   } = useLiveKitStore();
 
   const { setSelfMuted, setSelfDeafened } = useSettingsStore();
@@ -482,32 +492,113 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                     const isConnecting = joiningVoiceChannelId === c.id;
 
                     return (
-                      <div
-                        key={c.id}
-                        onClick={(e) => handleJoinVoiceChannel(c.id, e)}
-                        className={`flex items-center justify-between px-2.5 py-2 rounded-xl cursor-pointer group transition-all active:scale-[0.98] ${
-                          isConnected
-                            ? 'bg-highlight text-highlight-text font-bold shadow-sm'
-                            : isConnecting
-                            ? 'bg-bg-elevated text-highlight'
-                            : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
-                        }`}
-                        title="Click to join voice channel"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          {isConnecting ? (
-                            <Loader2 className="w-4 h-4 shrink-0 animate-spin text-highlight" />
-                          ) : (
-                            <Volume2 className={`w-4 h-4 shrink-0 ${isConnected ? 'text-highlight-text' : 'text-highlight'}`} />
+                      <div key={c.id} className="space-y-0.5">
+                        <div
+                          onClick={(e) => handleJoinVoiceChannel(c.id, e)}
+                          className={`flex items-center justify-between px-2.5 py-2 rounded-xl cursor-pointer group transition-all active:scale-[0.98] ${
+                            isConnected
+                              ? 'bg-highlight text-highlight-text font-bold shadow-sm'
+                              : isConnecting
+                              ? 'bg-bg-elevated text-highlight'
+                              : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+                          }`}
+                          title="Click to join voice channel"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isConnecting ? (
+                              <Loader2 className="w-4 h-4 shrink-0 animate-spin text-highlight" />
+                            ) : (
+                              <Volume2 className={`w-4 h-4 shrink-0 ${isConnected ? 'text-highlight-text' : 'text-highlight'}`} />
+                            )}
+                            <span className="text-xs truncate">{c.name}</span>
+                          </div>
+
+                          {isConnected && (
+                            <span className="w-2 h-2 rounded-full bg-online animate-pulse" />
                           )}
-                          <span className="text-xs truncate">{c.name}</span>
+                          {isConnecting && (
+                            <span className="text-[10px] text-highlight font-mono animate-pulse">Connecting...</span>
+                          )}
                         </div>
 
+                        {/* Discord-style Participants List: Rendered directly underneath this voice channel */}
                         {isConnected && (
-                          <span className="w-2 h-2 rounded-full bg-online animate-pulse" />
-                        )}
-                        {isConnecting && (
-                          <span className="text-[10px] text-highlight font-mono animate-pulse">Connecting...</span>
+                          <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
+                            {/* 1. Local Participant (Current User) */}
+                            <div className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`relative w-5 h-5 rounded-full bg-highlight flex items-center justify-center text-[10px] font-black text-highlight-text shrink-0 shadow-sm transition-all ${
+                                    (isLocallySpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)))
+                                      ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
+                                      : ''
+                                  }`}
+                                >
+                                  {getInitials(user?.displayName || 'You')}
+                                </div>
+                                <span className="text-xs font-semibold text-text-primary truncate">
+                                  {user?.displayName || 'You'} <span className="text-[10px] text-text-muted font-normal">(you)</span>
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isScreenSharing && (
+                                  <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
+                                    <Monitor className="w-2.5 h-2.5" />
+                                    LIVE
+                                  </span>
+                                )}
+                                {isDeafened ? (
+                                  <VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" title="Deafened" />
+                                ) : isMuted ? (
+                                  <MicOff className="w-3.5 h-3.5 text-destructive shrink-0" title="Muted" />
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {/* 2. Remote Participants */}
+                            {remoteParticipants.map((p) => {
+                              const isSpeaking = activeSpeakers.has(p.identity) || p.isSpeaking;
+                              const isSharing = p.isScreenShareEnabled || (activeScreenTrack && screenSharerIdentity === p.identity);
+                              const isRemoteMuted = !p.isMicrophoneEnabled;
+                              const serverMember = members.find((m) => m.userId === p.identity || m.username === p.identity);
+                              const displayName = p.name || serverMember?.displayName || p.identity;
+
+                              return (
+                                <div
+                                  key={p.identity}
+                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className={`relative w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-primary shrink-0 shadow-sm transition-all ${
+                                        isSpeaking
+                                          ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
+                                          : ''
+                                      }`}
+                                    >
+                                      {getInitials(displayName)}
+                                    </div>
+                                    <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                      {displayName}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {isSharing && (
+                                      <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
+                                        <Monitor className="w-2.5 h-2.5" />
+                                        LIVE
+                                      </span>
+                                    )}
+                                    {isRemoteMuted && (
+                                      <MicOff className="w-3.5 h-3.5 text-text-muted shrink-0" title="Muted" />
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     );

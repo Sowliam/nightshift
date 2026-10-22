@@ -449,13 +449,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     toggleMute: async () => {
-      const { room, isMuted } = get();
+      const { room, isMuted, isDeafened } = get();
       if (!room || !room.localParticipant) return;
+
+      // If user is deafened and clicks to unmute: in Discord, unmuting automatically undeafens as well!
+      if (isDeafened) {
+        await get().toggleDeafen();
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true);
+          set({ isMuted: false });
+          useSettingsStore.getState().setSelfMuted(false);
+          sounds.playUnmute();
+        } catch (err: any) {
+          console.error('Failed to unmute mic:', err);
+        }
+        return;
+      }
 
       const newMuted = !isMuted;
       try {
         await room.localParticipant.setMicrophoneEnabled(!newMuted);
         set({ isMuted: newMuted });
+        useSettingsStore.getState().setSelfMuted(newMuted);
         if (newMuted) {
           sounds.playMute();
         } else {
@@ -467,12 +482,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     setPushToTalkActive: async (active: boolean) => {
-      const { room } = get();
+      const { room, isDeafened } = get();
+      // If deafened, cannot transmit
+      if (isDeafened) return;
       if (!room || !room.localParticipant) return;
 
       try {
         await room.localParticipant.setMicrophoneEnabled(active);
         set({ isMuted: !active });
+        useSettingsStore.getState().setSelfMuted(!active);
         if (active) {
           sounds.playPttActivate();
         } else {
@@ -487,12 +505,25 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const { room, isDeafened } = get();
       const newDeafened = !isDeafened;
 
-      set({ isDeafened: newDeafened });
-      useSettingsStore.getState().setDeafened(newDeafened);
-
       if (newDeafened) {
+        // Deafen ALWAYS mutes the user as well (like Discord: deafen = deafened + muted)
+        try {
+          if (room?.localParticipant) {
+            await room.localParticipant.setMicrophoneEnabled(false);
+          }
+        } catch (e) {
+          console.warn('Error disabling mic on deafen:', e);
+        }
+        set({ isDeafened: true, isMuted: true });
+        useSettingsStore.getState().setDeafened(true);
+        useSettingsStore.getState().setSelfDeafened(true);
+        useSettingsStore.getState().setSelfMuted(true);
         sounds.playDeafen();
       } else {
+        // Undeafen: restore deafened state
+        set({ isDeafened: false });
+        useSettingsStore.getState().setDeafened(false);
+        useSettingsStore.getState().setSelfDeafened(false);
         sounds.playUndeafen();
       }
 
