@@ -145,6 +145,11 @@ export interface ServerSummaryDto {
   createdAt: string;
 }
 
+export interface VoiceParticipantDto {
+  identity: string;
+  name: string;
+}
+
 export interface ChannelDto {
   id: string;
   serverId: string;
@@ -155,6 +160,7 @@ export interface ChannelDto {
   unreadCount?: number;
   hasMention?: boolean;
   participantCount?: number;
+  voiceParticipants?: VoiceParticipantDto[];
 }
 
 export interface ServerMemberDto {

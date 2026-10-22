@@ -41,6 +41,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     servers,
     activeServerId,
     channels,
+    fetchChannels,
     activeChannelId,
     activeVoiceChannelId,
     joiningVoiceChannelId,
@@ -105,6 +106,15 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     }, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  // Periodic poll to refresh voice channel participants for users not yet connected
+  useEffect(() => {
+    if (!activeServerId) return;
+    const interval = setInterval(() => {
+      fetchChannels(activeServerId);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeServerId, fetchChannels]);
 
   const handleJoinVoiceChannel = async (channelId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -491,6 +501,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                   {voiceChannels.map((c) => {
                     const isConnected = activeVoiceChannelId === c.id && connectionState === ConnectionState.Connected;
                     const isConnecting = joiningVoiceChannelId === c.id;
+                    const channelParticipants = c.voiceParticipants || [];
+                    const participantCount = isConnected ? 1 + remoteParticipants.length : channelParticipants.length;
 
                     return (
                       <div key={c.id} className="space-y-0.5">
@@ -514,16 +526,23 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                             <span className="text-xs truncate">{c.name}</span>
                           </div>
 
-                          {isConnected && (
-                            <span className="w-2 h-2 rounded-full bg-online animate-pulse" />
-                          )}
-                          {isConnecting && (
-                            <span className="text-[10px] text-highlight font-mono animate-pulse">Connecting...</span>
-                          )}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {participantCount > 0 && !isConnected && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-bg-elevated border border-border-subtle text-[10px] font-mono text-text-secondary group-hover:text-text-primary">
+                                {participantCount}
+                              </span>
+                            )}
+                            {isConnected && (
+                              <span className="w-2 h-2 rounded-full bg-online animate-pulse" />
+                            )}
+                            {isConnecting && (
+                              <span className="text-[10px] text-highlight font-mono animate-pulse">Connecting...</span>
+                            )}
+                          </div>
                         </div>
 
                         {/* Discord-style Participants List: Rendered directly underneath this voice channel */}
-                        {isConnected && (
+                        {isConnected ? (
                           <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
                             {/* 1. Local Participant (Current User) */}
                             <div className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs">
@@ -600,6 +619,33 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                               );
                             })}
                           </div>
+                        ) : (
+                          /* Non-connected participant list: shows users in that voice channel to anyone browsing */
+                          channelParticipants.length > 0 && (
+                            <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
+                              {channelParticipants.map((vp) => (
+                                <div
+                                  key={vp.identity}
+                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/50 group transition-all text-xs"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0 shadow-sm">
+                                      {getInitials(vp.name)}
+                                    </div>
+                                    <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                      {vp.name}
+                                    </span>
+                                  </div>
+                                  {vp.isScreenSharing && (
+                                    <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
+                                      <Monitor className="w-2.5 h-2.5" />
+                                      LIVE
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )
                         )}
                       </div>
                     );

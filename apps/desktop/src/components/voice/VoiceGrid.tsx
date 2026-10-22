@@ -1,5 +1,5 @@
 import React from 'react';
-import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn } from 'lucide-react';
+import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useRoomStore } from '../../stores/room.store';
@@ -36,6 +36,11 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     isMuted,
     isDeafened,
     isScreenSharing,
+    availableScreenShares,
+    watchedScreenShareIds,
+    startWatchingStream,
+    stopWatchingStream,
+    stopScreenShare,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
 
@@ -158,6 +163,10 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     gridLayoutClass = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 auto-rows-fr';
   }
 
+  const unwatchedShares = availableScreenShares.filter(
+    (s) => !s.isLocal && !watchedScreenShareIds.has(s.participantIdentity)
+  );
+
   return (
     <div className="flex-1 flex flex-col p-6 overflow-y-auto select-none min-h-0 bg-bg-main">
       {/* Top Controls Bar */}
@@ -180,6 +189,46 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
           <span>Share Screen</span>
         </button>
       </div>
+
+      {/* Unwatched Screen Share Notification Banner */}
+      {unwatchedShares.length > 0 && (
+        <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-red-500/15 via-highlight/10 to-bg-elevated border border-red-500/30 flex items-center justify-between shrink-0 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+              <Monitor className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-text-primary">
+                  {unwatchedShares.map((s) => s.participantName).join(', ')}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-red-500/30 text-red-400 border border-red-500/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping" />
+                  LIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-text-secondary mt-0.5">
+                {unwatchedShares.length === 1
+                  ? 'is sharing screen. You can choose to join and watch their live stream.'
+                  : 'are sharing screens. Click below to watch their live stream.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {unwatchedShares.map((s) => (
+              <button
+                key={s.participantIdentity}
+                onClick={() => startWatchingStream(s.participantIdentity)}
+                className="px-3 py-1.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                title={`Watch ${s.participantName}'s screen share`}
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Watch {s.participantName}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className={`w-full flex-1 min-h-0 ${gridLayoutClass}`}>
         {participants.map((p) => {
@@ -225,15 +274,52 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   </span>
                 </div>
 
-                {/* Status Badges: Muted, Deafen, Screen Share */}
+                {/* Status Badges: Muted, Deafen, Screen Share / Watch button */}
                 <div className="flex items-center gap-1.5 pointer-events-auto">
                   {p.isScreenSharing && (
-                    <div
-                      className="w-6 h-6 rounded-lg bg-accent/40 border border-accent/60 flex items-center justify-center text-accent-bright"
-                      title="Sharing Screen"
-                    >
-                      <Monitor className="w-3.5 h-3.5" />
-                    </div>
+                    p.isLocal ? (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                        <span>Streaming</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            stopScreenShare();
+                          }}
+                          className="ml-1 text-text-muted hover:text-white p-0.5"
+                          title="Stop streaming"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : watchedScreenShareIds.has(p.identity) ? (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                        <span>Watching</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            stopWatchingStream(p.identity);
+                          }}
+                          className="ml-1 text-text-muted hover:text-white p-0.5"
+                          title="Stop watching stream"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startWatchingStream(p.identity);
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                        title="Click to watch live stream"
+                      >
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>Watch Stream</span>
+                      </button>
+                    )
                   )}
 
                   {p.isDeafened && (

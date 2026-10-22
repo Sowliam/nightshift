@@ -19,6 +19,13 @@ import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 
+export interface ActiveScreenShare {
+  participantIdentity: string;
+  participantName: string;
+  isLocal: boolean;
+  publication: TrackPublication;
+}
+
 interface LiveKitState {
   room: Room | null;
   connectionState: ConnectionState;
@@ -30,6 +37,12 @@ interface LiveKitState {
   localParticipant: LocalParticipant | null;
   remoteParticipants: RemoteParticipant[];
   activeSpeakers: Set<string>;
+  
+  // Multi-stream & Opt-in Screen Share Architecture
+  availableScreenShares: ActiveScreenShare[];
+  watchedScreenShareIds: Set<string>;
+  focusedScreenShareId: string | null;
+
   activeScreenTrack: TrackPublication | null;
   screenSharerIdentity: string | null;
   screenSharerName: string | null;
@@ -42,6 +55,11 @@ interface LiveKitState {
   toggleDeafen: () => Promise<void>;
   startScreenShare: (sourceId?: string, options?: ScreenShareOptions) => Promise<boolean>;
   stopScreenShare: () => Promise<void>;
+
+  // Stream watching actions
+  startWatchingStream: (participantIdentity: string) => void;
+  stopWatchingStream: (participantIdentity: string) => void;
+  setFocusedScreenShare: (participantIdentity: string | null) => void;
   setAudioInputDevice: (deviceId: string) => Promise<void>;
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
   setPushToTalkActive: (active: boolean) => Promise<void>;
@@ -144,34 +162,48 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
   const measurePing = async (room: Room) => {
     try {
-      const pc =
-        (room.engine as any)?.pc?.current ||
-        (room.engine as any)?.client?.pc ||
-        (room.engine as any)?.publisher?.pc;
+      const pcManager = (room.engine as any)?.pcManager;
+      const candidates = [
+        pcManager?.subscriber?.getStats ? pcManager.subscriber : null,
+        pcManager?.publisher?.getStats ? pcManager.publisher : null,
+        (room.engine as any)?.subscriber?.getStats ? (room.engine as any).subscriber : null,
+        (room.engine as any)?.publisher?.getStats ? (room.engine as any).publisher : null,
+        (room.engine as any)?.pc?.getStats ? (room.engine as any).pc : null,
+      ].filter(Boolean);
 
-      if (pc && typeof pc.getStats === 'function') {
-        const stats = await pc.getStats();
-        for (const report of stats.values()) {
-          if (
-            report.type === 'candidate-pair' &&
-            report.state === 'succeeded' &&
-            typeof report.currentRoundTripTime === 'number'
-          ) {
-            set({ currentPing: Math.round(report.currentRoundTripTime * 1000) });
-            return;
+      for (const transport of candidates) {
+        try {
+          const stats = await transport.getStats();
+          if (stats) {
+            for (const report of stats.values()) {
+              if (
+                report.type === 'candidate-pair' &&
+                (report.state === 'succeeded' || report.nominated) &&
+                typeof report.currentRoundTripTime === 'number'
+              ) {
+                const rtt = Math.round(report.currentRoundTripTime * 1000);
+                if (rtt > 0 && rtt < 1500) {
+                  set({ currentPing: rtt });
+                  return;
+                }
+              }
+              if (report.type === 'remote-inbound-rtp' && typeof report.roundTripTime === 'number') {
+                const rtt = Math.round(report.roundTripTime * 1000);
+                if (rtt > 0 && rtt < 1500) {
+                  set({ currentPing: rtt });
+                  return;
+                }
+              }
+            }
           }
-          if (report.type === 'remote-inbound-rtp' && typeof report.roundTripTime === 'number') {
-            set({ currentPing: Math.round(report.roundTripTime * 1000) });
-            return;
-          }
-        }
+        } catch {}
       }
 
-      // Fallback: estimate via room engine ping
-      const startTime = performance.now();
-      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/health`);
-      if (res.ok) {
-        set({ currentPing: Math.round(performance.now() - startTime) });
+      // Check engine's internal RTT calculation if available
+      const engineRtt = (room.engine as any)?.rtt;
+      if (typeof engineRtt === 'number' && engineRtt > 0) {
+        set({ currentPing: Math.round(engineRtt) });
+        return;
       }
     } catch {
       // Ignore transient ping failure
@@ -179,40 +211,64 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   };
 
   const updateScreenShareState = (room: Room) => {
-    const localScreenPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
-      (pub) => pub.source === Track.Source.ScreenShare
-    );
+    const list: ActiveScreenShare[] = [];
 
-    if (localScreenPub && localScreenPub.track) {
-      set({
-        isScreenSharing: true,
-        activeScreenTrack: localScreenPub,
-        screenSharerIdentity: room.localParticipant.identity,
-        screenSharerName: room.localParticipant.name || 'You',
+    // 1. Check local participant
+    const localScreenPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
+      (pub) => pub.source === Track.Source.ScreenShare && pub.track
+    );
+    if (localScreenPub) {
+      list.push({
+        participantIdentity: room.localParticipant.identity,
+        participantName: room.localParticipant.name || 'You',
+        isLocal: true,
+        publication: localScreenPub,
       });
-      return;
     }
 
+    // 2. Check all remote participants
     for (const remote of room.remoteParticipants.values()) {
       const screenPub = Array.from(remote.videoTrackPublications.values()).find(
-        (pub) => pub.source === Track.Source.ScreenShare && pub.isSubscribed && pub.track
+        (pub) => pub.source === Track.Source.ScreenShare && pub.track
       );
-      if (screenPub && screenPub.track) {
-        set({
-          isScreenSharing: false,
-          activeScreenTrack: screenPub,
-          screenSharerIdentity: remote.identity,
-          screenSharerName: remote.name || remote.identity,
+      if (screenPub) {
+        list.push({
+          participantIdentity: remote.identity,
+          participantName: remote.name || remote.identity,
+          isLocal: false,
+          publication: screenPub,
         });
-        return;
       }
     }
 
+    const currentWatched = new Set(get().watchedScreenShareIds);
+    const activeIdentities = new Set(list.map((s) => s.participantIdentity));
+    // Clean up any watched streams that ended
+    currentWatched.forEach((id) => {
+      if (!activeIdentities.has(id)) {
+        currentWatched.delete(id);
+      }
+    });
+
+    // Auto-watch local stream if sharing so host can preview own screen
+    if (localScreenPub && !currentWatched.has(room.localParticipant.identity)) {
+      currentWatched.add(room.localParticipant.identity);
+    }
+
+    // Determine primary focused or active screen track
+    const focusedId = get().focusedScreenShareId;
+    let primary = list.find((s) => s.participantIdentity === focusedId && currentWatched.has(s.participantIdentity));
+    if (!primary) {
+      primary = list.find((s) => currentWatched.has(s.participantIdentity)) || null;
+    }
+
     set({
-      isScreenSharing: false,
-      activeScreenTrack: null,
-      screenSharerIdentity: null,
-      screenSharerName: null,
+      isScreenSharing: !!localScreenPub,
+      availableScreenShares: list,
+      watchedScreenShareIds: currentWatched,
+      activeScreenTrack: primary ? primary.publication : null,
+      screenSharerIdentity: primary ? primary.participantIdentity : null,
+      screenSharerName: primary ? primary.participantName : null,
     });
   };
 
@@ -237,6 +293,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     localParticipant: null,
     remoteParticipants: [],
     activeSpeakers: new Set(),
+    availableScreenShares: [],
+    watchedScreenShareIds: new Set(),
+    focusedScreenShareId: null,
     activeScreenTrack: null,
     screenSharerIdentity: null,
     screenSharerName: null,
@@ -278,11 +337,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       room.on(RoomEvent.ParticipantConnected, () => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        sounds.playJoin();
         useRoomStore.getState().fetchRooms();
       });
 
       room.on(RoomEvent.ParticipantDisconnected, () => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        sounds.playDisconnect();
         updateScreenShareState(room);
         useRoomStore.getState().fetchRooms();
       });
@@ -433,6 +494,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         localParticipant: null,
         remoteParticipants: [],
         activeSpeakers: new Set(),
+        availableScreenShares: [],
+        watchedScreenShareIds: new Set(),
+        focusedScreenShareId: null,
         activeScreenTrack: null,
         screenSharerIdentity: null,
         screenSharerName: null,
@@ -675,6 +739,53 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } finally {
         set({ currentScreenOptions: null });
         updateScreenShareState(room);
+      }
+    },
+
+    startWatchingStream: (identity: string) => {
+      const watched = new Set(get().watchedScreenShareIds);
+      watched.add(identity);
+      const shares = get().availableScreenShares;
+      const target = shares.find((s) => s.participantIdentity === identity);
+      set({
+        watchedScreenShareIds: watched,
+        focusedScreenShareId: identity,
+        activeScreenTrack: target ? target.publication : get().activeScreenTrack,
+        screenSharerIdentity: target ? target.participantIdentity : get().screenSharerIdentity,
+        screenSharerName: target ? target.participantName : get().screenSharerName,
+      });
+    },
+
+    stopWatchingStream: (identity: string) => {
+      const watched = new Set(get().watchedScreenShareIds);
+      watched.delete(identity);
+      const remaining = Array.from(watched);
+      const shares = get().availableScreenShares;
+      const nextId = remaining[0] || null;
+      const nextShare = nextId ? shares.find((s) => s.participantIdentity === nextId) : null;
+      set({
+        watchedScreenShareIds: watched,
+        focusedScreenShareId: nextId,
+        activeScreenTrack: nextShare ? nextShare.publication : null,
+        screenSharerIdentity: nextShare ? nextShare.participantIdentity : null,
+        screenSharerName: nextShare ? nextShare.participantName : null,
+      });
+    },
+
+    setFocusedScreenShare: (identity: string | null) => {
+      if (!identity) {
+        set({ focusedScreenShareId: null });
+        return;
+      }
+      const shares = get().availableScreenShares;
+      const target = shares.find((s) => s.participantIdentity === identity);
+      if (target) {
+        set({
+          focusedScreenShareId: identity,
+          activeScreenTrack: target.publication,
+          screenSharerIdentity: target.participantIdentity,
+          screenSharerName: target.participantName,
+        });
       }
     },
 

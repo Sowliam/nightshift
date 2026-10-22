@@ -12,6 +12,7 @@ import {
   ServerMemberDto,
   ServerInviteDto,
   extractInviteCode,
+  VoiceParticipantDto,
 } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
 import { getLiveKitRoomParticipants } from '../services/livekit.service.js';
@@ -208,10 +209,12 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
     const channelDtos: ChannelDto[] = await Promise.all(
       channels.map(async (c) => {
         let participantCount = 0;
+        let voiceParticipants: VoiceParticipantDto[] = [];
         if (c.type === 'voice') {
           const roomKey = `${serverId}_${c.id}`;
           const parts = await getLiveKitRoomParticipants(roomKey);
           participantCount = parts.length;
+          voiceParticipants = parts;
         }
         return {
           id: c.id,
@@ -221,6 +224,7 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
           order: c.order,
           createdAt: c.createdAt.toISOString(),
           participantCount,
+          voiceParticipants,
         };
       })
     );
