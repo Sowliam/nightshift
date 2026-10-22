@@ -1,0 +1,38 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id          String   @id @default(cuid())
+  displayName String
+  deviceId    String   @unique
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Room {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Invitation {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  roomId          String?
+  createdByUserId String
+  maxUses         Int      @default(10)
+  usesCount       Int      @default(0)
+  isValid         Boolean  @default(true)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+}

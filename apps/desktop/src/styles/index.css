@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-main: #17191C;
+  --bg-secondary: #1D2024;
+  --bg-elevated: #24282D;
+  --border: #30343A;
+  --text-primary: #F0F1ED;
+  --text-secondary: #969CA5;
+  --accent: #C4D36A;
+  --destructive: #E05252;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30343A;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3F444C;
+}
+
+/* Electron Window Drag Regions */
+.app-region-drag {
+  -webkit-app-region: drag;
+}
+
+.app-region-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Speaking Wave & Pulse Animation */
+@keyframes speaking-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(196, 211, 106, 0.9);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(196, 211, 106, 0.4);
+  }
+}
+
+.speaking-ring {
+  animation: speaking-glow 1.5s infinite ease-in-out;
+}
+
+/* Transitions */
+button, input, select {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
