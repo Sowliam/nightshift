@@ -13,7 +13,7 @@ import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
 import { useSettingsStore } from './stores/settings.store';
 import { ShieldAlert, RefreshCw, Server, Check } from 'lucide-react';
-import { getApiBase, setApiBase } from './lib/api';
+import { getApiBase, setApiBase, api } from './lib/api';
 
 export const App: React.FC = () => {
   const [isMembersOpen, setIsMembersOpen] = useState(true);

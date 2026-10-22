@@ -58,6 +58,17 @@ async function waitForUrl(url, name, maxRetries = 40) {
 }
 
 async function start() {
+  if (process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || (process.env.NODE_ENV === 'production' && process.env.PORT)) {
+    console.log('[NIGHTSHIFT] Cloud/production environment detected. Starting production server...');
+    const serverProc = spawn('npm', ['run', 'start:server'], {
+      cwd: rootDir,
+      shell: true,
+      stdio: 'inherit',
+    });
+    serverProc.on('exit', (code) => process.exit(code || 0));
+    return;
+  }
+
   console.log('==================================================');
   console.log('   NIGHTSHIFT — Desktop Voice Chat & Screen Share  ');
   console.log('==================================================\n');

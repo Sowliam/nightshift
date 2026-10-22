@@ -9,6 +9,8 @@ import {
   VoiceJoinResponse,
 } from '@nightshift/shared';
 
+export const DEFAULT_PRODUCTION_API = 'https://nightshift-server-cfch.onrender.com';
+
 export const getApiBase = (): string => {
   if (typeof window !== 'undefined') {
     // 1. Support ?api=https://... or #api=https://... URL parameter for instant 1-click cloud backend connection
@@ -34,16 +36,20 @@ export const getApiBase = (): string => {
     // 2. Custom URL saved by user in localStorage
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
-      return custom.trim().replace(/\/$/, '');
+      const cleanCustom = custom.trim().replace(/\/$/, '');
+      // If user had previously stored vercel origin or same-origin, upgrade them to the real backend
+      if (cleanCustom !== window.location.origin && !cleanCustom.includes('vercel.app')) {
+        return cleanCustom;
+      }
     }
 
     // 3. Prevent Mixed Content block on HTTPS deployments (e.g. Vercel)
-    // If running on HTTPS and default is http://localhost, use same-origin relative
+    // Default to the live Render cloud backend
     if (
-      window.location.protocol === 'https:' &&
-      (!import.meta.env.VITE_API_URL || import.meta.env.VITE_API_URL.startsWith('http://localhost'))
+      window.location.protocol === 'https:' ||
+      window.location.hostname.includes('vercel.app')
     ) {
-      return window.location.origin;
+      return DEFAULT_PRODUCTION_API;
     }
   }
   return (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
