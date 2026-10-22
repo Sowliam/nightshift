@@ -148,6 +148,7 @@ export interface ServerSummaryDto {
 export interface VoiceParticipantDto {
   identity: string;
   name: string;
+  isScreenSharing?: boolean;
 }
 
 export interface ChannelDto {

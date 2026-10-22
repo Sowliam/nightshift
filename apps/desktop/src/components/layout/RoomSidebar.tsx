@@ -569,9 +569,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                   </span>
                                 )}
                                 {isDeafened ? (
-                                  <VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" title="Deafened" />
+                                  <span title="Deafened"><VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" /></span>
                                 ) : isMuted ? (
-                                  <MicOff className="w-3.5 h-3.5 text-destructive shrink-0" title="Muted" />
+                                  <span title="Muted"><MicOff className="w-3.5 h-3.5 text-destructive shrink-0" /></span>
                                 ) : null}
                               </div>
                             </div>
@@ -612,7 +612,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                       </span>
                                     )}
                                     {isRemoteMuted && (
-                                      <MicOff className="w-3.5 h-3.5 text-text-muted shrink-0" title="Muted" />
+                                      <span title="Muted"><MicOff className="w-3.5 h-3.5 text-text-muted shrink-0" /></span>
                                     )}
                                   </div>
                                 </div>

@@ -257,9 +257,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     // Determine primary focused or active screen track
     const focusedId = get().focusedScreenShareId;
-    let primary = list.find((s) => s.participantIdentity === focusedId && currentWatched.has(s.participantIdentity));
+    let primary: ActiveScreenShare | undefined = list.find((s) => s.participantIdentity === focusedId && currentWatched.has(s.participantIdentity));
     if (!primary) {
-      primary = list.find((s) => currentWatched.has(s.participantIdentity)) || null;
+      primary = list.find((s) => currentWatched.has(s.participantIdentity));
     }
 
     set({

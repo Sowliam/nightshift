@@ -16,7 +16,6 @@ import {
   EyeOff,
   LayoutGrid,
   Play,
-  Monitor,
 } from 'lucide-react';
 import { useLiveKitStore, ActiveScreenShare } from '../../stores/livekit.store';
 import { useServerStore } from '../../stores/server.store';
