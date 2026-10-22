@@ -119,7 +119,7 @@ class ApiClient {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const timeoutId = setTimeout(() => controller.abort(), 75000);
 
     try {
       const res = await fetch(url, {
@@ -149,7 +149,7 @@ class ApiClient {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
         throw new Error(
-          `Backend connection timed out (20s). Render free instances take ~50s to wake up on first request, or the backend is currently offline.`
+          `Backend connection timed out (75s). Please check your Render Dashboard: Ensure the service status is 'Live' and not Crashed/Suspended.`
         );
       }
       if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection') || err.message.includes('Render Error'))) {
