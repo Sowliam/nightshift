@@ -11,7 +11,7 @@ export default defineConfig({
       '@nightshift/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
-  base: './', // Vital for Electron local file loading
+  base: process.env.BUILD_FOR_ELECTRON ? './' : '/',
   server: {
     port: 5173,
     strictPort: true,

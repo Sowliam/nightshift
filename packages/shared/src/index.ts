@@ -5,54 +5,52 @@ import { z } from 'zod';
 // ==========================================
 
 export const APP_NAME = 'NIGHTSHIFT';
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 
 export const THEME = {
-  bgMain: '#17191C',
-  bgSecondary: '#1D2024',
-  bgElevated: '#24282D',
-  border: '#30343A',
-  textPrimary: '#F0F1ED',
-  textSecondary: '#969CA5',
-  accent: '#C4D36A',
-  accentHover: '#D5E57B',
+  bgMain: '#0A0908',
+  bgSecondary: '#121110',
+  bgElevated: '#1C1A18',
+  border: '#292623',
+  textPrimary: '#F1FAEE',
+  textSecondary: '#A8A39D',
+  textMuted: '#736E68',
+  highlight: '#F1FAEE',
+  highlightText: '#0A0908',
+  accentBright: '#52B788',
   destructive: '#E05252',
-  destructiveHover: '#F06868',
 } as const;
-
-export const DEFAULT_ROOMS = [
-  {
-    name: 'Late lobby',
-    description: 'Casual nighttime hanging out and gaming',
-  },
-  {
-    name: 'Ranked queue',
-    description: 'Competitive comms, low distraction',
-  },
-  {
-    name: 'Watch party',
-    description: 'Stream screens, YouTube, and movies',
-  },
-  {
-    name: 'Just chatting',
-    description: 'Open mic discussions and banter',
-  },
-] as const;
 
 // ==========================================
 // Zod Schemas
 // ==========================================
 
 export const RegisterUserSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(3, 'Username must be at least 3 characters')
+    .max(32, 'Username cannot exceed 32 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
   displayName: z
     .string()
     .trim()
     .min(2, 'Display name must be at least 2 characters')
     .max(32, 'Display name cannot exceed 32 characters'),
-  deviceId: z.string().trim().min(8, 'Invalid device identifier'),
+  password: z
+    .string()
+    .min(6, 'Password must be at least 6 characters')
+    .max(100, 'Password cannot exceed 100 characters'),
 });
 
 export type RegisterUserInput = z.infer<typeof RegisterUserSchema>;
+
+export const LoginUserSchema = z.object({
+  username: z.string().trim().min(1, 'Username is required'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export type LoginUserInput = z.infer<typeof LoginUserSchema>;
 
 export const UpdateProfileSchema = z.object({
   displayName: z
@@ -64,36 +62,57 @@ export const UpdateProfileSchema = z.object({
 
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>;
 
-export const CreateRoomSchema = z.object({
+export const CreateServerSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(2, 'Room name must be at least 2 characters')
-    .max(50, 'Room name cannot exceed 50 characters'),
+    .min(2, 'Server name must be at least 2 characters')
+    .max(50, 'Server name cannot exceed 50 characters'),
   description: z.string().trim().max(200).optional(),
 });
 
-export type CreateRoomInput = z.infer<typeof CreateRoomSchema>;
+export type CreateServerInput = z.infer<typeof CreateServerSchema>;
 
-export const JoinRoomSchema = z.object({
-  userId: z.string().min(1, 'User ID is required'),
+export const CreateChannelSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, 'Channel name must be at least 2 characters')
+    .max(50, 'Channel name cannot exceed 50 characters'),
+  type: z.enum(['text', 'voice']).default('text'),
 });
 
-export type JoinRoomInput = z.infer<typeof JoinRoomSchema>;
+export type CreateChannelInput = z.infer<typeof CreateChannelSchema>;
 
-export const CreateInvitationSchema = z.object({
-  roomId: z.string().optional(),
-  maxUses: z.number().int().positive().default(10),
-  expiresInHours: z.number().int().positive().default(72),
+export const CreateInviteSchema = z.object({
+  maxUses: z.number().int().min(0).default(0), // 0 = unlimited
+  expiresInHours: z.number().int().min(1).default(72),
 });
 
-export type CreateInvitationInput = z.infer<typeof CreateInvitationSchema>;
+export type CreateInviteInput = z.infer<typeof CreateInviteSchema>;
 
-export const ValidateInvitationSchema = z.object({
+export const JoinInviteSchema = z.object({
   code: z.string().trim().min(4, 'Invalid invitation code'),
 });
 
-export type ValidateInvitationInput = z.infer<typeof ValidateInvitationSchema>;
+export type JoinInviteInput = z.infer<typeof JoinInviteSchema>;
+
+export const ModerateMemberSchema = z.object({
+  action: z.enum(['mute', 'unmute', 'deafen', 'undeafen', 'kick', 'ban', 'unban']),
+  reason: z.string().trim().max(200).optional(),
+});
+
+export type ModerateMemberInput = z.infer<typeof ModerateMemberSchema>;
+
+export const SendMessageSchema = z.object({
+  content: z.string().trim().max(2000, 'Message cannot exceed 2000 characters').default(''),
+  attachmentUrl: z.string().optional(),
+  attachmentType: z.string().optional(),
+}).refine(data => data.content.length > 0 || !!data.attachmentUrl, {
+  message: 'Message must have text or an attachment',
+});
+
+export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
 // ==========================================
 // Shared DTOs and Interfaces
@@ -101,49 +120,101 @@ export type ValidateInvitationInput = z.infer<typeof ValidateInvitationSchema>;
 
 export interface UserDto {
   id: string;
+  username: string;
   displayName: string;
-  deviceId: string;
+  avatarUrl?: string | null;
   createdAt: string;
   lastSeenAt: string;
+  isOnline?: boolean;
 }
 
-export interface RoomDto {
+export interface AuthResponse {
+  user: UserDto;
+  token: string;
+}
+
+export interface ServerSummaryDto {
   id: string;
   name: string;
-  description: string | null;
-  isDefault: boolean;
-  participantCount: number;
+  description?: string | null;
+  iconUrl?: string | null;
+  ownerId: string;
+  channelCount: number;
+  memberCount: number;
+  role: 'owner' | 'admin' | 'member';
   createdAt: string;
 }
 
-export interface InvitationDto {
+export interface ChannelDto {
+  id: string;
+  serverId: string;
+  name: string;
+  type: 'text' | 'voice';
+  order: number;
+  createdAt: string;
+  unreadCount?: number;
+  hasMention?: boolean;
+  participantCount?: number;
+}
+
+export interface ServerMemberDto {
+  id: string;
+  serverId: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  role: 'owner' | 'admin' | 'member';
+  isServerMuted: boolean;
+  isServerDeafened: boolean;
+  isOnline: boolean;
+  isSpeaking?: boolean;
+  joinedAt: string;
+}
+
+export interface ServerInviteDto {
   id: string;
   code: string;
-  roomId?: string | null;
-  createdByUserId: string;
+  serverId: string;
+  serverName: string;
+  creatorId: string;
+  creatorName: string;
   maxUses: number;
   usesCount: number;
+  expiresAt?: string | null;
   isValid: boolean;
-  expiresAt: string;
   createdAt: string;
 }
 
-export interface JoinRoomResponse {
-  room: RoomDto;
+export interface MessageDto {
+  id: string;
+  content: string;
+  channelId: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  attachmentUrl?: string | null;
+  attachmentType?: string | null;
+  createdAt: string;
+  isMine?: boolean;
+}
+
+export interface VoiceJoinResponse {
+  channel: ChannelDto;
+  server: ServerSummaryDto;
   livekitUrl: string;
   token: string;
   user: UserDto;
 }
 
-export interface ParticipantInfo {
-  identity: string;
-  name: string;
-  isSpeaking: boolean;
-  isMuted: boolean;
-  isDeafened: boolean;
-  isScreenSharing: boolean;
-  audioLevel: number;
-  joinedAt?: string;
+export type ScreenShareResolution = '720p' | '1080p' | '1440p' | 'source';
+export type ScreenShareFramerate = 15 | 30 | 60;
+export type ScreenShareContentPreset = 'motion' | 'detail';
+
+export interface ScreenShareOptions {
+  resolution?: ScreenShareResolution;
+  frameRate?: ScreenShareFramerate;
+  preset?: ScreenShareContentPreset;
+  includeAudio?: boolean;
 }
 
 export interface DesktopScreenSource {
@@ -154,26 +225,36 @@ export interface DesktopScreenSource {
   isWindow: boolean;
 }
 
-export interface UserSettings {
-  displayName: string;
+export type InputProfileType = 'voice-isolation' | 'studio' | 'custom';
+
+export interface UserVoiceSettings {
+  inputProfile: InputProfileType;
   audioInputDeviceId: string;
   audioOutputDeviceId: string;
-  isDeafened: boolean;
-  theme: 'dark';
   inputVolume: number;
   outputVolume: number;
-  noiseSuppression: boolean;
+  autoSensitivity: boolean;
+  sensitivityThreshold: number; // 0-100
+  noiseSuppression: 'none' | 'standard' | 'krisp';
   echoCancellation: boolean;
+  pushToTalk: boolean;
+  pushToTalkKey: string;
+  isSelfMuted: boolean;
+  isSelfDeafened: boolean;
 }
 
-export const DEFAULT_USER_SETTINGS: UserSettings = {
-  displayName: '',
+export const DEFAULT_VOICE_SETTINGS: UserVoiceSettings = {
+  inputProfile: 'custom',
   audioInputDeviceId: 'default',
   audioOutputDeviceId: 'default',
-  isDeafened: false,
-  theme: 'dark',
   inputVolume: 100,
   outputVolume: 100,
-  noiseSuppression: true,
+  autoSensitivity: true,
+  sensitivityThreshold: 40,
+  noiseSuppression: 'standard',
   echoCancellation: true,
+  pushToTalk: false,
+  pushToTalkKey: 'Space',
+  isSelfMuted: false,
+  isSelfDeafened: false,
 };

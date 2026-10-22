@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: nightshift-server
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run build --workspace=@nightshift/shared && npm run db:generate --workspace=@nightshift/server && npm run build --workspace=@nightshift/server
+    startCommand: npm run start:server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVER_HOST
+        value: 0.0.0.0
+      - key: LIVEKIT_URL
+        value: wss://voiceline-qy3slc6n.livekit.cloud
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: DATABASE_URL
+        value: file:./nightshift.db

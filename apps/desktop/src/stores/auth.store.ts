@@ -4,67 +4,61 @@ import { api } from '../lib/api';
 
 interface AuthState {
   user: UserDto | null;
-  deviceId: string;
   isLoading: boolean;
   error: string | null;
   initAuth: () => Promise<void>;
-  register: (displayName: string) => Promise<boolean>;
+  register: (username: string, displayName: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<boolean>;
   updateDisplayName: (displayName: string) => Promise<boolean>;
   logout: () => void;
-}
-
-function getOrCreateDeviceId(): string {
-  const STORAGE_KEY = 'nightshift_device_id';
-  let deviceId = localStorage.getItem(STORAGE_KEY);
-  if (!deviceId) {
-    deviceId = 'ns_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
-    localStorage.setItem(STORAGE_KEY, deviceId);
-  }
-  return deviceId;
+  clearError: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
-  deviceId: getOrCreateDeviceId(),
   isLoading: true,
   error: null,
 
   initAuth: async () => {
     set({ isLoading: true, error: null });
-    const { deviceId } = get();
-
     try {
-      const existingUser = await api.getCurrentUser(deviceId);
-      if (existingUser) {
-        set({ user: existingUser, isLoading: false });
-      } else {
-        set({ user: null, isLoading: false });
-      }
+      const user = await api.getCurrentUser();
+      set({ user, isLoading: false });
     } catch {
       set({ user: null, isLoading: false });
     }
   },
 
-  register: async (displayName: string) => {
+  register: async (username: string, displayName: string, password: string) => {
     set({ isLoading: true, error: null });
-    const { deviceId } = get();
-
     try {
-      const user = await api.registerUser(displayName, deviceId);
-      set({ user, isLoading: false });
+      const res = await api.registerUser(username, displayName, password);
+      set({ user: res.user, isLoading: false, error: null });
       return true;
     } catch (err: any) {
-      set({ error: err.message || 'Failed to register', isLoading: false });
+      set({ error: err.message || 'Registration failed', isLoading: false });
+      return false;
+    }
+  },
+
+  login: async (username: string, password: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await api.loginUser(username, password);
+      set({ user: res.user, isLoading: false, error: null });
+      return true;
+    } catch (err: any) {
+      set({ error: err.message || 'Login failed', isLoading: false });
       return false;
     }
   },
 
   updateDisplayName: async (displayName: string) => {
-    const { deviceId, user } = get();
+    const { user } = get();
     if (!user) return false;
 
     try {
-      const updated = await api.updateProfile(displayName, deviceId);
+      const updated = await api.updateProfile(displayName);
       set({ user: updated });
       return true;
     } catch (err: any) {
@@ -74,8 +68,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('nightshift_device_id');
-    const newDeviceId = getOrCreateDeviceId();
-    set({ user: null, deviceId: newDeviceId });
+    api.setToken(null);
+    set({ user: null, error: null });
   },
+
+  clearError: () => set({ error: null }),
 }));

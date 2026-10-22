@@ -9,8 +9,15 @@ import {
   ConnectionState,
   LocalVideoTrack,
   TrackPublication,
+  LocalAudioTrack,
+  RemoteAudioTrack,
 } from 'livekit-client';
 import { useSettingsStore } from './settings.store';
+import { sounds } from '../services/sound.service';
+import { ScreenShareOptions, MessageDto } from '@nightshift/shared';
+import { useChatStore } from './chat.store';
+import { useRoomStore } from './room.store';
+import { useServerStore } from './server.store';
 
 interface LiveKitState {
   room: Room | null;
@@ -18,29 +25,160 @@ interface LiveKitState {
   isMuted: boolean;
   isDeafened: boolean;
   isScreenSharing: boolean;
+  isLocallySpeaking: boolean;
+  currentPing: number | null;
   localParticipant: LocalParticipant | null;
   remoteParticipants: RemoteParticipant[];
   activeSpeakers: Set<string>;
   activeScreenTrack: TrackPublication | null;
   screenSharerIdentity: string | null;
   screenSharerName: string | null;
+  currentScreenOptions: ScreenShareOptions | null;
   error: string | null;
 
   connect: (url: string, token: string) => Promise<boolean>;
   disconnect: () => Promise<void>;
   toggleMute: () => Promise<void>;
   toggleDeafen: () => Promise<void>;
-  startScreenShare: (sourceId?: string) => Promise<boolean>;
+  startScreenShare: (sourceId?: string, options?: ScreenShareOptions) => Promise<boolean>;
   stopScreenShare: () => Promise<void>;
   setAudioInputDevice: (deviceId: string) => Promise<void>;
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
+  setPushToTalkActive: (active: boolean) => Promise<void>;
+  setParticipantVolume: (identity: string, volumePercent: number) => void;
+  broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
 }
 
 export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeCustomScreenTrack: LocalVideoTrack | null = null;
+  let activeCustomScreenAudioTrack: LocalAudioTrack | null = null;
+  let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let localAudioContext: AudioContext | null = null;
+  let localAudioSource: MediaStreamAudioSourceNode | null = null;
+  let localAnalyser: AnalyserNode | null = null;
+  let localAnimFrame: number | null = null;
+  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanupAudioAnalyser = () => {
+    if (localAnimFrame) {
+      cancelAnimationFrame(localAnimFrame);
+      localAnimFrame = null;
+    }
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
+    if (localAudioSource) {
+      localAudioSource.disconnect();
+      localAudioSource = null;
+    }
+    if (localAudioContext) {
+      localAudioContext.close().catch(() => {});
+      localAudioContext = null;
+    }
+    set({ isLocallySpeaking: false });
+  };
+
+  const setupAudioAnalyser = (track: MediaStreamTrack) => {
+    cleanupAudioAnalyser();
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      localAudioContext = new AudioCtx();
+      const stream = new MediaStream([track]);
+      localAudioSource = localAudioContext.createMediaStreamSource(stream);
+      localAnalyser = localAudioContext.createAnalyser();
+      localAnalyser.fftSize = 256;
+      localAudioSource.connect(localAnalyser);
+
+      const buffer = new Uint8Array(localAnalyser.frequencyBinCount);
+
+      const checkAudio = () => {
+        if (!localAnalyser) return;
+        localAnalyser.getByteFrequencyData(buffer);
+        let sum = 0;
+        for (let i = 0; i < buffer.length; i++) sum += buffer[i];
+        const avg = sum / buffer.length;
+        const normalized = Math.min(100, Math.round((avg / 128) * 100));
+
+        const threshold = useSettingsStore.getState().voiceActivationThreshold || 15;
+        const isMuted = get().isMuted;
+
+        if (!isMuted && normalized > threshold) {
+          if (silenceTimer) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+          }
+          if (!get().isLocallySpeaking) {
+            set({ isLocallySpeaking: true });
+            const localId = get().localParticipant?.identity;
+            if (localId) {
+              set((state) => ({
+                activeSpeakers: new Set([...state.activeSpeakers, localId]),
+              }));
+            }
+          }
+        } else {
+          if (!silenceTimer && get().isLocallySpeaking) {
+            silenceTimer = setTimeout(() => {
+              set({ isLocallySpeaking: false });
+              const localId = get().localParticipant?.identity;
+              if (localId) {
+                set((state) => {
+                  const updated = new Set(state.activeSpeakers);
+                  updated.delete(localId);
+                  return { activeSpeakers: updated };
+                });
+              }
+              silenceTimer = null;
+            }, 300);
+          }
+        }
+        localAnimFrame = requestAnimationFrame(checkAudio);
+      };
+      checkAudio();
+    } catch (e) {
+      console.warn('Could not setup local audio analyzer:', e);
+    }
+  };
+
+  const measurePing = async (room: Room) => {
+    try {
+      const pc =
+        (room.engine as any)?.pc?.current ||
+        (room.engine as any)?.client?.pc ||
+        (room.engine as any)?.publisher?.pc;
+
+      if (pc && typeof pc.getStats === 'function') {
+        const stats = await pc.getStats();
+        for (const report of stats.values()) {
+          if (
+            report.type === 'candidate-pair' &&
+            report.state === 'succeeded' &&
+            typeof report.currentRoundTripTime === 'number'
+          ) {
+            set({ currentPing: Math.round(report.currentRoundTripTime * 1000) });
+            return;
+          }
+          if (report.type === 'remote-inbound-rtp' && typeof report.roundTripTime === 'number') {
+            set({ currentPing: Math.round(report.roundTripTime * 1000) });
+            return;
+          }
+        }
+      }
+
+      // Fallback: estimate via room engine ping
+      const startTime = performance.now();
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/health`);
+      if (res.ok) {
+        set({ currentPing: Math.round(performance.now() - startTime) });
+      }
+    } catch {
+      // Ignore transient ping failure
+    }
+  };
 
   const updateScreenShareState = (room: Room) => {
-    // Check if local participant is sharing screen
     const localScreenPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
       (pub) => pub.source === Track.Source.ScreenShare
     );
@@ -55,14 +193,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       return;
     }
 
-    // Check if any remote participant is sharing screen
     for (const remote of room.remoteParticipants.values()) {
       const screenPub = Array.from(remote.videoTrackPublications.values()).find(
         (pub) => pub.source === Track.Source.ScreenShare && pub.isSubscribed && pub.track
       );
       if (screenPub && screenPub.track) {
         set({
-          isScreenSharing: false, // Local user is not the one sharing
+          isScreenSharing: false,
           activeScreenTrack: screenPub,
           screenSharerIdentity: remote.identity,
           screenSharerName: remote.name || remote.identity,
@@ -71,7 +208,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     }
 
-    // No screen share active
     set({
       isScreenSharing: false,
       activeScreenTrack: null,
@@ -96,16 +232,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     isMuted: false,
     isDeafened: false,
     isScreenSharing: false,
+    isLocallySpeaking: false,
+    currentPing: null,
     localParticipant: null,
     remoteParticipants: [],
     activeSpeakers: new Set(),
     activeScreenTrack: null,
     screenSharerIdentity: null,
     screenSharerName: null,
+    currentScreenOptions: null,
     error: null,
 
     connect: async (url: string, token: string) => {
-      // Clean up previous room if any
       await get().disconnect();
 
       set({ connectionState: ConnectionState.Connecting, error: null });
@@ -120,7 +258,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         },
       });
 
-      // Set up room event listeners
       room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
         set({ connectionState: state });
       });
@@ -131,33 +268,45 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           localParticipant: room.localParticipant,
           remoteParticipants: Array.from(room.remoteParticipants.values()),
         });
+        useRoomStore.getState().setJoiningRoom(null);
+        useServerStore.getState().setJoiningVoiceChannel(null);
+        useRoomStore.getState().fetchRooms();
+        measurePing(room);
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = setInterval(() => measurePing(room), 2000);
       });
 
       room.on(RoomEvent.ParticipantConnected, () => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        useRoomStore.getState().fetchRooms();
       });
 
       room.on(RoomEvent.ParticipantDisconnected, () => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
         updateScreenShareState(room);
+        useRoomStore.getState().fetchRooms();
       });
 
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         const speakingSet = new Set<string>();
         speakers.forEach((s) => speakingSet.add(s.identity));
-        if (room.localParticipant.isSpeaking) {
+        if (get().isLocallySpeaking && room.localParticipant) {
           speakingSet.add(room.localParticipant.identity);
         }
         set({ activeSpeakers: speakingSet });
       });
 
-      room.on(RoomEvent.TrackSubscribed, (track) => {
+      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
-          // Attach audio to element so it plays
           const element = track.attach();
           element.autoplay = true;
 
-          // If currently deafened, mute the track immediately
+          // Apply saved per-participant volume if any
+          const savedVol = useSettingsStore.getState().participantVolumes[participant.identity];
+          if (typeof savedVol === 'number' && typeof (track as RemoteAudioTrack).setVolume === 'function') {
+            (track as RemoteAudioTrack).setVolume(savedVol / 100);
+          }
+
           if (get().isDeafened && track.mediaStreamTrack) {
             track.mediaStreamTrack.enabled = false;
           }
@@ -170,7 +319,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         updateScreenShareState(room);
       });
 
-      room.on(RoomEvent.LocalTrackPublished, () => {
+      room.on(RoomEvent.LocalTrackPublished, (pub) => {
+        if (pub.track && pub.track.kind === Track.Kind.Audio) {
+          const localAudio = pub.track as LocalAudioTrack;
+          if (localAudio.mediaStreamTrack) {
+            setupAudioAnalyser(localAudio.mediaStreamTrack);
+          }
+        }
         updateScreenShareState(room);
       });
 
@@ -178,25 +333,51 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         updateScreenShareState(room);
       });
 
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+        try {
+          const text = new TextDecoder().decode(payload);
+          const data = JSON.parse(text);
+          if (data.type === 'chat_message' && data.message && data.roomId) {
+            useChatStore.getState().addMessage(data.roomId, data.message);
+          }
+        } catch (err) {
+          console.warn('Error parsing data packet:', err);
+        }
+      });
+
       try {
         await room.connect(url, token);
 
-        // Apply audio settings
+        // In web browsers, ensure WebRTC audio playback is activated (handles autoplay policy)
+        try {
+          await room.startAudio();
+        } catch (audioErr) {
+          console.warn('Audio playback pending user gesture:', audioErr);
+        }
+
         const settings = useSettingsStore.getState();
         if (settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default') {
           try {
             await room.switchActiveDevice('audioinput', settings.audioInputDeviceId);
           } catch (e) {
-            console.warn('Could not switch to preferred audio input device:', e);
+            console.warn('Could not switch to preferred input device:', e);
           }
         }
 
-        // Enable microphone by default unless muted
+        // Check if push-to-talk is enabled by default
+        const isPtt = settings.inputMode === 'push-to-talk';
+
         try {
-          await room.localParticipant.setMicrophoneEnabled(true);
-          set({ isMuted: false });
+          await room.localParticipant.setMicrophoneEnabled(!isPtt);
+          set({ isMuted: isPtt });
+
+          // Find local audio track to start live analyzer
+          const micPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+          if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
+            setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+          }
         } catch (micErr: any) {
-          console.warn('Microphone permission or hardware error:', micErr);
+          console.warn('Microphone error:', micErr);
           set({ isMuted: true, error: 'Could not access microphone: ' + (micErr.message || 'Permission denied') });
         }
 
@@ -207,9 +388,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           connectionState: ConnectionState.Connected,
         });
 
+        sounds.playJoin();
         return true;
       } catch (err: any) {
         console.error('Failed to connect to LiveKit room:', err);
+        useServerStore.getState().setJoiningVoiceChannel(null);
         set({
           error: err.message || 'Failed to connect to room',
           connectionState: ConnectionState.Disconnected,
@@ -220,12 +403,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     disconnect: async () => {
       const { room } = get();
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      cleanupAudioAnalyser();
+
+      if (activeCustomScreenAudioTrack) {
+        activeCustomScreenAudioTrack.stop();
+        activeCustomScreenAudioTrack = null;
+      }
+
       if (activeCustomScreenTrack) {
         activeCustomScreenTrack.stop();
         activeCustomScreenTrack = null;
       }
 
       if (room) {
+        sounds.playDisconnect();
         try {
           await room.disconnect(true);
         } catch (e) {
@@ -241,9 +436,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         activeScreenTrack: null,
         screenSharerIdentity: null,
         screenSharerName: null,
+        currentScreenOptions: null,
         isScreenSharing: false,
+        isLocallySpeaking: false,
+        currentPing: null,
         connectionState: ConnectionState.Disconnected,
       });
+
+      useRoomStore.getState().setActiveRoom(null);
+      useRoomStore.getState().setJoiningRoom(null);
+      useRoomStore.getState().fetchRooms();
     },
 
     toggleMute: async () => {
@@ -254,8 +456,30 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       try {
         await room.localParticipant.setMicrophoneEnabled(!newMuted);
         set({ isMuted: newMuted });
+        if (newMuted) {
+          sounds.playMute();
+        } else {
+          sounds.playUnmute();
+        }
       } catch (err: any) {
         console.error('Failed to toggle microphone state:', err);
+      }
+    },
+
+    setPushToTalkActive: async (active: boolean) => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return;
+
+      try {
+        await room.localParticipant.setMicrophoneEnabled(active);
+        set({ isMuted: !active });
+        if (active) {
+          sounds.playPttActivate();
+        } else {
+          sounds.playPttDeactivate();
+        }
+      } catch (err) {
+        console.warn('Failed to update PTT mic state:', err);
       }
     },
 
@@ -266,32 +490,71 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       set({ isDeafened: newDeafened });
       useSettingsStore.getState().setDeafened(newDeafened);
 
+      if (newDeafened) {
+        sounds.playDeafen();
+      } else {
+        sounds.playUndeafen();
+      }
+
       if (room) {
         applyDeafenToRemoteTracks(room, newDeafened);
       }
     },
 
-    startScreenShare: async (sourceId?: string) => {
+    startScreenShare: async (sourceId?: string, options?: ScreenShareOptions) => {
       const { room } = get();
       if (!room || !room.localParticipant) return false;
 
+      const opts: ScreenShareOptions = {
+        resolution: options?.resolution || '1080p',
+        frameRate: options?.frameRate || 30,
+        preset: options?.preset || 'motion',
+        includeAudio: options?.includeAudio ?? true,
+      };
+
       try {
         if (sourceId && (window as any).nightshift?.isElectron) {
-          // Native Electron Desktop Capturer stream
-          const stream = await (navigator.mediaDevices as any).getUserMedia({
-            audio: false,
+          const targetFps = opts.frameRate || 30;
+          const constraints: any = {
+            audio: opts.includeAudio
+              ? {
+                  mandatory: {
+                    chromeMediaSource: 'desktop',
+                  },
+                }
+              : false,
             video: {
               mandatory: {
                 chromeMediaSource: 'desktop',
                 chromeMediaSourceId: sourceId,
-                minWidth: 1280,
-                maxWidth: 1920,
-                maxFrameRate: 30,
+                maxFrameRate: targetFps,
               },
             },
-          });
+          };
+
+          if (opts.resolution === '720p') {
+            constraints.video.mandatory.minWidth = 1280;
+            constraints.video.mandatory.maxWidth = 1280;
+            constraints.video.mandatory.minHeight = 720;
+            constraints.video.mandatory.maxHeight = 720;
+          } else if (opts.resolution === '1080p') {
+            constraints.video.mandatory.minWidth = 1920;
+            constraints.video.mandatory.maxWidth = 1920;
+            constraints.video.mandatory.minHeight = 1080;
+            constraints.video.mandatory.maxHeight = 1080;
+          } else if (opts.resolution === '1440p') {
+            constraints.video.mandatory.minWidth = 2560;
+            constraints.video.mandatory.maxWidth = 2560;
+            constraints.video.mandatory.minHeight = 1440;
+            constraints.video.mandatory.maxHeight = 1440;
+          }
+
+          const stream = await (navigator.mediaDevices as any).getUserMedia(constraints);
 
           const videoTrack = stream.getVideoTracks()[0];
+          if (!videoTrack) throw new Error('No video track returned from screen capture');
+
+          videoTrack.contentHint = opts.preset === 'detail' ? 'detail' : 'motion';
           videoTrack.onended = () => {
             get().stopScreenShare();
           };
@@ -299,21 +562,57 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const localTrack = new LocalVideoTrack(videoTrack);
           activeCustomScreenTrack = localTrack;
 
+          let maxBitrate = 5_000_000;
+          if (opts.resolution === '720p') {
+            maxBitrate = targetFps === 60 ? 4_500_000 : 3_000_000;
+          } else if (opts.resolution === '1080p') {
+            maxBitrate = targetFps === 60 ? 8_000_000 : 5_000_000;
+          } else if (opts.resolution === '1440p' || opts.resolution === 'source') {
+            maxBitrate = targetFps === 60 ? 12_000_000 : 8_000_000;
+          }
+
           await room.localParticipant.publishTrack(localTrack, {
+            name: 'screen-video',
             source: Track.Source.ScreenShare,
-          });
-        } else {
-          // Standard browser getDisplayMedia fallback
-          await room.localParticipant.setScreenShareEnabled(true, {
-            audio: false,
-            resolution: {
-              width: 1920,
-              height: 1080,
-              frameRate: 30,
+            videoEncoding: {
+              maxBitrate,
+              maxFramerate: targetFps,
+              priority: 'high',
             },
+            simulcast: false,
+          });
+
+          // Check if system audio track was captured
+          const audioTracks = stream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            try {
+              const localAudioTrack = new LocalAudioTrack(audioTracks[0]);
+              activeCustomScreenAudioTrack = localAudioTrack;
+              await room.localParticipant.publishTrack(localAudioTrack, {
+                name: 'screen-audio',
+                source: Track.Source.ScreenShareAudio,
+              });
+            } catch (audioPubErr) {
+              console.warn('Could not publish system audio track:', audioPubErr);
+            }
+          }
+        } else {
+          const width = opts.resolution === '720p' ? 1280 : opts.resolution === '1440p' ? 2560 : 1920;
+          const height = opts.resolution === '720p' ? 720 : opts.resolution === '1440p' ? 1440 : 1080;
+          const targetFps = opts.frameRate || 30;
+
+          await room.localParticipant.setScreenShareEnabled(true, {
+            audio: opts.includeAudio ?? true,
+            resolution: {
+              width,
+              height,
+              frameRate: targetFps,
+            },
+            contentHint: opts.preset === 'detail' ? 'detail' : 'motion',
           });
         }
 
+        set({ currentScreenOptions: opts });
         updateScreenShareState(room);
         return true;
       } catch (err: any) {
@@ -328,6 +627,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (!room || !room.localParticipant) return;
 
       try {
+        if (activeCustomScreenAudioTrack) {
+          await room.localParticipant.unpublishTrack(activeCustomScreenAudioTrack);
+          activeCustomScreenAudioTrack.stop();
+          activeCustomScreenAudioTrack = null;
+        }
         if (activeCustomScreenTrack) {
           await room.localParticipant.unpublishTrack(activeCustomScreenTrack);
           activeCustomScreenTrack.stop();
@@ -338,6 +642,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } catch (err) {
         console.warn('Error stopping screen share:', err);
       } finally {
+        set({ currentScreenOptions: null });
         updateScreenShareState(room);
       }
     },
@@ -353,6 +658,38 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const { room } = get();
       if (room) {
         await room.switchActiveDevice('audiooutput', deviceId);
+      }
+    },
+
+    setParticipantVolume: (identity: string, volumePercent: number) => {
+      useSettingsStore.getState().setParticipantVolume(identity, volumePercent);
+      const { room } = get();
+      if (!room) return;
+
+      const remote = room.remoteParticipants.get(identity);
+      if (remote) {
+        remote.audioTrackPublications.forEach((pub) => {
+          if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+            (pub.track as RemoteAudioTrack).setVolume(volumePercent / 100);
+          }
+        });
+      }
+    },
+
+    broadcastChatMessage: async (roomId: string, message: MessageDto) => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return;
+
+      try {
+        const payload = JSON.stringify({
+          type: 'chat_message',
+          roomId,
+          message,
+        });
+        const bytes = new TextEncoder().encode(payload);
+        await room.localParticipant.publishData(bytes, { reliable: true });
+      } catch (err) {
+        console.warn('Failed to broadcast chat message:', err);
       }
     },
   };

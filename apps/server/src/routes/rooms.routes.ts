@@ -1,171 +1,118 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import {
-  CreateRoomSchema,
-  JoinRoomSchema,
-  RoomDto,
-  JoinRoomResponse,
+  VoiceJoinResponse,
+  ChannelDto,
+  ServerSummaryDto,
   UserDto,
 } from '@nightshift/shared';
 import {
   generateLiveKitToken,
-  getLiveKitRoomParticipantsCount,
+  getLiveKitRoomParticipants,
+  invalidateRoomParticipantCache,
 } from '../services/livekit.service.js';
 import { config } from '../config.js';
+import { requireAuth } from '../lib/auth.js';
 
 export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
-  // List all rooms with active participant counts
-  fastify.get('/api/rooms', async (_request, reply) => {
-    const rooms = await prisma.room.findMany({
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-    });
+  // Join voice channel and issue short-lived LiveKit token
+  fastify.post('/api/channels/:channelId/join', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) return;
 
-    const roomDtos: RoomDto[] = await Promise.all(
-      rooms.map(async (r) => {
-        const participantCount = await getLiveKitRoomParticipantsCount(r.name);
-        return {
-          id: r.id,
-          name: r.name,
-          description: r.description,
-          isDefault: r.isDefault,
-          participantCount,
-          createdAt: r.createdAt.toISOString(),
-        };
-      })
-    );
+    const { channelId } = request.params as { channelId: string };
 
-    return reply.status(200).send({ rooms: roomDtos });
-  });
-
-  // Get single room by ID
-  fastify.get('/api/rooms/:id', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const room = await prisma.room.findUnique({
-      where: { id },
-    });
-
-    if (!room) {
-      return reply.status(404).send({ error: 'Room not found' });
-    }
-
-    const participantCount = await getLiveKitRoomParticipantsCount(room.name);
-    const roomDto: RoomDto = {
-      id: room.id,
-      name: room.name,
-      description: room.description,
-      isDefault: room.isDefault,
-      participantCount,
-      createdAt: room.createdAt.toISOString(),
-    };
-
-    return reply.status(200).send({ room: roomDto });
-  });
-
-  // Create room
-  fastify.post('/api/rooms', async (request, reply) => {
-    const parseResult = CreateRoomSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: 'Invalid room creation data',
-        details: parseResult.error.flatten(),
-      });
-    }
-
-    const { name, description } = parseResult.data;
-
-    const existing = await prisma.room.findUnique({
-      where: { name },
-    });
-
-    if (existing) {
-      return reply.status(409).send({ error: 'A room with this name already exists' });
-    }
-
-    const room = await prisma.room.create({
-      data: {
-        name,
-        description,
-        isDefault: false,
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      include: {
+        server: {
+          include: {
+            _count: {
+              select: { channels: true, members: true },
+            },
+          },
+        },
       },
     });
 
-    const roomDto: RoomDto = {
-      id: room.id,
-      name: room.name,
-      description: room.description,
-      isDefault: room.isDefault,
-      participantCount: 0,
-      createdAt: room.createdAt.toISOString(),
-    };
-
-    return reply.status(201).send({ room: roomDto });
-  });
-
-  // Join room and issue short-lived LiveKit access token
-  fastify.post('/api/rooms/:id/join', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const parseResult = JoinRoomSchema.safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: 'Invalid join request',
-        details: parseResult.error.flatten(),
-      });
+    if (!channel) {
+      return reply.status(404).send({ error: 'Voice channel not found' });
     }
 
-    const { userId } = parseResult.data;
+    if (channel.type !== 'voice') {
+      return reply.status(400).send({ error: 'The requested channel is not a voice channel' });
+    }
 
-    // Verify user exists in database
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    // Verify membership
+    const membership = await prisma.serverMember.findUnique({
+      where: { serverId_userId: { serverId: channel.serverId, userId: user.id } },
     });
 
-    if (!user) {
-      return reply.status(404).send({ error: 'User not registered. Please register first.' });
+    if (!membership) {
+      return reply.status(403).send({ error: 'You must be a member of this server to join voice' });
     }
 
-    // Verify room exists
-    const room = await prisma.room.findUnique({
-      where: { id },
+    // Check if banned
+    const isBanned = await prisma.serverBan.findUnique({
+      where: { serverId_userId: { serverId: channel.serverId, userId: user.id } },
     });
 
-    if (!room) {
-      return reply.status(404).send({ error: 'Room not found' });
+    if (isBanned) {
+      return reply.status(403).send({ error: 'You are banned from this server' });
     }
 
-    // Generate real LiveKit JWT token
+    // LiveKit room key
+    const roomKey = `ns_${channel.serverId}_${channel.id}`;
+
     let token: string;
     try {
-      token = await generateLiveKitToken(room.name, user.id, user.displayName);
+      token = await generateLiveKitToken(roomKey, user.id, user.displayName);
+      invalidateRoomParticipantCache(roomKey);
     } catch (err: any) {
-      request.log.error(err, 'Failed to generate LiveKit access token');
+      console.error('Failed to generate LiveKit token:', err);
       return reply.status(500).send({
-        error: 'Failed to generate room media token. Ensure LiveKit is configured.',
+        error: 'LiveKit server error',
         details: err?.message,
       });
     }
 
-    const participantCount = await getLiveKitRoomParticipantsCount(room.name);
+    const participants = await getLiveKitRoomParticipants(roomKey);
+
+    const channelDto: ChannelDto = {
+      id: channel.id,
+      serverId: channel.serverId,
+      name: channel.name,
+      type: 'voice',
+      order: channel.order,
+      createdAt: channel.createdAt.toISOString(),
+      participantCount: participants.length,
+    };
+
+    const serverDto: ServerSummaryDto = {
+      id: channel.server.id,
+      name: channel.server.name,
+      description: channel.server.description,
+      iconUrl: channel.server.iconUrl,
+      ownerId: channel.server.ownerId,
+      channelCount: channel.server._count.channels,
+      memberCount: channel.server._count.members,
+      role: membership.role as 'owner' | 'admin' | 'member',
+      createdAt: channel.server.createdAt.toISOString(),
+    };
 
     const userDto: UserDto = {
       id: user.id,
+      username: user.username,
       displayName: user.displayName,
-      deviceId: user.deviceId,
-      createdAt: user.createdAt.toISOString(),
-      lastSeenAt: user.lastSeenAt.toISOString(),
+      avatarUrl: user.avatarUrl,
+      createdAt: user.createdAt,
+      lastSeenAt: user.lastSeenAt,
+      isOnline: true,
     };
 
-    const roomDto: RoomDto = {
-      id: room.id,
-      name: room.name,
-      description: room.description,
-      isDefault: room.isDefault,
-      participantCount,
-      createdAt: room.createdAt.toISOString(),
-    };
-
-    const response: JoinRoomResponse = {
-      room: roomDto,
+    const response: VoiceJoinResponse = {
+      channel: channelDto,
+      server: serverDto,
       livekitUrl: config.livekit.url,
       token,
       user: userDto,

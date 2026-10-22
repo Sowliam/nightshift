@@ -9,6 +9,7 @@ export const ParticipantStrip: React.FC = () => {
     localParticipant,
     remoteParticipants,
     activeSpeakers,
+    isLocallySpeaking,
     isMuted,
     isDeafened,
     isScreenSharing,
@@ -40,7 +41,7 @@ export const ParticipantStrip: React.FC = () => {
       identity: localParticipant.identity,
       name: user?.displayName || localParticipant.name || 'You',
       isLocal: true,
-      isSpeaking: activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking,
+      isSpeaking: isLocallySpeaking || activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking,
       isMuted: isMuted,
       isScreenSharing: isScreenSharing,
     });

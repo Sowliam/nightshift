@@ -3,13 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --bg-main: #17191C;
-  --bg-secondary: #1D2024;
-  --bg-elevated: #24282D;
-  --border: #30343A;
-  --text-primary: #F0F1ED;
-  --text-secondary: #969CA5;
-  --accent: #C4D36A;
+  --bg-main: #0A0908; /* Primary Color: True Deep Black */
+  --bg-secondary: #121110; /* Sidebar & Panel Surface */
+  --bg-elevated: #1C1A18; /* Elevated Card Surface */
+  --bg-hover: #262421;
+  --highlight: #F1FAEE; /* Buttons and Icons Highlight */
+  --highlight-hover: #FFFFFF;
+  --highlight-text: #0A0908;
+  --border: #292623;
+  --border-subtle: #1F1D1B;
+  --border-strong: #3D3935;
+  --text-primary: #F1FAEE;
+  --text-secondary: #A8A39D;
+  --text-muted: #736E68;
+  --accent: #F1FAEE;
+  --accent-hover: #FFFFFF;
+  --accent-bright: #52B788;
   --destructive: #E05252;
 }
 

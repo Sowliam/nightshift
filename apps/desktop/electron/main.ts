@@ -1,16 +1,19 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, session } from 'electron';
 import path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.ELECTRON_DEV === 'true' || !app.isPackaged;
 
 async function createWindow() {
+  const iconPath = path.join(__dirname, '../public/logo.png');
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
     minHeight: 700,
-    backgroundColor: '#17191C',
+    backgroundColor: '#0A0908',
+    icon: iconPath,
     frame: false, // Custom sleek titlebar
     titleBarStyle: 'hidden',
     webPreferences: {
@@ -22,6 +25,17 @@ async function createWindow() {
     },
     show: false,
   });
+
+  // Explicitly allow microphone and display media captures in Electron
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowed = ['media', 'audioCapture', 'videoCapture', 'desktopCapture', 'display-capture', 'notifications'];
+    if (allowed.includes(permission)) {
+      callback(true);
+      return;
+    }
+    callback(true);
+  });
+  session.defaultSession.setPermissionCheckHandler(() => true);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -70,11 +84,22 @@ async function createWindow() {
     }
   });
 
+  // Allow F5 and Ctrl+R to reload the window, and F12 / Ctrl+Shift+I to toggle DevTools
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F5' || ((input.control || input.meta) && input.key.toLowerCase() === 'r')) {
+      mainWindow?.webContents.reloadIgnoringCache();
+    }
+    if (input.key === 'F12' || ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i')) {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
+
   if (isDev) {
+    try {
+      await mainWindow.webContents.session.clearCache();
+    } catch {}
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
     await mainWindow.loadURL(devUrl);
-    // Optionally open dev tools during development
-    // mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }

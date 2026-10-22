@@ -1,10 +1,15 @@
 import fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
+import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
+import path from 'path';
+import fs from 'fs';
 import { healthRoutes } from './routes/health.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { serversRoutes } from './routes/servers.routes.js';
 import { roomsRoutes } from './routes/rooms.routes.js';
-import { invitationsRoutes } from './routes/invitations.routes.js';
+import { messagesRoutes } from './routes/messages.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -20,11 +25,47 @@ export async function buildApp(): Promise<FastifyInstance> {
     credentials: true,
   });
 
+  // Gracefully handle empty body with application/json header
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body: string, done) => {
+    if (!body || body.trim() === '') {
+      done(null, {});
+      return;
+    }
+    try {
+      const parsed = JSON.parse(body);
+      done(null, parsed);
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
+  // Register multipart plugin for file/image uploads
+  await app.register(multipart, {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+      files: 1,
+    },
+  });
+
+  // Ensure uploads directory exists and serve files statically
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  await app.register(fastifyStatic, {
+    root: uploadsDir,
+    prefix: '/uploads/',
+    decorateReply: false,
+  });
+
   // Register API routes
   await app.register(healthRoutes);
   await app.register(authRoutes);
+  await app.register(serversRoutes);
   await app.register(roomsRoutes);
-  await app.register(invitationsRoutes);
+  await app.register(messagesRoutes);
 
   return app;
 }

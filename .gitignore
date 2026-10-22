@@ -4,6 +4,7 @@ node_modules/
 
 # Build artifacts
 dist/
+dist-electron/
 build/
 out/
 .vite/
@@ -36,3 +37,4 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+scratch/

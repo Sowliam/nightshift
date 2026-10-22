@@ -44,17 +44,51 @@ export async function generateLiveKitToken(
   return await at.toJwt();
 }
 
-export async function getLiveKitRoomParticipantsCount(roomName: string): Promise<number> {
+const participantCache = new Map<string, { data: Array<{ identity: string; name: string }>; timestamp: number }>();
+const CACHE_TTL_MS = 2000;
+
+export function invalidateRoomParticipantCache(roomName?: string) {
+  if (roomName) {
+    participantCache.delete(roomName);
+  } else {
+    participantCache.clear();
+  }
+}
+
+export async function getLiveKitRoomParticipants(
+  roomName: string
+): Promise<Array<{ identity: string; name: string }>> {
+  const cached = participantCache.get(roomName);
+  const now = Date.now();
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const client = getClient();
-  if (!client) return 0;
+  if (!client) return cached?.data || [];
 
   try {
-    const participants = await client.listParticipants(roomName);
-    return participants.length;
+    const fetchPromise = client.listParticipants(roomName);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('LiveKit listParticipants timeout')), 1200)
+    );
+
+    const participants = await Promise.race([fetchPromise, timeoutPromise]);
+    const mapped = participants.map((p) => ({
+      identity: p.identity,
+      name: p.name || p.identity,
+    }));
+
+    participantCache.set(roomName, { data: mapped, timestamp: now });
+    return mapped;
   } catch {
-    // If room hasn't been created yet or cloud is temporarily unreachable, participant count is 0
-    return 0;
+    return cached?.data || [];
   }
+}
+
+export async function getLiveKitRoomParticipantsCount(roomName: string): Promise<number> {
+  const participants = await getLiveKitRoomParticipants(roomName);
+  return participants.length;
 }
 
 export async function checkLiveKitHealth(): Promise<{ configured: boolean; reachable: boolean; error?: string }> {

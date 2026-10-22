@@ -1,19 +1,23 @@
 import React from 'react';
-import { Volume2, Users, Compass, Settings, ShieldCheck } from 'lucide-react';
+import { Volume2, Globe, Settings, ShieldCheck, Zap } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
+import { useLiveKitStore } from '../../stores/livekit.store';
 
 interface NavigationRailProps {
-  activeTab: 'rooms' | 'friends' | 'activity';
-  onTabChange: (tab: 'rooms' | 'friends' | 'activity') => void;
+  activeTab: 'rooms' | 'servers';
+  onTabChange: (tab: 'rooms' | 'servers') => void;
   onOpenSettings: () => void;
+  onOpenServers: () => void;
 }
 
 export const NavigationRail: React.FC<NavigationRailProps> = ({
   activeTab,
   onTabChange,
   onOpenSettings,
+  onOpenServers,
 }) => {
   const { user } = useAuthStore();
+  const { currentPing, isLocallySpeaking } = useLiveKitStore();
 
   const getInitials = (name: string) => {
     return name
@@ -62,46 +66,38 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             </button>
           </div>
 
-          {/* Friends */}
+          {/* Servers & Ping Monitor */}
           <div className="relative group flex items-center justify-center w-full">
-            {activeTab === 'friends' && (
-              <div className="absolute left-0 w-1 h-6 bg-accent rounded-r-md" />
-            )}
             <button
-              onClick={() => onTabChange('friends')}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
-                activeTab === 'friends'
-                  ? 'bg-accent text-bg-main font-semibold shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
-              }`}
-              title="Friends"
+              onClick={onOpenServers}
+              className="w-11 h-11 rounded-xl flex flex-col items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-all relative"
+              title="Servers & Ping Monitor"
             >
-              <Users className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Activity */}
-          <div className="relative group flex items-center justify-center w-full">
-            {activeTab === 'activity' && (
-              <div className="absolute left-0 w-1 h-6 bg-accent rounded-r-md" />
-            )}
-            <button
-              onClick={() => onTabChange('activity')}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
-                activeTab === 'activity'
-                  ? 'bg-accent text-bg-main font-semibold shadow-sm'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
-              }`}
-              title="Activity & Recent"
-            >
-              <Compass className="w-5 h-5" />
+              <Globe className="w-5 h-5" />
+              {currentPing !== null && (
+                <span className="text-[9px] font-mono text-accent font-bold mt-0.5">
+                  {currentPing}ms
+                </span>
+              )}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Bottom: Settings & User Avatar */}
+      {/* Bottom: Ping Pill, Settings & User Avatar */}
       <div className="flex flex-col items-center gap-3 w-full">
+        {/* Quick Ping Pill */}
+        {currentPing !== null && (
+          <button
+            onClick={onOpenServers}
+            className="px-1.5 py-0.5 rounded-full bg-accent-subtle border border-accent/30 text-accent text-[10px] font-mono font-bold flex items-center gap-1 hover:bg-accent/20 transition-all"
+            title="Current RTT Ping - Click to test regions"
+          >
+            <Zap className="w-2.5 h-2.5" />
+            {currentPing}ms
+          </button>
+        )}
+
         <button
           onClick={onOpenSettings}
           className="w-11 h-11 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors"
@@ -112,13 +108,21 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <div className="relative group">
           <div
-            className="w-10 h-10 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center text-xs font-bold text-text-primary cursor-pointer hover:border-accent transition-colors"
-            title={user ? `${user.displayName} (Online)` : 'Guest'}
+            className={`w-10 h-10 rounded-full bg-bg-elevated border flex items-center justify-center text-xs font-bold text-text-primary cursor-pointer transition-all ${
+              isLocallySpeaking
+                ? 'border-accent text-accent shadow-[0_0_12px_rgba(196,211,106,0.6)] ring-2 ring-accent'
+                : 'border-border-subtle hover:border-accent'
+            }`}
+            title={user ? `${user.displayName} (${isLocallySpeaking ? 'Speaking' : 'Online'})` : 'Guest'}
             onClick={onOpenSettings}
           >
             {user ? getInitials(user.displayName) : 'U'}
           </div>
-          <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-online border-2 border-bg-secondary" />
+          {isLocallySpeaking ? (
+            <span className="absolute -inset-0.5 rounded-full border border-accent animate-ping opacity-75 pointer-events-none" />
+          ) : (
+            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-online border-2 border-bg-secondary" />
+          )}
         </div>
       </div>
     </div>

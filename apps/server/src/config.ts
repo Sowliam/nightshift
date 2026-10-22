@@ -6,8 +6,8 @@ dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 export const config = {
-  port: parseInt(process.env.SERVER_PORT || '3001', 10),
-  host: process.env.SERVER_HOST || '127.0.0.1',
+  port: parseInt(process.env.PORT || process.env.SERVER_PORT || '3001', 10),
+  host: process.env.SERVER_HOST || '0.0.0.0',
   databaseUrl: process.env.DATABASE_URL || 'file:./nightshift.db',
   livekit: {
     url: process.env.LIVEKIT_URL || 'wss://voiceline-qy3slc6n.livekit.cloud',
