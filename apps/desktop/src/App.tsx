@@ -3,11 +3,21 @@ import { TitleBar } from './components/layout/TitleBar';
 import { RoomSidebar } from './components/layout/RoomSidebar';
 import { ChatStage } from './components/chat/ChatStage';
 import { ParticipantPanel } from './components/layout/ParticipantPanel';
-import { ScreenShareModal } from './components/modals/ScreenShareModal';
-import { SettingsModal } from './components/modals/SettingsModal';
-import { InviteModal } from './components/modals/InviteModal';
-import { ServerPingModal } from './components/modals/ServerPingModal';
 import { OnboardingModal } from './components/modals/OnboardingModal';
+
+// Lazy-load secondary modals to minimize initial bundle size and speed up FCP
+const ScreenShareModal = React.lazy(() =>
+  import('./components/modals/ScreenShareModal').then((m) => ({ default: m.ScreenShareModal }))
+);
+const SettingsModal = React.lazy(() =>
+  import('./components/modals/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const InviteModal = React.lazy(() =>
+  import('./components/modals/InviteModal').then((m) => ({ default: m.InviteModal }))
+);
+const ServerPingModal = React.lazy(() =>
+  import('./components/modals/ServerPingModal').then((m) => ({ default: m.ServerPingModal }))
+);
 import { useAuthStore } from './stores/auth.store';
 import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
@@ -194,30 +204,40 @@ export const App: React.FC = () => {
         {isMembersOpen && <ParticipantPanel />}
       </div>
 
-      {/* Global Modals */}
-      <ScreenShareModal
-        isOpen={isScreenShareOpen}
-        onClose={() => setIsScreenShareOpen(false)}
-      />
+      {/* Global Modals (Lazy Loaded on Demand) */}
+      <React.Suspense fallback={null}>
+        {isScreenShareOpen && (
+          <ScreenShareModal
+            isOpen={isScreenShareOpen}
+            onClose={() => setIsScreenShareOpen(false)}
+          />
+        )}
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+        {isSettingsOpen && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+          />
+        )}
 
-      <InviteModal
-        isOpen={isInviteOpen}
-        onClose={() => {
-          setIsInviteOpen(false);
-          setInviteInitialCode('');
-        }}
-        initialCode={inviteInitialCode}
-      />
+        {isInviteOpen && (
+          <InviteModal
+            isOpen={isInviteOpen}
+            onClose={() => {
+              setIsInviteOpen(false);
+              setInviteInitialCode('');
+            }}
+            initialCode={inviteInitialCode}
+          />
+        )}
 
-      <ServerPingModal
-        isOpen={isServerPingOpen}
-        onClose={() => setIsServerPingOpen(false)}
-      />
+        {isServerPingOpen && (
+          <ServerPingModal
+            isOpen={isServerPingOpen}
+            onClose={() => setIsServerPingOpen(false)}
+          />
+        )}
+      </React.Suspense>
 
       {/* User Onboarding / Login / Registration (Shown when unauthenticated) */}
       <OnboardingModal isOpen={!authLoading && !user} />

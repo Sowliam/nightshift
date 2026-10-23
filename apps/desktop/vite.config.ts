@@ -19,5 +19,19 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    target: 'esnext',
+    minify: 'esbuild',
+    cssCodeSplit: true,
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-livekit': ['livekit-client', '@livekit/components-react'],
+          'vendor-icons': ['lucide-react'],
+          'vendor-utils': ['zustand', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
   },
 });

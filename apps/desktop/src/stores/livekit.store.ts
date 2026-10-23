@@ -111,51 +111,56 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       localAudioSource.connect(localAnalyser);
 
       const buffer = new Uint8Array(localAnalyser.frequencyBinCount);
+      let lastCheck = 0;
 
-      const checkAudio = () => {
+      const checkAudio = (timestamp: number) => {
         if (!localAnalyser) return;
-        localAnalyser.getByteFrequencyData(buffer);
-        let sum = 0;
-        for (let i = 0; i < buffer.length; i++) sum += buffer[i];
-        const avg = sum / buffer.length;
-        const normalized = Math.min(100, Math.round((avg / 128) * 100));
+        // Throttle check to ~40ms (25fps) to save CPU and battery
+        if (timestamp - lastCheck >= 40) {
+          lastCheck = timestamp;
+          localAnalyser.getByteFrequencyData(buffer);
+          let sum = 0;
+          for (let i = 0; i < buffer.length; i++) sum += buffer[i];
+          const avg = sum / buffer.length;
+          const normalized = Math.min(100, Math.round((avg / 128) * 100));
 
-        const threshold = useSettingsStore.getState().voiceActivationThreshold || 15;
-        const isMuted = get().isMuted;
+          const threshold = useSettingsStore.getState().voiceActivationThreshold || 15;
+          const isMuted = get().isMuted;
 
-        if (!isMuted && normalized > threshold) {
-          if (silenceTimer) {
-            clearTimeout(silenceTimer);
-            silenceTimer = null;
-          }
-          if (!get().isLocallySpeaking) {
-            set({ isLocallySpeaking: true });
-            const localId = get().localParticipant?.identity;
-            if (localId) {
-              set((state) => ({
-                activeSpeakers: new Set([...state.activeSpeakers, localId]),
-              }));
+          if (!isMuted && normalized > threshold) {
+            if (silenceTimer) {
+              clearTimeout(silenceTimer);
+              silenceTimer = null;
             }
-          }
-        } else {
-          if (!silenceTimer && get().isLocallySpeaking) {
-            silenceTimer = setTimeout(() => {
-              set({ isLocallySpeaking: false });
+            if (!get().isLocallySpeaking) {
+              set({ isLocallySpeaking: true });
               const localId = get().localParticipant?.identity;
               if (localId) {
-                set((state) => {
-                  const updated = new Set(state.activeSpeakers);
-                  updated.delete(localId);
-                  return { activeSpeakers: updated };
-                });
+                set((state) => ({
+                  activeSpeakers: new Set([...state.activeSpeakers, localId]),
+                }));
               }
-              silenceTimer = null;
-            }, 300);
+            }
+          } else {
+            if (!silenceTimer && get().isLocallySpeaking) {
+              silenceTimer = setTimeout(() => {
+                set({ isLocallySpeaking: false });
+                const localId = get().localParticipant?.identity;
+                if (localId) {
+                  set((state) => {
+                    const updated = new Set(state.activeSpeakers);
+                    updated.delete(localId);
+                    return { activeSpeakers: updated };
+                  });
+                }
+                silenceTimer = null;
+              }, 300);
+            }
           }
         }
         localAnimFrame = requestAnimationFrame(checkAudio);
       };
-      checkAudio();
+      localAnimFrame = requestAnimationFrame(checkAudio);
     } catch (e) {
       console.warn('Could not setup local audio analyzer:', e);
     }
@@ -397,7 +402,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       });
 
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
-        track.detach();
+        try {
+          const detached = track.detach();
+          detached.forEach((el) => el.remove());
+        } catch {}
         updateScreenShareState(room);
       });
 
@@ -509,6 +517,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           console.warn('Error during room disconnect:', e);
         }
       }
+
+      // Clean up any remaining audio elements in DOM
+      try {
+        const audioContainer = document.getElementById('nightshift-voice-audio-container');
+        if (audioContainer) {
+          audioContainer.innerHTML = '';
+        }
+      } catch {}
 
       set({
         room: null,

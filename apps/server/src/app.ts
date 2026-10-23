@@ -58,6 +58,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     root: uploadsDir,
     prefix: '/uploads/',
     decorateReply: false,
+    maxAge: '1d',
+    immutable: true,
   });
 
   // Register API routes
