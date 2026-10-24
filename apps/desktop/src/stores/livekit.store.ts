@@ -81,6 +81,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeCustomScreenAudioTrack: LocalAudioTrack | null = null;
   let activeLocalSoundboardTrack: LocalAudioTrack | null = null;
   let activeLocalMicTrack: MediaStreamTrack | null = null;
+  let activeAnalyserStream: MediaStream | null = null;
+  let activeAnalyserTrack: MediaStreamTrack | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
@@ -103,66 +105,147 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } catch {}
       localAudioSource = null;
     }
+    if (activeAnalyserStream) {
+      try {
+        activeAnalyserStream.getTracks().forEach((t) => t.stop());
+      } catch {}
+      activeAnalyserStream = null;
+    }
+    if (activeAnalyserTrack) {
+      try {
+        activeAnalyserTrack.stop();
+      } catch {}
+      activeAnalyserTrack = null;
+    }
     if (localAudioContext) {
-      localAudioContext.close().catch(() => {});
+      try {
+        localAudioContext.close().catch(() => {});
+      } catch {}
       localAudioContext = null;
     }
     activeLocalMicTrack = null;
     set({ isLocallySpeaking: false });
   };
 
-  const setupAudioAnalyser = (track: MediaStreamTrack) => {
+  const setupAudioAnalyser = async (track: MediaStreamTrack) => {
     cleanupAudioAnalyser();
     activeLocalMicTrack = track;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      localAudioContext = new AudioCtx();
-      const stream = new MediaStream([track]);
+      if (!AudioCtx) {
+        if (track && !get().isMuted && !get().isDeafened) track.enabled = true;
+        return;
+      }
+
+      // Safe AudioContext constructor: avoid sampleRate error on 44.1kHz audio hardware
+      try {
+        localAudioContext = new AudioCtx({ sampleRate: 48000 });
+      } catch {
+        localAudioContext = new AudioCtx();
+      }
+
+      if (localAudioContext.state === 'suspended') {
+        localAudioContext.resume().catch(() => {});
+      }
+
+      const settings = useSettingsStore.getState();
+      const isVoiceActivity = settings.inputMode === 'voice-activity';
+
+      // To prevent Chromium from deadlocking cloned audio when track.enabled is muted on WebRTC,
+      // we acquire an isolated hardware stream specifically for voice activity detection.
+      let stream: MediaStream;
+      try {
+        const streamConstraints: MediaStreamConstraints = {
+          audio: {
+            deviceId:
+              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
+                ? { exact: settings.audioInputDeviceId }
+                : undefined,
+            echoCancellation: settings.echoCancellation,
+            noiseSuppression: settings.noiseSuppression !== 'none',
+            autoGainControl: true,
+          },
+        };
+        stream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+        activeAnalyserStream = stream;
+      } catch {
+        // Fallback to track clone if second getUserMedia is denied
+        activeAnalyserTrack = track.clone();
+        activeAnalyserTrack.enabled = true;
+        stream = new MediaStream([activeAnalyserTrack]);
+      }
+
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
 
-      // Highpass Biquad Filter at 85 Hz:
-      // Eliminates breath puffs, airflow turbulence, table thumps, and mechanical mic hum
-      // without degrading vocal warmth or speech intelligibility
-      const highpass = localAudioContext.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.setValueAtTime(85, localAudioContext.currentTime);
-      highpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
+      // Cascaded Vocal Bandpass Filtering (140 Hz 4th-order High-Pass + 3400 Hz Low-Pass):
+      // Aggressively strips breath puffs, microphone air turbulence, desk thumps, and high hiss
+      const highpass1 = localAudioContext.createBiquadFilter();
+      highpass1.type = 'highpass';
+      highpass1.frequency.setValueAtTime(140, localAudioContext.currentTime);
+      highpass1.Q.setValueAtTime(1.0, localAudioContext.currentTime);
+
+      const highpass2 = localAudioContext.createBiquadFilter();
+      highpass2.type = 'highpass';
+      highpass2.frequency.setValueAtTime(140, localAudioContext.currentTime);
+      highpass2.Q.setValueAtTime(1.0, localAudioContext.currentTime);
+
+      const lowpass = localAudioContext.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(3400, localAudioContext.currentTime);
+      lowpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
 
       localAnalyser = localAudioContext.createAnalyser();
-      localAnalyser.fftSize = 256;
+      localAnalyser.fftSize = 512;
+      localAnalyser.smoothingTimeConstant = 0.2;
 
-      localAudioSource.connect(highpass);
-      highpass.connect(localAnalyser);
+      localAudioSource.connect(highpass1);
+      highpass1.connect(highpass2);
+      highpass2.connect(lowpass);
+      lowpass.connect(localAnalyser);
 
-      const buffer = new Uint8Array(localAnalyser.frequencyBinCount);
+      const timeBuffer = new Uint8Array(localAnalyser.fftSize);
       let lastCheck = 0;
 
-      // In voice-activity mode, start with track muted at WebRTC level
-      // until user vocalization crosses the sensitivity threshold
-      const initialSettings = useSettingsStore.getState();
-      if (initialSettings.inputMode === 'voice-activity' && !get().isMuted && !get().isDeafened) {
+      // In voice-activity mode, start with WebRTC track muted until real speech is detected
+      if (isVoiceActivity && !get().isMuted && !get().isDeafened) {
         track.enabled = false;
+      } else if (!get().isMuted && !get().isDeafened) {
+        track.enabled = true;
       }
 
       const checkAudio = (timestamp: number) => {
         if (!localAnalyser) return;
-        // Check at ~30fps (33ms)
-        if (timestamp - lastCheck >= 33) {
-          lastCheck = timestamp;
-          localAnalyser.getByteFrequencyData(buffer);
-          let sum = 0;
-          for (let i = 0; i < buffer.length; i++) sum += buffer[i];
-          const avg = sum / buffer.length;
-          const normalized = Math.min(100, Math.round((avg / 128) * 100));
 
-          const settings = useSettingsStore.getState();
-          const isPtt = settings.inputMode === 'push-to-talk';
+        // Auto-resume AudioContext if suspended
+        if (localAudioContext && localAudioContext.state === 'suspended') {
+          localAudioContext.resume().catch(() => {});
+        }
+
+        if (timestamp - lastCheck >= 25) {
+          lastCheck = timestamp;
+          localAnalyser.getByteTimeDomainData(timeBuffer);
+
+          let sumSquares = 0;
+          for (let i = 0; i < timeBuffer.length; i++) {
+            const sample = (timeBuffer[i] - 128) / 128;
+            sumSquares += sample * sample;
+          }
+          const rms = Math.sqrt(sumSquares / timeBuffer.length);
+          const db = 20 * Math.log10(Math.max(0.00001, rms));
+
+          // Calibrated Decibel Curve:
+          // Room silence / breath: < -50 dB -> 0%
+          // Whispers: -40 dB -> ~33%
+          // Normal voice: -26 dB to -14 dB -> 80% - 100%
+          const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
+
+          const currentSettings = useSettingsStore.getState();
+          const isPtt = currentSettings.inputMode === 'push-to-talk';
           const isMuted = get().isMuted;
           const isDeafened = get().isDeafened;
-          const threshold = settings.autoSensitivity
-            ? 18
-            : (settings.sensitivityThreshold ?? settings.voiceActivationThreshold ?? 25);
+          const threshold = currentSettings.autoSensitivity
+            ? 35
+            : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
 
           if (isMuted || isDeafened) {
             if (track.enabled) track.enabled = false;
@@ -182,13 +265,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           }
 
           if (isPtt) {
-            // Handled exclusively by setPushToTalkActive
+            // Managed by setPushToTalkActive
             localAnimFrame = requestAnimationFrame(checkAudio);
             return;
           }
 
           // Voice Activity Gating:
-          if (normalized > threshold) {
+          if (normalized >= threshold) {
             if (silenceTimer) {
               clearTimeout(silenceTimer);
               silenceTimer = null;
@@ -206,7 +289,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               }
             }
           } else {
-            // Below threshold: smooth hangover timer (350ms) to avoid clipping syllable ends
+            // Below threshold: smooth 280ms hangover timer so speech endings are never clipped
             if (!silenceTimer && get().isLocallySpeaking) {
               silenceTimer = setTimeout(() => {
                 track.enabled = false;
@@ -220,7 +303,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                   });
                 }
                 silenceTimer = null;
-              }, 350);
+              }, 280);
             }
           }
         }
@@ -229,6 +312,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       localAnimFrame = requestAnimationFrame(checkAudio);
     } catch (e) {
       console.warn('Could not setup local audio analyzer:', e);
+      // Failsafe: if analyzer fails, never silence user
+      if (track && !get().isMuted && !get().isDeafened) {
+        track.enabled = true;
+      }
     }
   };
 
@@ -616,9 +703,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
         // Check if push-to-talk is enabled by default
         const isPtt = settings.inputMode === 'push-to-talk';
+        const isNoiseSuppressed = settings.noiseSuppression !== 'none';
+        const isEchoCancelled = settings.echoCancellation;
 
         try {
-          await room.localParticipant.setMicrophoneEnabled(!isPtt);
+          await room.localParticipant.setMicrophoneEnabled(!isPtt, {
+            echoCancellation: isEchoCancelled,
+            noiseSuppression: isNoiseSuppressed,
+            autoGainControl: true,
+            deviceId:
+              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
+                ? settings.audioInputDeviceId
+                : undefined,
+          });
           set({ isMuted: isPtt });
 
           const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(

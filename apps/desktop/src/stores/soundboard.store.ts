@@ -1,12 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { SoundboardItem, soundboardStorage } from '../services/soundboard.storage';
+import { SoundboardItem, Playlist, soundboardStorage } from '../services/soundboard.storage';
 import { soundboardAudioEngine, ActiveSoundInfo } from '../services/soundboard-audio-engine';
 import { seedDefaultSoundsIfEmpty } from '../services/soundboard-presets';
 import { useLiveKitStore } from './livekit.store';
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 interface SoundboardState {
   sounds: SoundboardItem[];
+  playlists: Playlist[];
+  activePlaylistId: string | null;
+  queue: string[];
+  currentQueueIndex: number;
+  repeatMode: RepeatMode;
+  isShuffle: boolean;
   activePlayingIds: string[];
   activeSounds: ActiveSoundInfo[];
   masterVolume: number;
@@ -16,21 +24,39 @@ interface SoundboardState {
   selectedCategory: string;
   searchQuery: string;
   isSoundboardOpen: boolean;
+  isQueueOpen: boolean;
   isLoading: boolean;
   error: string | null;
 
   // Actions
   loadSounds: () => Promise<void>;
+  loadPlaylists: () => Promise<void>;
   importSound: (file: File, customName?: string, category?: string) => Promise<boolean>;
   playSound: (id: string, localOnly?: boolean) => Promise<void>;
   pauseSound: (id: string) => void;
   resumeSound: (id: string) => Promise<void>;
   togglePauseSound: (id: string) => Promise<void>;
+  seekSound: (id: string, seconds: number) => Promise<void>;
   handleHotkeyTrigger: (id: string) => Promise<void>;
   stopSound: (id: string) => void;
   stopAll: () => void;
   updateSound: (id: string, updates: Partial<SoundboardItem>) => Promise<void>;
   deleteSound: (id: string) => Promise<void>;
+  toggleFavorite: (id: string) => Promise<void>;
+
+  // Playlist & Queue Actions
+  createPlaylist: (name: string) => Promise<Playlist>;
+  deletePlaylist: (id: string) => Promise<void>;
+  renamePlaylist: (id: string, name: string) => Promise<void>;
+  addSoundToPlaylist: (playlistId: string, soundId: string) => Promise<void>;
+  removeSoundFromPlaylist: (playlistId: string, soundId: string) => Promise<void>;
+  playPlaylist: (playlistId: string, startIndex?: number) => Promise<void>;
+  setQueue: (soundIds: string[], startIndex?: number) => Promise<void>;
+  playNext: () => Promise<void>;
+  playPrevious: () => Promise<void>;
+  toggleShuffle: () => void;
+  toggleRepeat: () => void;
+
   setMasterVolume: (vol: number) => void;
   setLocalMonitorVolume: (vol: number) => void;
   setLocalMonitorMuted: (muted: boolean) => void;
@@ -38,6 +64,7 @@ interface SoundboardState {
   setSelectedCategory: (category: string) => void;
   setSearchQuery: (query: string) => void;
   setSoundboardOpen: (open: boolean) => void;
+  setQueueOpen: (open: boolean) => void;
 }
 
 // Track hotkey double-tap timestamps
@@ -67,8 +94,28 @@ export const useSoundboardStore = create<SoundboardState>()(
         previousActiveIds = currentActiveIds;
       });
 
+      // Wire automatic queue progression on track end
+      soundboardAudioEngine.setOnTrackEnded((endedSoundId: string) => {
+        const state = get();
+        if (state.repeatMode === 'one') {
+          // Replay same song
+          get().playSound(endedSoundId, false);
+          return;
+        }
+
+        if (state.queue.length > 0) {
+          get().playNext();
+        }
+      });
+
       return {
         sounds: [],
+        playlists: [],
+        activePlaylistId: null,
+        queue: [],
+        currentQueueIndex: -1,
+        repeatMode: 'off',
+        isShuffle: false,
         activePlayingIds: [],
         activeSounds: [],
         masterVolume: 80,
@@ -78,6 +125,7 @@ export const useSoundboardStore = create<SoundboardState>()(
         selectedCategory: 'All',
         searchQuery: '',
         isSoundboardOpen: false,
+        isQueueOpen: false,
         isLoading: false,
         error: null,
 
@@ -86,22 +134,38 @@ export const useSoundboardStore = create<SoundboardState>()(
           try {
             await seedDefaultSoundsIfEmpty();
             const items = await soundboardStorage.getAllItems();
+            const storedPlaylists = await soundboardStorage.getAllPlaylists();
+
             soundboardAudioEngine.setMasterVolume(get().masterVolume);
             soundboardAudioEngine.setLocalMonitorVolume(get().localMonitorVolume);
             soundboardAudioEngine.setLocalMonitorMuted(get().localMonitorMuted);
             soundboardAudioEngine.setAllowWhileMuted(get().allowWhileMuted);
-            set({ sounds: items, isLoading: false });
+
+            set({
+              sounds: items,
+              playlists: storedPlaylists,
+              isLoading: false,
+            });
           } catch (err: any) {
             console.error('Failed to load soundboard sounds:', err);
             set({ error: err.message || 'Failed to load sounds', isLoading: false });
           }
         },
 
+        loadPlaylists: async () => {
+          try {
+            const list = await soundboardStorage.getAllPlaylists();
+            set({ playlists: list });
+          } catch (err) {
+            console.warn('Failed to load playlists:', err);
+          }
+        },
+
         importSound: async (file: File, customName?: string, category = 'General') => {
           set({ isLoading: true, error: null });
           try {
-            if (file.size > 25 * 1024 * 1024) {
-              throw new Error('Audio file is too large (maximum 25MB).');
+            if (file.size > 35 * 1024 * 1024) {
+              throw new Error('Audio file is too large (maximum 35MB).');
             }
 
             const rawName = file.name.replace(/\.[^/.]+$/, '');
@@ -121,6 +185,7 @@ export const useSoundboardStore = create<SoundboardState>()(
               hotkey: null,
               duration,
               createdAt: Date.now(),
+              isFavorite: false,
             };
 
             await soundboardStorage.saveSound(item, arrayBuffer);
@@ -139,6 +204,15 @@ export const useSoundboardStore = create<SoundboardState>()(
           if (!sound) return;
 
           try {
+            // Update queue index if part of current queue
+            const qIndex = get().queue.indexOf(id);
+            if (qIndex >= 0) {
+              set({ currentQueueIndex: qIndex });
+            } else if (!localOnly) {
+              // Add to queue if playing standalone
+              set({ queue: [id], currentQueueIndex: 0 });
+            }
+
             await soundboardAudioEngine.playSound(sound, localOnly);
             if (!localOnly) {
               useLiveKitStore.getState().broadcastSoundboardPlaying(sound.id, sound.name, sound.duration);
@@ -161,14 +235,10 @@ export const useSoundboardStore = create<SoundboardState>()(
           await soundboardAudioEngine.togglePauseSound(id);
         },
 
-        /**
-         * Hotkey trigger behavior requested by user:
-         * - If sound is playing:
-         *   - Press once: Pause (or resume if already paused)
-         *   - Double-press within 380ms: Stop completely (قطع کامل)
-         * - If sound is not playing:
-         *   - Starts playback
-         */
+        seekSound: async (id: string, seconds: number) => {
+          await soundboardAudioEngine.seekSound(id, seconds);
+        },
+
         handleHotkeyTrigger: async (id: string) => {
           const now = Date.now();
           const lastPress = lastHotkeyPressTimestamps[id] || 0;
@@ -179,15 +249,12 @@ export const useSoundboardStore = create<SoundboardState>()(
 
           if (isActive) {
             if (isDoublePress) {
-              // Double-tap: Stop completely
               lastHotkeyPressTimestamps[id] = 0;
               get().stopSound(id);
             } else {
-              // Single tap: Toggle pause
               await get().togglePauseSound(id);
             }
           } else {
-            // Not playing: Play sound
             await get().playSound(id, false);
           }
         },
@@ -218,7 +285,174 @@ export const useSoundboardStore = create<SoundboardState>()(
           await soundboardStorage.deleteItem(id);
           set((state) => ({
             sounds: state.sounds.filter((s) => s.id !== id),
+            queue: state.queue.filter((sId) => sId !== id),
           }));
+        },
+
+        toggleFavorite: async (id: string) => {
+          const sound = get().sounds.find((s) => s.id === id);
+          if (!sound) return;
+          const nextFav = !sound.isFavorite;
+          await get().updateSound(id, { isFavorite: nextFav });
+        },
+
+        // Playlist operations
+        createPlaylist: async (name: string) => {
+          const newPlaylist: Playlist = {
+            id: `pl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            name: name.trim() || 'New Playlist',
+            soundIds: [],
+            createdAt: Date.now(),
+          };
+          await soundboardStorage.savePlaylist(newPlaylist);
+          const list = await soundboardStorage.getAllPlaylists();
+          set({ playlists: list });
+          return newPlaylist;
+        },
+
+        deletePlaylist: async (id: string) => {
+          await soundboardStorage.deletePlaylist(id);
+          const list = await soundboardStorage.getAllPlaylists();
+          set({
+            playlists: list,
+            activePlaylistId: get().activePlaylistId === id ? null : get().activePlaylistId,
+          });
+        },
+
+        renamePlaylist: async (id: string, name: string) => {
+          const playlist = get().playlists.find((p) => p.id === id);
+          if (!playlist) return;
+          const updated: Playlist = { ...playlist, name: name.trim() || playlist.name };
+          await soundboardStorage.savePlaylist(updated);
+          const list = await soundboardStorage.getAllPlaylists();
+          set({ playlists: list });
+        },
+
+        addSoundToPlaylist: async (playlistId: string, soundId: string) => {
+          const playlist = get().playlists.find((p) => p.id === playlistId);
+          if (!playlist) return;
+          if (playlist.soundIds.includes(soundId)) return;
+          const updated: Playlist = {
+            ...playlist,
+            soundIds: [...playlist.soundIds, soundId],
+          };
+          await soundboardStorage.savePlaylist(updated);
+          const list = await soundboardStorage.getAllPlaylists();
+          set({ playlists: list });
+        },
+
+        removeSoundFromPlaylist: async (playlistId: string, soundId: string) => {
+          const playlist = get().playlists.find((p) => p.id === playlistId);
+          if (!playlist) return;
+          const updated: Playlist = {
+            ...playlist,
+            soundIds: playlist.soundIds.filter((sId) => sId !== soundId),
+          };
+          await soundboardStorage.savePlaylist(updated);
+          const list = await soundboardStorage.getAllPlaylists();
+          set({ playlists: list });
+        },
+
+        playPlaylist: async (playlistId: string, startIndex = 0) => {
+          const playlist = get().playlists.find((p) => p.id === playlistId);
+          if (!playlist || playlist.soundIds.length === 0) return;
+
+          let queue = [...playlist.soundIds];
+          if (get().isShuffle) {
+            // Fisher-Yates shuffle
+            for (let i = queue.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [queue[i], queue[j]] = [queue[j], queue[i]];
+            }
+          }
+
+          set({
+            activePlaylistId: playlistId,
+            queue,
+            currentQueueIndex: startIndex,
+          });
+
+          const targetSoundId = queue[startIndex] || queue[0];
+          if (targetSoundId) {
+            await get().playSound(targetSoundId, false);
+          }
+        },
+
+        setQueue: async (soundIds: string[], startIndex = 0) => {
+          set({
+            queue: soundIds,
+            currentQueueIndex: startIndex,
+          });
+          const target = soundIds[startIndex];
+          if (target) {
+            await get().playSound(target, false);
+          }
+        },
+
+        playNext: async () => {
+          const { queue, currentQueueIndex, repeatMode, isShuffle } = get();
+          if (queue.length === 0) return;
+
+          let nextIndex = currentQueueIndex + 1;
+          if (nextIndex >= queue.length) {
+            if (repeatMode === 'all') {
+              nextIndex = 0;
+            } else {
+              // End of queue reached
+              return;
+            }
+          }
+
+          if (isShuffle && queue.length > 1) {
+            let rand = Math.floor(Math.random() * queue.length);
+            if (rand === currentQueueIndex) {
+              rand = (rand + 1) % queue.length;
+            }
+            nextIndex = rand;
+          }
+
+          set({ currentQueueIndex: nextIndex });
+          const nextSoundId = queue[nextIndex];
+          if (nextSoundId) {
+            await get().playSound(nextSoundId, false);
+          }
+        },
+
+        playPrevious: async () => {
+          const { queue, currentQueueIndex, activePlayingIds } = get();
+          if (queue.length === 0) return;
+
+          // If current track is more than 3 seconds in, restart it first
+          if (activePlayingIds.length > 0) {
+            const progress = soundboardAudioEngine.getPlaybackProgress(activePlayingIds[0]);
+            if (progress && progress.currentTime > 3) {
+              await get().seekSound(activePlayingIds[0], 0);
+              return;
+            }
+          }
+
+          let prevIndex = currentQueueIndex - 1;
+          if (prevIndex < 0) {
+            prevIndex = queue.length - 1;
+          }
+
+          set({ currentQueueIndex: prevIndex });
+          const prevSoundId = queue[prevIndex];
+          if (prevSoundId) {
+            await get().playSound(prevSoundId, false);
+          }
+        },
+
+        toggleShuffle: () => {
+          set((s) => ({ isShuffle: !s.isShuffle }));
+        },
+
+        toggleRepeat: () => {
+          set((s) => {
+            const modes: RepeatMode[] = ['off', 'all', 'one'];
+            const nextMode = modes[(modes.indexOf(s.repeatMode) + 1) % modes.length];
+            return { repeatMode: nextMode };
+          });
         },
 
         setMasterVolume: (vol: number) => {
@@ -254,6 +488,10 @@ export const useSoundboardStore = create<SoundboardState>()(
         setSoundboardOpen: (open: boolean) => {
           set({ isSoundboardOpen: open });
         },
+
+        setQueueOpen: (open: boolean) => {
+          set({ isQueueOpen: open });
+        },
       };
     },
     {
@@ -263,6 +501,8 @@ export const useSoundboardStore = create<SoundboardState>()(
         localMonitorVolume: state.localMonitorVolume,
         localMonitorMuted: state.localMonitorMuted,
         allowWhileMuted: state.allowWhileMuted,
+        repeatMode: state.repeatMode,
+        isShuffle: state.isShuffle,
       }),
     }
   )

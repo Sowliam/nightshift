@@ -42,11 +42,16 @@ export class SoundboardAudioEngine {
   private audioBufferCache: Map<string, AudioBuffer> = new Map();
   private listeners: Set<() => void> = new Set();
   private onActiveChangeHandler: ((active: ActiveSoundInfo[]) => void) | null = null;
+  private onTrackEndedHandler: ((soundId: string) => void) | null = null;
 
   private getAudioContext(): AudioContext {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioCtx({ sampleRate: 48000 });
+      try {
+        this.audioContext = new AudioCtx({ sampleRate: 48000 });
+      } catch {
+        this.audioContext = new AudioCtx();
+      }
     }
     return this.audioContext;
   }
@@ -283,6 +288,13 @@ export class SoundboardAudioEngine {
           itemGainNode.disconnect();
         } catch {}
         this.notifyListeners();
+        if (this.onTrackEndedHandler) {
+          try {
+            this.onTrackEndedHandler(item.id);
+          } catch (e) {
+            console.warn('onTrackEnded error:', e);
+          }
+        }
       }
     };
 
@@ -342,11 +354,99 @@ export class SoundboardAudioEngine {
           inst.gainNode.disconnect();
         } catch {}
         this.notifyListeners();
+        if (this.onTrackEndedHandler) {
+          try {
+            this.onTrackEndedHandler(soundId);
+          } catch (e) {
+            console.warn('onTrackEnded error:', e);
+          }
+        }
       }
     };
 
     sourceNode.start(now, inst.pauseOffset);
     this.notifyListeners();
+  }
+
+  /**
+   * Seeks to a specific offset in seconds for an active sound.
+   */
+  public async seekSound(soundId: string, offsetSeconds: number): Promise<void> {
+    const inst = this.activeInstances.get(soundId);
+    if (!inst) return;
+
+    const ctx = await this.ensureAudioContext();
+    const clampedOffset = Math.max(0, Math.min(inst.duration, offsetSeconds));
+
+    if (inst.sourceNode) {
+      inst.sourceNode.onended = null;
+      try {
+        inst.sourceNode.stop(ctx.currentTime);
+      } catch {}
+      try {
+        inst.sourceNode.disconnect();
+      } catch {}
+      inst.sourceNode = null;
+    }
+
+    inst.pauseOffset = clampedOffset;
+
+    if (!inst.isPaused) {
+      const sourceNode = ctx.createBufferSource();
+      sourceNode.buffer = inst.audioBuffer;
+      sourceNode.connect(inst.gainNode);
+
+      inst.startedAt = Date.now() - (clampedOffset * 1000);
+      inst.sourceNode = sourceNode;
+
+      sourceNode.onended = () => {
+        const current = this.activeInstances.get(soundId);
+        if (current && !current.isPaused) {
+          this.activeInstances.delete(soundId);
+          try {
+            sourceNode.disconnect();
+            inst.gainNode.disconnect();
+          } catch {}
+          this.notifyListeners();
+          if (this.onTrackEndedHandler) {
+            try {
+              this.onTrackEndedHandler(soundId);
+            } catch (e) {
+              console.warn('onTrackEnded error:', e);
+            }
+          }
+        }
+      };
+
+      sourceNode.start(ctx.currentTime, clampedOffset);
+    }
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Returns current playback position in seconds, total duration, and progress fraction.
+   */
+  public getPlaybackProgress(soundId: string): { currentTime: number; duration: number; progress: number } | null {
+    const inst = this.activeInstances.get(soundId);
+    if (!inst) return null;
+
+    let currentTime = 0;
+    if (inst.isPaused) {
+      currentTime = inst.pauseOffset;
+    } else {
+      currentTime = Math.max(0, Math.min(inst.duration, (Date.now() - inst.startedAt) / 1000));
+    }
+
+    return {
+      currentTime,
+      duration: inst.duration,
+      progress: inst.duration > 0 ? currentTime / inst.duration : 0,
+    };
+  }
+
+  public setOnTrackEnded(callback: ((soundId: string) => void) | null): void {
+    this.onTrackEndedHandler = callback;
   }
 
   /**

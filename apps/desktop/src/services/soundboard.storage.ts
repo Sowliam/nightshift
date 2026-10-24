@@ -6,6 +6,14 @@ export interface SoundboardItem {
   hotkey: string | null;
   duration: number; // in seconds
   createdAt: number;
+  isFavorite?: boolean;
+}
+
+export interface Playlist {
+  id: string;
+  name: string;
+  soundIds: string[];
+  createdAt: number;
 }
 
 interface StoredSoundRecord extends SoundboardItem {
@@ -13,8 +21,9 @@ interface StoredSoundRecord extends SoundboardItem {
 }
 
 const DB_NAME = 'nightshift_soundboard_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'sound_records';
+const PLAYLISTS_STORE_NAME = 'playlists';
 
 class SoundboardStorage {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -31,6 +40,10 @@ class SoundboardStorage {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
           store.createIndex('category', 'category', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(PLAYLISTS_STORE_NAME)) {
+          const pStore = db.createObjectStore(PLAYLISTS_STORE_NAME, { keyPath: 'id' });
+          pStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };
 
@@ -137,6 +150,50 @@ class SoundboardStorage {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
+      const req = store.delete(id);
+
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async getAllPlaylists(): Promise<Playlist[]> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(PLAYLISTS_STORE_NAME, 'readonly');
+        const store = tx.objectStore(PLAYLISTS_STORE_NAME);
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          resolve(req.result || []);
+        };
+
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.warn('Error reading playlists from IndexedDB:', err);
+      return [];
+    }
+  }
+
+  async savePlaylist(playlist: Playlist): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PLAYLISTS_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(PLAYLISTS_STORE_NAME);
+      const req = store.put(playlist);
+
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async deletePlaylist(id: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(PLAYLISTS_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(PLAYLISTS_STORE_NAME);
       const req = store.delete(id);
 
       req.onsuccess = () => resolve();

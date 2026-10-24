@@ -89,41 +89,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     try {
       stopMicListener();
       const constraints: MediaStreamConstraints = {
-        audio:
-          audioInputDeviceId && audioInputDeviceId !== 'default'
-            ? { deviceId: { exact: audioInputDeviceId } }
-            : true,
+        audio: {
+          deviceId:
+            audioInputDeviceId && audioInputDeviceId !== 'default'
+              ? { exact: audioInputDeviceId }
+              : undefined,
+          echoCancellation,
+          noiseSuppression: noiseSuppression !== 'none',
+          autoGainControl: true,
+        },
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       mediaStreamRef.current = stream;
 
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      let audioCtx: AudioContext;
+      try {
+        audioCtx = new AudioCtx({ sampleRate: 48000 });
+      } catch {
+        audioCtx = new AudioCtx();
+      }
       audioContextRef.current = audioCtx;
 
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
 
-      const highpass = audioCtx.createBiquadFilter();
-      highpass.type = 'highpass';
-      highpass.frequency.setValueAtTime(85, audioCtx.currentTime);
-      highpass.Q.setValueAtTime(0.7, audioCtx.currentTime);
+      // Cascaded Vocal Bandpass Filtering (140 Hz 4th-order High-Pass + 3400 Hz Low-Pass)
+      const highpass1 = audioCtx.createBiquadFilter();
+      highpass1.type = 'highpass';
+      highpass1.frequency.setValueAtTime(140, audioCtx.currentTime);
+      highpass1.Q.setValueAtTime(1.0, audioCtx.currentTime);
+
+      const highpass2 = audioCtx.createBiquadFilter();
+      highpass2.type = 'highpass';
+      highpass2.frequency.setValueAtTime(140, audioCtx.currentTime);
+      highpass2.Q.setValueAtTime(1.0, audioCtx.currentTime);
+
+      const lowpass = audioCtx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(3400, audioCtx.currentTime);
+      lowpass.Q.setValueAtTime(0.7, audioCtx.currentTime);
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.2;
 
       const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(highpass);
-      highpass.connect(analyser);
+      source.connect(highpass1);
+      highpass1.connect(highpass2);
+      highpass2.connect(lowpass);
+      lowpass.connect(analyser);
 
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+      const timeBuffer = new Uint8Array(analyser.fftSize);
 
       const updateMeter = () => {
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
+        analyser.getByteTimeDomainData(timeBuffer);
+        let sumSquares = 0;
+        for (let i = 0; i < timeBuffer.length; i++) {
+          const sample = (timeBuffer[i] - 128) / 128;
+          sumSquares += sample * sample;
         }
-        const avg = sum / bufferLength;
-        const normalized = Math.min(100, Math.round((avg / 128) * 100));
+        const rms = Math.sqrt(sumSquares / timeBuffer.length);
+        const db = 20 * Math.log10(Math.max(0.00001, rms));
+        // Match live room calibrated scale: -50 dB (silence/breath) -> 0%, -20 dB (strong voice) -> 100%
+        const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
         setMicLevel(normalized);
         animFrameRef.current = requestAnimationFrame(updateMeter);
       };

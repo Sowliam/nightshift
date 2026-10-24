@@ -22,6 +22,9 @@ const ServerPingModal = React.lazy(() =>
 const SoundboardModal = React.lazy(() =>
   import('./components/modals/SoundboardModal').then((m) => ({ default: m.SoundboardModal }))
 );
+const MusicQueueModal = React.lazy(() =>
+  import('./components/modals/MusicQueueModal').then((m) => ({ default: m.MusicQueueModal }))
+);
 
 import { useAuthStore } from './stores/auth.store';
 import { useServerStore } from './stores/server.store';
@@ -275,6 +278,8 @@ export const App: React.FC = () => {
 
         {/* NIGHTSHIFT Soundboard Modal */}
         <SoundboardModal />
+        {/* NIGHTSHIFT Music Queue & Playlist Modal */}
+        <MusicQueueModal />
       </React.Suspense>
 
       {/* User Onboarding / Login / Registration (Shown when unauthenticated) */}

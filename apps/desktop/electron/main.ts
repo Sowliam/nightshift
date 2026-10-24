@@ -9,6 +9,8 @@ app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
+// Ensure Web Audio, WebRTC, and microphone inputs never get suspended or blocked by Autoplay policies in Desktop mode
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 async function createWindow() {
   const iconPath = path.join(__dirname, '../public/logo.png');
@@ -34,7 +36,7 @@ async function createWindow() {
 
   // Explicitly allow microphone and display media captures in Electron
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ['media', 'audioCapture', 'videoCapture', 'desktopCapture', 'display-capture', 'notifications'];
+    const allowed = ['media', 'microphone', 'audioCapture', 'videoCapture', 'desktopCapture', 'display-capture', 'notifications'];
     if (allowed.includes(permission)) {
       callback(true);
       return;
