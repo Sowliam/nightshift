@@ -232,3 +232,38 @@ button, input, select, a {
   transform: rotate(-14deg) scale(1.12);
 }
 
+/* ============================================================
+   3D Flip Card Auth Modal (Log In / Sign Up)
+   ============================================================ */
+.auth-flip-container {
+  perspective: 1200px;
+  width: 320px;
+  height: 440px;
+}
+
+.auth-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.auth-flip-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.auth-flip-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 24px;
+}
+
+.auth-flip-back {
+  transform: rotateY(180deg);
+}
+
