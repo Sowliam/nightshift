@@ -712,30 +712,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           };
 
           if (opts.resolution === '720p') {
-            constraints.video.mandatory.minWidth = 1280;
             constraints.video.mandatory.maxWidth = 1280;
-            constraints.video.mandatory.minHeight = 720;
             constraints.video.mandatory.maxHeight = 720;
           } else if (opts.resolution === '1080p') {
-            constraints.video.mandatory.minWidth = 1920;
             constraints.video.mandatory.maxWidth = 1920;
-            constraints.video.mandatory.minHeight = 1080;
             constraints.video.mandatory.maxHeight = 1080;
           } else if (opts.resolution === '1440p') {
-            constraints.video.mandatory.minWidth = 2560;
             constraints.video.mandatory.maxWidth = 2560;
-            constraints.video.mandatory.minHeight = 1440;
             constraints.video.mandatory.maxHeight = 1440;
-          } else if (opts.resolution === '4k') {
-            constraints.video.mandatory.minWidth = 3840;
+          } else if (opts.resolution === '4k' || opts.resolution === 'source') {
             constraints.video.mandatory.maxWidth = 3840;
-            constraints.video.mandatory.minHeight = 2160;
-            constraints.video.mandatory.maxHeight = 2160;
-          } else {
-            // Source (Native monitor resolution, unconstrained)
-            constraints.video.mandatory.minWidth = 1280;
-            constraints.video.mandatory.maxWidth = 3840;
-            constraints.video.mandatory.minHeight = 720;
             constraints.video.mandatory.maxHeight = 2160;
           }
 
