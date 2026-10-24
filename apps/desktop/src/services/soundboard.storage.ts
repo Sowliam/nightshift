@@ -32,28 +32,61 @@ class SoundboardStorage {
     if (this.dbPromise) return this.dbPromise;
 
     this.dbPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-          store.createIndex('category', 'category', { unique: false });
-          store.createIndex('createdAt', 'createdAt', { unique: false });
+      let isSettled = false;
+      const timeout = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          this.dbPromise = null;
+          reject(new Error('IndexedDB open request timed out'));
         }
-        if (!db.objectStoreNames.contains(PLAYLISTS_STORE_NAME)) {
-          const pStore = db.createObjectStore(PLAYLISTS_STORE_NAME, { keyPath: 'id' });
-          pStore.createIndex('createdAt', 'createdAt', { unique: false });
-        }
-      };
+      }, 4000);
 
-      request.onsuccess = () => {
-        resolve(request.result);
-      };
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => {
-        reject(new Error(`Failed to open Soundboard database: ${request.error?.message}`));
-      };
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            store.createIndex('category', 'category', { unique: false });
+            store.createIndex('createdAt', 'createdAt', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(PLAYLISTS_STORE_NAME)) {
+            const pStore = db.createObjectStore(PLAYLISTS_STORE_NAME, { keyPath: 'id' });
+            pStore.createIndex('createdAt', 'createdAt', { unique: false });
+          }
+        };
+
+        request.onsuccess = () => {
+          if (isSettled) return;
+          isSettled = true;
+          clearTimeout(timeout);
+          const db = request.result;
+          db.onversionchange = () => {
+            db.close();
+            this.dbPromise = null;
+          };
+          resolve(db);
+        };
+
+        request.onblocked = () => {
+          console.warn('Soundboard IndexedDB upgrade blocked by older connection');
+        };
+
+        request.onerror = () => {
+          if (isSettled) return;
+          isSettled = true;
+          clearTimeout(timeout);
+          this.dbPromise = null;
+          reject(new Error(`Failed to open Soundboard database: ${request.error?.message}`));
+        };
+      } catch (err: any) {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(timeout);
+        this.dbPromise = null;
+        reject(err);
+      }
     });
 
     return this.dbPromise;
@@ -62,6 +95,9 @@ class SoundboardStorage {
   async getAllItems(): Promise<SoundboardItem[]> {
     try {
       const db = await this.getDB();
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        return [];
+      }
       return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
@@ -160,6 +196,9 @@ class SoundboardStorage {
   async getAllPlaylists(): Promise<Playlist[]> {
     try {
       const db = await this.getDB();
+      if (!db.objectStoreNames.contains(PLAYLISTS_STORE_NAME)) {
+        return [];
+      }
       return new Promise((resolve, reject) => {
         const tx = db.transaction(PLAYLISTS_STORE_NAME, 'readonly');
         const store = tx.objectStore(PLAYLISTS_STORE_NAME);

@@ -60,7 +60,16 @@ export async function seedDefaultSoundsIfEmpty(): Promise<void> {
 
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) return;
-  const ctx = new AudioCtx({ sampleRate: 44100 });
+  let ctx: AudioContext;
+  try {
+    try {
+      ctx = new AudioCtx({ sampleRate: 44100 });
+    } catch {
+      ctx = new AudioCtx();
+    }
+  } catch {
+    return;
+  }
 
   try {
     // 1. Airhorn Sound

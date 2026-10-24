@@ -87,13 +87,27 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
   let localAnalyser: AnalyserNode | null = null;
-  let localAnimFrame: number | null = null;
+  let localAudioInterval: ReturnType<typeof setInterval> | null = null;
+  let localScriptProcessor: ScriptProcessorNode | null = null;
+  let localSilentGain: GainNode | null = null;
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const cleanupAudioAnalyser = () => {
-    if (localAnimFrame) {
-      cancelAnimationFrame(localAnimFrame);
-      localAnimFrame = null;
+    if (localAudioInterval) {
+      clearInterval(localAudioInterval);
+      localAudioInterval = null;
+    }
+    if (localScriptProcessor) {
+      try {
+        localScriptProcessor.disconnect();
+      } catch {}
+      localScriptProcessor = null;
+    }
+    if (localSilentGain) {
+      try {
+        localSilentGain.disconnect();
+      } catch {}
+      localSilentGain = null;
     }
     if (silenceTimer) {
       clearTimeout(silenceTimer);
@@ -203,8 +217,22 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       highpass2.connect(lowpass);
       lowpass.connect(localAnalyser);
 
+      // Terminate analyser through a ScriptProcessor connected to a silent GainNode.
+      // This forces the Web Audio thread to process audio callbacks continuously via hardware
+      // buffers even when the window is minimized or occluded by other applications!
+      try {
+        localScriptProcessor = localAudioContext.createScriptProcessor(1024, 1, 1);
+        localSilentGain = localAudioContext.createGain();
+        localSilentGain.gain.setValueAtTime(0, localAudioContext.currentTime);
+
+        localAnalyser.connect(localScriptProcessor);
+        localScriptProcessor.connect(localSilentGain);
+        localSilentGain.connect(localAudioContext.destination);
+      } catch (procErr) {
+        console.warn('ScriptProcessor fallback notice:', procErr);
+      }
+
       const timeBuffer = new Uint8Array(localAnalyser.fftSize);
-      let lastCheck = 0;
 
       // In voice-activity mode, start with WebRTC track muted until real speech is detected
       if (isVoiceActivity && !get().isMuted && !get().isDeafened) {
@@ -213,43 +241,82 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         track.enabled = true;
       }
 
-      const checkAudio = (timestamp: number) => {
+      const processAudioSample = () => {
         if (!localAnalyser) return;
 
-        // Auto-resume AudioContext if suspended
+        // Auto-resume AudioContext if suspended by OS/power saver
         if (localAudioContext && localAudioContext.state === 'suspended') {
           localAudioContext.resume().catch(() => {});
         }
 
-        if (timestamp - lastCheck >= 25) {
-          lastCheck = timestamp;
-          localAnalyser.getByteTimeDomainData(timeBuffer);
+        localAnalyser.getByteTimeDomainData(timeBuffer);
 
-          let sumSquares = 0;
-          for (let i = 0; i < timeBuffer.length; i++) {
-            const sample = (timeBuffer[i] - 128) / 128;
-            sumSquares += sample * sample;
+        let sumSquares = 0;
+        for (let i = 0; i < timeBuffer.length; i++) {
+          const sample = (timeBuffer[i] - 128) / 128;
+          sumSquares += sample * sample;
+        }
+        const rms = Math.sqrt(sumSquares / timeBuffer.length);
+        const db = 20 * Math.log10(Math.max(0.00001, rms));
+
+        // Calibrated Decibel Curve:
+        // Room silence / breath: < -50 dB -> 0%
+        // Whispers: -40 dB -> ~33%
+        // Normal voice: -26 dB to -14 dB -> 80% - 100%
+        const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
+
+        const currentSettings = useSettingsStore.getState();
+        const isPtt = currentSettings.inputMode === 'push-to-talk';
+        const isMuted = get().isMuted;
+        const isDeafened = get().isDeafened;
+        const threshold = currentSettings.autoSensitivity
+          ? 35
+          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
+
+        if (isMuted || isDeafened) {
+          if (track.enabled) track.enabled = false;
+          if (get().isLocallySpeaking) {
+            set({ isLocallySpeaking: false });
+            const localId = get().localParticipant?.identity;
+            if (localId) {
+              set((state) => {
+                const updated = new Set(state.activeSpeakers);
+                updated.delete(localId);
+                return { activeSpeakers: updated };
+              });
+            }
           }
-          const rms = Math.sqrt(sumSquares / timeBuffer.length);
-          const db = 20 * Math.log10(Math.max(0.00001, rms));
+          return;
+        }
 
-          // Calibrated Decibel Curve:
-          // Room silence / breath: < -50 dB -> 0%
-          // Whispers: -40 dB -> ~33%
-          // Normal voice: -26 dB to -14 dB -> 80% - 100%
-          const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
+        if (isPtt) {
+          // Managed by setPushToTalkActive
+          return;
+        }
 
-          const currentSettings = useSettingsStore.getState();
-          const isPtt = currentSettings.inputMode === 'push-to-talk';
-          const isMuted = get().isMuted;
-          const isDeafened = get().isDeafened;
-          const threshold = currentSettings.autoSensitivity
-            ? 35
-            : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
-
-          if (isMuted || isDeafened) {
-            if (track.enabled) track.enabled = false;
-            if (get().isLocallySpeaking) {
+        // Voice Activity Gating:
+        if (normalized >= threshold) {
+          if (silenceTimer) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+          }
+          if (!track.enabled) {
+            track.enabled = true;
+          }
+          if (!get().isLocallySpeaking) {
+            set({ isLocallySpeaking: true });
+            const localId = get().localParticipant?.identity;
+            if (localId) {
+              set((state) => ({
+                activeSpeakers: new Set([...state.activeSpeakers, localId]),
+              }));
+            }
+          }
+        } else {
+          // Below threshold: smooth 280ms hangover timer so speech endings are never clipped
+          if (!silenceTimer && get().isLocallySpeaking) {
+            silenceTimer = setTimeout(() => {
+              track.enabled = false;
               set({ isLocallySpeaking: false });
               const localId = get().localParticipant?.identity;
               if (localId) {
@@ -259,57 +326,22 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                   return { activeSpeakers: updated };
                 });
               }
-            }
-            localAnimFrame = requestAnimationFrame(checkAudio);
-            return;
-          }
-
-          if (isPtt) {
-            // Managed by setPushToTalkActive
-            localAnimFrame = requestAnimationFrame(checkAudio);
-            return;
-          }
-
-          // Voice Activity Gating:
-          if (normalized >= threshold) {
-            if (silenceTimer) {
-              clearTimeout(silenceTimer);
               silenceTimer = null;
-            }
-            if (!track.enabled) {
-              track.enabled = true;
-            }
-            if (!get().isLocallySpeaking) {
-              set({ isLocallySpeaking: true });
-              const localId = get().localParticipant?.identity;
-              if (localId) {
-                set((state) => ({
-                  activeSpeakers: new Set([...state.activeSpeakers, localId]),
-                }));
-              }
-            }
-          } else {
-            // Below threshold: smooth 280ms hangover timer so speech endings are never clipped
-            if (!silenceTimer && get().isLocallySpeaking) {
-              silenceTimer = setTimeout(() => {
-                track.enabled = false;
-                set({ isLocallySpeaking: false });
-                const localId = get().localParticipant?.identity;
-                if (localId) {
-                  set((state) => {
-                    const updated = new Set(state.activeSpeakers);
-                    updated.delete(localId);
-                    return { activeSpeakers: updated };
-                  });
-                }
-                silenceTimer = null;
-              }, 280);
-            }
+            }, 280);
           }
         }
-        localAnimFrame = requestAnimationFrame(checkAudio);
       };
-      localAnimFrame = requestAnimationFrame(checkAudio);
+
+      if (localScriptProcessor) {
+        localScriptProcessor.onaudioprocess = () => {
+          processAudioSample();
+        };
+      }
+
+      // 25ms background interval ensures uninterrupted processing when minimized or unfocused
+      localAudioInterval = setInterval(() => {
+        processAudioSample();
+      }, 25);
     } catch (e) {
       console.warn('Could not setup local audio analyzer:', e);
       // Failsafe: if analyzer fails, never silence user

@@ -13,6 +13,7 @@ import {
   Heart,
   ListPlus,
   Disc3,
+  ArrowLeft,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { SoundboardItem, Playlist } from '../../services/soundboard.storage';
@@ -26,8 +27,13 @@ interface MusicQueueModalProps {
 export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIsOpen, onClose: propOnClose }) => {
   const storeIsOpen = useSoundboardStore((s) => s.isQueueOpen);
   const setStoreQueueOpen = useSoundboardStore((s) => s.setQueueOpen);
+  const setSoundboardOpen = useSoundboardStore((s) => s.setSoundboardOpen);
   const isOpen = propIsOpen !== undefined ? propIsOpen : storeIsOpen;
   const handleClose = propOnClose || (() => setStoreQueueOpen(false));
+  const handleBackToSoundboard = () => {
+    handleClose();
+    setSoundboardOpen(true);
+  };
 
   const sounds = useSoundboardStore((s) => s.sounds);
   const playlists = useSoundboardStore((s) => s.playlists);
@@ -129,6 +135,16 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#17181c]/80 shrink-0">
           <div className="flex items-center gap-3">
+            {/* Back to Soundboard Button */}
+            <button
+              onClick={handleBackToSoundboard}
+              className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-text-muted hover:text-white border border-white/5 flex items-center gap-1.5 transition-all cursor-pointer group"
+              title="Return to Soundboard & Audio Library"
+            >
+              <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+              <span className="text-xs font-semibold hidden sm:inline">Soundboard</span>
+            </button>
+
             <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-accent-primary to-accent-bright flex items-center justify-center text-white shadow-lg shadow-accent-bright/20">
               <Disc3 className="w-5 h-5 animate-[spin_8s_linear_infinite]" />
             </div>
@@ -164,9 +180,20 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
               </button>
             </div>
 
+            {/* Back button */}
+            <button
+              onClick={handleBackToSoundboard}
+              className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 flex items-center gap-1.5 text-xs font-medium text-text-muted hover:text-white transition-colors cursor-pointer"
+              title="Return to Soundboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
+            </button>
+
             <button
               onClick={handleClose}
               className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-text-muted hover:text-white transition-colors cursor-pointer"
+              title="Close Player"
             >
               <X className="w-4 h-4" />
             </button>

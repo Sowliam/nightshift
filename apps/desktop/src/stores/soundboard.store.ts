@@ -26,6 +26,7 @@ interface SoundboardState {
   isSoundboardOpen: boolean;
   isQueueOpen: boolean;
   isLoading: boolean;
+  isImporting: boolean;
   error: string | null;
 
   // Actions
@@ -127,12 +128,15 @@ export const useSoundboardStore = create<SoundboardState>()(
         isSoundboardOpen: false,
         isQueueOpen: false,
         isLoading: false,
+        isImporting: false,
         error: null,
 
         loadSounds: async () => {
           set({ isLoading: true, error: null });
           try {
-            await seedDefaultSoundsIfEmpty();
+            // Seed presets asynchronously in the background so it never blocks UI loading
+            seedDefaultSoundsIfEmpty().catch((e) => console.warn('Preset seed notice:', e));
+
             const items = await soundboardStorage.getAllItems();
             const storedPlaylists = await soundboardStorage.getAllPlaylists();
 
@@ -149,6 +153,8 @@ export const useSoundboardStore = create<SoundboardState>()(
           } catch (err: any) {
             console.error('Failed to load soundboard sounds:', err);
             set({ error: err.message || 'Failed to load sounds', isLoading: false });
+          } finally {
+            set({ isLoading: false });
           }
         },
 
@@ -162,7 +168,7 @@ export const useSoundboardStore = create<SoundboardState>()(
         },
 
         importSound: async (file: File, customName?: string, category = 'General') => {
-          set({ isLoading: true, error: null });
+          set({ isImporting: true, error: null });
           try {
             if (file.size > 35 * 1024 * 1024) {
               throw new Error('Audio file is too large (maximum 35MB).');
@@ -190,12 +196,14 @@ export const useSoundboardStore = create<SoundboardState>()(
 
             await soundboardStorage.saveSound(item, arrayBuffer);
             const updatedSounds = await soundboardStorage.getAllItems();
-            set({ sounds: updatedSounds, isLoading: false });
+            set({ sounds: updatedSounds, isImporting: false });
             return true;
           } catch (err: any) {
             console.error('Failed to import audio file:', err);
-            set({ error: err.message || 'Failed to decode audio file', isLoading: false });
+            set({ error: err.message || 'Failed to decode audio file', isImporting: false });
             return false;
+          } finally {
+            set({ isImporting: false });
           }
         },
 

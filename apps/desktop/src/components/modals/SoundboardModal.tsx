@@ -35,7 +35,7 @@ export const SoundboardModal: React.FC = () => {
     selectedCategory,
     searchQuery,
     isSoundboardOpen,
-    isLoading,
+    isImporting,
     error,
     loadSounds,
     loadPlaylists,
@@ -305,13 +305,13 @@ export const SoundboardModal: React.FC = () => {
               {/* Import Sound Button */}
               <button
                 type="button"
-                disabled={isLoading}
+                disabled={isImporting}
                 onClick={() => fileInputRef.current?.click()}
                 className="px-3 py-1.5 bg-accent-bright hover:bg-white text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-accent-bright/15 hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
                 title="Upload audio file (MP3, WAV, OGG, M4A)"
               >
-                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 stroke-[2.5]" />}
-                <span>Add Sound</span>
+                {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 stroke-[2.5]" />}
+                <span>{isImporting ? 'Importing...' : 'Add Sound'}</span>
               </button>
             </div>
           )}

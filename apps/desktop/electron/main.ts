@@ -11,6 +11,10 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('force-color-profile', 'srgb');
 // Ensure Web Audio, WebRTC, and microphone inputs never get suspended or blocked by Autoplay policies in Desktop mode
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+// Discord/TeamSpeak grade flags: never throttle timers, Web Audio, or WebRTC when window is minimized or behind other apps
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 async function createWindow() {
   const iconPath = path.join(__dirname, '../public/logo.png');
@@ -30,6 +34,7 @@ async function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      backgroundThrottling: false, // CRITICAL: Never throttle audio DSP or WebRTC when minimized
     },
     show: false,
   });
