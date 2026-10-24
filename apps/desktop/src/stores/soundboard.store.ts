@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { SoundboardItem, soundboardStorage } from '../services/soundboard.storage';
-import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
+import { soundboardAudioEngine, ActiveSoundInfo } from '../services/soundboard-audio-engine';
 import { seedDefaultSoundsIfEmpty } from '../services/soundboard-presets';
+import { useLiveKitStore } from './livekit.store';
 
 interface SoundboardState {
   sounds: SoundboardItem[];
   activePlayingIds: string[];
+  activeSounds: ActiveSoundInfo[];
   masterVolume: number;
   localMonitorVolume: number;
   allowWhileMuted: boolean;
@@ -35,14 +37,31 @@ interface SoundboardState {
 export const useSoundboardStore = create<SoundboardState>()(
   persist(
     (set, get) => {
-      // Wire audio engine listener to update activePlayingIds in store
+      // Wire audio engine listener to update activePlayingIds & activeSounds in store
       soundboardAudioEngine.subscribe(() => {
-        set({ activePlayingIds: soundboardAudioEngine.getActivePlayingIds() });
+        const active = soundboardAudioEngine.getActiveSounds();
+        set({
+          activePlayingIds: soundboardAudioEngine.getActivePlayingIds(),
+          activeSounds: active,
+        });
+      });
+
+      // Track automatic sound finishes to broadcast stopped packet
+      let previousActiveIds = new Set<string>();
+      soundboardAudioEngine.setOnActiveChange((activeList) => {
+        const currentActiveIds = new Set(activeList.map((a) => a.soundId));
+        previousActiveIds.forEach((id) => {
+          if (!currentActiveIds.has(id)) {
+            useLiveKitStore.getState().broadcastSoundboardStopped(id);
+          }
+        });
+        previousActiveIds = currentActiveIds;
       });
 
       return {
         sounds: [],
         activePlayingIds: [],
+        activeSounds: [],
         masterVolume: 80,
         localMonitorVolume: 80,
         allowWhileMuted: false,
@@ -57,7 +76,6 @@ export const useSoundboardStore = create<SoundboardState>()(
           try {
             await seedDefaultSoundsIfEmpty();
             const items = await soundboardStorage.getAllItems();
-            // Sync saved volume settings with audio engine
             soundboardAudioEngine.setMasterVolume(get().masterVolume);
             soundboardAudioEngine.setLocalMonitorVolume(get().localMonitorVolume);
             soundboardAudioEngine.setAllowWhileMuted(get().allowWhileMuted);
@@ -71,19 +89,16 @@ export const useSoundboardStore = create<SoundboardState>()(
         importSound: async (file: File, customName?: string, category = 'General') => {
           set({ isLoading: true, error: null });
           try {
-            // Validate size (max 25MB)
             if (file.size > 25 * 1024 * 1024) {
               throw new Error('Audio file is too large (maximum 25MB).');
             }
 
-            // Extract file extension and base name
             const rawName = file.name.replace(/\.[^/.]+$/, '');
             const finalName = (customName && customName.trim()) || rawName;
 
             const arrayBuffer = await file.arrayBuffer();
             const soundId = `snd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-            // Decode to verify audio format and extract duration
             const audioBuffer = await soundboardAudioEngine.loadAudioBuffer(soundId, arrayBuffer);
             const duration = Math.round(audioBuffer.duration * 10) / 10;
 
@@ -114,6 +129,9 @@ export const useSoundboardStore = create<SoundboardState>()(
 
           try {
             await soundboardAudioEngine.playSound(sound, localOnly);
+            if (!localOnly) {
+              useLiveKitStore.getState().broadcastSoundboardPlaying(sound.id, sound.name, sound.duration);
+            }
           } catch (err: any) {
             console.error(`Error playing sound ${sound.name}:`, err);
             set({ error: err.message || 'Playback error' });
@@ -122,10 +140,15 @@ export const useSoundboardStore = create<SoundboardState>()(
 
         stopSound: (id: string) => {
           soundboardAudioEngine.stopSound(id);
+          useLiveKitStore.getState().broadcastSoundboardStopped(id);
         },
 
         stopAll: () => {
+          const ids = get().activePlayingIds;
           soundboardAudioEngine.stopAllSounds();
+          ids.forEach((id) => {
+            useLiveKitStore.getState().broadcastSoundboardStopped(id);
+          });
         },
 
         updateSound: async (id: string, updates: Partial<SoundboardItem>) => {
@@ -137,6 +160,7 @@ export const useSoundboardStore = create<SoundboardState>()(
 
         deleteSound: async (id: string) => {
           soundboardAudioEngine.stopSound(id);
+          useLiveKitStore.getState().broadcastSoundboardStopped(id);
           await soundboardStorage.deleteItem(id);
           set((state) => ({
             sounds: state.sounds.filter((s) => s.id !== id),

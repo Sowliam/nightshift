@@ -19,7 +19,6 @@ import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
-import { useSoundboardStore } from './soundboard.store';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -58,6 +57,12 @@ interface LiveKitState {
   startScreenShare: (sourceId?: string, options?: ScreenShareOptions) => Promise<boolean>;
   stopScreenShare: () => Promise<void>;
 
+  activeSoundboardPlayers: Record<string, { soundName: string; soundId: string; startedAt: number; duration: number }>;
+  broadcastSoundboardPlaying: (soundId: string, soundName: string, duration: number) => Promise<void>;
+  broadcastSoundboardStopped: (soundId: string) => Promise<void>;
+  setParticipantSoundboardVolume: (identity: string, volumePercent: number) => void;
+  toggleMuteSoundboardForMyself: (identity: string) => void;
+
   // Stream watching actions
   startWatchingStream: (participantIdentity: string) => void;
   stopWatchingStream: (participantIdentity: string) => void;
@@ -73,6 +78,7 @@ interface LiveKitState {
 export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeCustomScreenTrack: LocalVideoTrack | null = null;
   let activeCustomScreenAudioTrack: LocalAudioTrack | null = null;
+  let activeLocalSoundboardTrack: LocalAudioTrack | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
@@ -323,12 +329,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   const applyDeafenToRemoteTracks = (room: Room, deafened: boolean) => {
     const localMuted = useSettingsStore.getState().localMutedUsers;
     const volumes = useSettingsStore.getState().participantVolumes;
+    const sbMuted = useSettingsStore.getState().localMutedSoundboards;
+    const sbVolumes = useSettingsStore.getState().soundboardVolumes;
 
     room.remoteParticipants.forEach((participant) => {
-      const isLocallyMuted = !!localMuted[participant.identity];
-      const vol = volumes[participant.identity] ?? 100;
-
       participant.audioTrackPublications.forEach((pub) => {
+        const isSoundboard = pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard';
+        const isLocallyMuted = isSoundboard
+          ? !!sbMuted[participant.identity]
+          : !!localMuted[participant.identity];
+        const vol = isSoundboard
+          ? (sbVolumes[participant.identity] ?? 100)
+          : (volumes[participant.identity] ?? 100);
+
         if (pub.track && pub.track.mediaStreamTrack) {
           pub.track.mediaStreamTrack.enabled = !deafened && !isLocallyMuted;
         }
@@ -350,6 +363,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     localParticipant: null,
     remoteParticipants: [],
     activeSpeakers: new Set(),
+    activeSoundboardPlayers: {},
     availableScreenShares: [],
     watchedScreenShareIds: new Set(),
     focusedScreenShareId: null,
@@ -418,9 +432,33 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         set({ activeSpeakers: speakingSet });
       });
 
-      room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
-          if (track.source === Track.Source.Microphone) {
+          const isSoundboard = (pub && pub.trackName === 'soundboard') || (track as any).name === 'soundboard';
+
+          if (isSoundboard) {
+            let container = document.getElementById('nightshift-soundboard-audio-container');
+            if (!container) {
+              container = document.createElement('div');
+              container.id = 'nightshift-soundboard-audio-container';
+              container.style.display = 'none';
+              document.body.appendChild(container);
+            }
+            const element = track.attach();
+            element.autoplay = true;
+            container.appendChild(element);
+
+            // Apply saved per-participant soundboard volume and local mute
+            const isLocallyMuted = !!useSettingsStore.getState().localMutedSoundboards[participant.identity];
+            const savedVol = useSettingsStore.getState().soundboardVolumes[participant.identity] ?? 100;
+            if (typeof (track as RemoteAudioTrack).setVolume === 'function') {
+              (track as RemoteAudioTrack).setVolume(isLocallyMuted || get().isDeafened ? 0 : savedVol / 100);
+            }
+
+            if ((get().isDeafened || isLocallyMuted) && track.mediaStreamTrack) {
+              track.mediaStreamTrack.enabled = false;
+            }
+          } else if (track.source === Track.Source.Microphone) {
             let container = document.getElementById('nightshift-voice-audio-container');
             if (!container) {
               container = document.createElement('div');
@@ -458,7 +496,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       room.on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.track && pub.track.kind === Track.Kind.Audio) {
           const localAudio = pub.track as LocalAudioTrack;
-          if (localAudio.mediaStreamTrack) {
+          if (localAudio.mediaStreamTrack && pub.source === Track.Source.Microphone) {
             setupAudioAnalyser(localAudio.mediaStreamTrack);
           }
         }
@@ -475,6 +513,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const data = JSON.parse(text);
           if (data.type === 'chat_message' && data.message && data.roomId) {
             useChatStore.getState().addMessage(data.roomId, data.message);
+          } else if (data.type === 'soundboard_playing' && data.participantIdentity) {
+            set((state) => ({
+              activeSoundboardPlayers: {
+                ...state.activeSoundboardPlayers,
+                [data.participantIdentity]: {
+                  soundName: data.soundName || 'Audio',
+                  soundId: data.soundId || '',
+                  startedAt: data.startedAt || Date.now(),
+                  duration: data.duration || 0,
+                },
+              },
+            }));
+          } else if (data.type === 'soundboard_stopped' && data.participantIdentity) {
+            set((state) => {
+              const updated = { ...state.activeSoundboardPlayers };
+              delete updated[data.participantIdentity];
+              return { activeSoundboardPlayers: updated };
+            });
           }
         } catch (err) {
           console.warn('Error parsing data packet:', err);
@@ -507,19 +563,30 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           await room.localParticipant.setMicrophoneEnabled(!isPtt);
           set({ isMuted: isPtt });
 
-          // Find local audio track to initialize soundboard audio mixer & analyzer
-          const micPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+          const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+            (p) => p.source === Track.Source.Microphone
+          );
           if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-            const rawTrack = (micPub.track as LocalAudioTrack).mediaStreamTrack!;
-            const rawStream = new MediaStream([rawTrack]);
-            const mixedTrack = soundboardAudioEngine.initializePipeline(rawStream);
-            soundboardAudioEngine.setMicrophoneMuted(isPtt);
-            await (micPub.track as LocalAudioTrack).replaceTrack(mixedTrack, true);
-            setupAudioAnalyser(mixedTrack);
+            setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
           }
         } catch (micErr: any) {
           console.warn('Microphone error:', micErr);
           set({ isMuted: true, error: 'Could not access microphone: ' + (micErr.message || 'Permission denied') });
+        }
+
+        // Publish dedicated Soundboard audio track (Separate from microphone stream)
+        try {
+          const sbMediaTrack = soundboardAudioEngine.initializePipeline();
+          const sbTrack = new LocalAudioTrack(sbMediaTrack);
+          activeLocalSoundboardTrack = sbTrack;
+          await room.localParticipant.publishTrack(sbTrack, {
+            name: 'soundboard',
+            source: Track.Source.Unknown,
+            dtx: false,
+          });
+          console.log('[LiveKit] Dedicated Soundboard audio track published successfully');
+        } catch (sbErr) {
+          console.warn('[LiveKit] Soundboard track publish failed:', sbErr);
         }
 
         set({
@@ -548,7 +615,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         clearInterval(pingInterval);
         pingInterval = null;
       }
-      cleanupAudioAnalyser();
+      if (activeLocalSoundboardTrack) {
+        try {
+          activeLocalSoundboardTrack.stop();
+        } catch {}
+        activeLocalSoundboardTrack = null;
+      }
       soundboardAudioEngine.cleanup();
 
       if (activeCustomScreenAudioTrack) {
@@ -576,6 +648,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         if (audioContainer) {
           audioContainer.innerHTML = '';
         }
+        const sbContainer = document.getElementById('nightshift-soundboard-audio-container');
+        if (sbContainer) {
+          sbContainer.innerHTML = '';
+        }
       } catch {}
 
       set({
@@ -583,6 +659,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         localParticipant: null,
         remoteParticipants: [],
         activeSpeakers: new Set(),
+        activeSoundboardPlayers: {},
         availableScreenShares: [],
         watchedScreenShareIds: new Set(),
         focusedScreenShareId: null,
@@ -623,16 +700,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       const newMuted = !isMuted;
       try {
-        const allowWhileMuted = useSoundboardStore.getState().allowWhileMuted;
         soundboardAudioEngine.setMicrophoneMuted(newMuted);
-
-        if (allowWhileMuted) {
-          if (!room.localParticipant.isMicrophoneEnabled) {
-            await room.localParticipant.setMicrophoneEnabled(true);
-          }
-        } else {
-          await room.localParticipant.setMicrophoneEnabled(!newMuted);
-        }
+        await room.localParticipant.setMicrophoneEnabled(!newMuted);
 
         set({ isMuted: newMuted });
         useSettingsStore.getState().setSelfMuted(newMuted);
@@ -947,13 +1016,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const { room } = get();
       if (room) {
         await room.switchActiveDevice('audioinput', deviceId);
-        const micPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+        const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+          (p) => p.source === Track.Source.Microphone
+        );
         if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-          const rawTrack = (micPub.track as LocalAudioTrack).mediaStreamTrack!;
-          const rawStream = new MediaStream([rawTrack]);
-          const mixedTrack = soundboardAudioEngine.initializePipeline(rawStream);
-          await (micPub.track as LocalAudioTrack).replaceTrack(mixedTrack, true);
-          setupAudioAnalyser(mixedTrack);
+          setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
         }
       }
     },
@@ -974,11 +1041,34 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
-          if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-            (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : volumePercent / 100);
+          if (pub.source === Track.Source.Microphone) {
+            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+              (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : volumePercent / 100);
+            }
+            if (pub.track && pub.track.mediaStreamTrack) {
+              pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+            }
           }
-          if (pub.track && pub.track.mediaStreamTrack) {
-            pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+        });
+      }
+    },
+
+    setParticipantSoundboardVolume: (identity: string, volumePercent: number) => {
+      useSettingsStore.getState().setSoundboardVolume(identity, volumePercent);
+      const { room, isDeafened } = get();
+      if (!room) return;
+
+      const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
+      const remote = room.remoteParticipants.get(identity);
+      if (remote) {
+        remote.audioTrackPublications.forEach((pub) => {
+          if (pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard') {
+            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+              (pub.track as RemoteAudioTrack).setVolume(isMuted || isDeafened ? 0 : volumePercent / 100);
+            }
+            if (pub.track && pub.track.mediaStreamTrack) {
+              pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+            }
           }
         });
       }
@@ -994,13 +1084,85 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
-          if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-            (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : currentVol / 100);
-          }
-          if (pub.track && pub.track.mediaStreamTrack) {
-            pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+          if (pub.source === Track.Source.Microphone) {
+            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+              (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : currentVol / 100);
+            }
+            if (pub.track && pub.track.mediaStreamTrack) {
+              pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+            }
           }
         });
+      }
+    },
+
+    toggleMuteSoundboardForMyself: (identity: string) => {
+      useSettingsStore.getState().toggleLocalMutedSoundboard(identity);
+      const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
+      const currentVol = useSettingsStore.getState().soundboardVolumes[identity] ?? 100;
+      const { room, isDeafened } = get();
+      if (!room) return;
+
+      const remote = room.remoteParticipants.get(identity);
+      if (remote) {
+        remote.audioTrackPublications.forEach((pub) => {
+          if (pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard') {
+            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
+              (pub.track as RemoteAudioTrack).setVolume(isMuted || isDeafened ? 0 : currentVol / 100);
+            }
+            if (pub.track && pub.track.mediaStreamTrack) {
+              pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+            }
+          }
+        });
+      }
+    },
+
+    broadcastSoundboardPlaying: async (soundId: string, soundName: string, duration: number) => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return;
+      const identity = room.localParticipant.identity;
+      const payload = {
+        type: 'soundboard_playing',
+        participantIdentity: identity,
+        soundId,
+        soundName,
+        duration,
+        startedAt: Date.now(),
+      };
+      set((state) => ({
+        activeSoundboardPlayers: {
+          ...state.activeSoundboardPlayers,
+          [identity]: { soundName, soundId, startedAt: Date.now(), duration },
+        },
+      }));
+      try {
+        const bytes = new TextEncoder().encode(JSON.stringify(payload));
+        await room.localParticipant.publishData(bytes, { reliable: true });
+      } catch (e) {
+        console.warn('Failed to broadcast soundboard_playing:', e);
+      }
+    },
+
+    broadcastSoundboardStopped: async (soundId: string) => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return;
+      const identity = room.localParticipant.identity;
+      const payload = {
+        type: 'soundboard_stopped',
+        participantIdentity: identity,
+        soundId,
+      };
+      set((state) => {
+        const updated = { ...state.activeSoundboardPlayers };
+        delete updated[identity];
+        return { activeSoundboardPlayers: updated };
+      });
+      try {
+        const bytes = new TextEncoder().encode(JSON.stringify(payload));
+        await room.localParticipant.publishData(bytes, { reliable: true });
+      } catch (e) {
+        console.warn('Failed to broadcast soundboard_stopped:', e);
       }
     },
 

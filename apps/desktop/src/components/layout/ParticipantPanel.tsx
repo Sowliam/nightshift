@@ -13,11 +13,13 @@ import {
   Search,
   Check,
   X,
+  Music,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
+import { useSoundboardStore } from '../../stores/soundboard.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { ServerMemberDto } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
@@ -25,8 +27,9 @@ import { getFullAvatarUrl } from '../../lib/api';
 export const ParticipantPanel: React.FC = () => {
   const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
-  const { activeSpeakers, isLocallySpeaking } = useLiveKitStore();
+  const { activeSpeakers, isLocallySpeaking, activeSoundboardPlayers } = useLiveKitStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
+  const localActiveSounds = useSoundboardStore((s) => s.activeSounds);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -170,6 +173,10 @@ export const ParticipantPanel: React.FC = () => {
     const isBot = isBotUser(member);
     const subtitle = getMemberSubtitle(member);
 
+    const remotePlaying = !isMe ? activeSoundboardPlayers[member.userId] : null;
+    const isPlayingSound = isMe ? localActiveSounds.length > 0 : !!remotePlaying;
+    const soundTitle = isMe ? localActiveSounds[0]?.name : remotePlaying?.soundName;
+
     return (
       <div
         key={member.id}
@@ -267,9 +274,16 @@ export const ParticipantPanel: React.FC = () => {
               )}
             </div>
 
-            {/* Subtitle / Activity / Handle */}
+            {/* Subtitle / Activity / Soundboard Playing indicator */}
             <div className="flex items-center gap-1 text-[11.5px] text-[#949ba4] leading-tight truncate mt-0.5 font-normal">
-              <span>{subtitle}</span>
+              {isPlayingSound ? (
+                <span className="flex items-center gap-1 text-[10.5px] font-semibold text-accent-bright bg-accent-bright/10 px-1.5 py-0.2 rounded border border-accent-bright/20 animate-pulse truncate" title={`Playing: ${soundTitle}`}>
+                  <Music className="w-2.5 h-2.5 animate-bounce shrink-0" />
+                  <span className="truncate">{soundTitle}</span>
+                </span>
+              ) : (
+                <span>{subtitle}</span>
+              )}
               {isMe && <span className="text-[#5865f2] font-semibold text-[10.5px]">(You)</span>}
             </div>
           </div>
@@ -277,6 +291,14 @@ export const ParticipantPanel: React.FC = () => {
 
         {/* Server Muted / Deafened / Local Muted Indicators & Moderation Button */}
         <div className="flex items-center gap-1 shrink-0">
+          {isPlayingSound && (
+            <span
+              className="p-1 rounded-md bg-accent-bright/20 text-accent-bright border border-accent-bright/40 animate-pulse"
+              title={`Playing Sound: ${soundTitle}`}
+            >
+              <Music className="w-3.5 h-3.5" />
+            </span>
+          )}
           {localMutedUsers[member.userId] && !isMe && (
             <span
               className="p-1 rounded-md bg-destructive/20 text-destructive border border-destructive/40"

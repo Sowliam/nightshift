@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X, VolumeX, Volume2, MoreVertical, PhoneOff } from 'lucide-react';
+import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X, VolumeX, Volume2, MoreVertical, PhoneOff, Music, Square } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useRoomStore } from '../../stores/room.store';
 import { useServerStore } from '../../stores/server.store';
 import { useSettingsStore } from '../../stores/settings.store';
+import { useSoundboardStore } from '../../stores/soundboard.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { Track } from 'livekit-client';
 import { getFullAvatarUrl } from '../../lib/api';
@@ -46,11 +47,16 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     stopWatchingStream,
     stopScreenShare,
     disconnect,
+    activeSoundboardPlayers,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
   const members = useServerStore((s) => s.members);
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
   const participantVolumes = useSettingsStore((s) => s.participantVolumes);
+  const soundboardVolumes = useSettingsStore((s) => s.soundboardVolumes);
+  const localMutedSoundboards = useSettingsStore((s) => s.localMutedSoundboards);
+  const localActiveSounds = useSoundboardStore((s) => s.activeSounds);
+  const stopAllSounds = useSoundboardStore((s) => s.stopAll);
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -274,6 +280,13 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
           const customVolume = participantVolumes[p.identity];
           const hasCustomVolume = customVolume !== undefined && customVolume !== 100 && !isLocallyMuted;
 
+          const remotePlaying = !p.isLocal ? activeSoundboardPlayers[p.identity] : null;
+          const isPlayingSound = p.isLocal ? localActiveSounds.length > 0 : !!remotePlaying;
+          const soundTitle = p.isLocal ? localActiveSounds[0]?.name : remotePlaying?.soundName;
+          const isSoundboardMuted = !p.isLocal && !!localMutedSoundboards[p.identity];
+          const customSoundboardVol = soundboardVolumes[p.identity];
+          const hasCustomSoundboardVol = customSoundboardVol !== undefined && customSoundboardVol !== 100 && !isSoundboardMuted;
+
           const openUserMenu = (e: React.MouseEvent) => {
             e.preventDefault();
             e.stopPropagation();
@@ -299,11 +312,37 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   ? 'w-full max-w-xl h-[340px] md:h-[400px] shadow-card'
                   : 'w-full h-full min-h-[160px] shadow-subtle'
               } ${
-                p.isSpeaking
+                isPlayingSound
+                  ? 'border-accent-bright/70 ring-2 ring-accent-bright/40 shadow-[0_0_20px_rgba(82,183,136,0.3)]'
+                  : p.isSpeaking
                   ? 'border-online ring-2 ring-online/50 shadow-[0_0_16px_rgba(82,183,136,0.25)]'
                   : 'border-border-subtle hover:border-border-strong'
               }`}
             >
+              {/* Top-Left Now Playing Sound / Music Badge */}
+              {isPlayingSound && (
+                <div
+                  onClick={openUserMenu}
+                  className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-accent-bright/20 backdrop-blur-md border border-accent-bright/50 text-accent-bright font-bold text-[11px] shadow-lg animate-pulse z-10 cursor-pointer hover:bg-accent-bright/30 transition-all max-w-[65%]"
+                  title={p.isLocal ? `You are playing: ${soundTitle}` : `${p.name} is playing: ${soundTitle} (Right-click to adjust volume)`}
+                >
+                  <Music className="w-3.5 h-3.5 animate-bounce shrink-0" />
+                  <span className="truncate">{soundTitle}</span>
+                  {p.isLocal && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        stopAllSounds();
+                      }}
+                      className="ml-1 p-0.5 rounded bg-destructive hover:bg-destructive/80 text-white cursor-pointer shrink-0"
+                      title="Stop playing sound"
+                    >
+                      <Square className="w-2.5 h-2.5 fill-current" />
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Top-Right Quick Menu Button for easy touch/mouse access */}
               <button
                 onClick={openUserMenu}
@@ -352,6 +391,28 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
 
                 {/* Status Badges: Local Mute, Custom Volume, Screen Share, Deafen, Mic Muted */}
                 <div className="flex items-center gap-1.5 pointer-events-auto">
+                  {/* Local Soundboard Mute Badge */}
+                  {isSoundboardMuted && !p.isLocal && (
+                    <div
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-destructive/25 border border-destructive/50 text-destructive text-[10px] font-bold"
+                      title="Music/Sound effects muted for you"
+                    >
+                      <Music className="w-3 h-3 line-through" />
+                      <span className="hidden sm:inline">Sounds Muted</span>
+                    </div>
+                  )}
+
+                  {/* Custom Soundboard Volume Badge */}
+                  {hasCustomSoundboardVol && !p.isLocal && (
+                    <div
+                      className="px-1.5 py-0.5 rounded-lg bg-accent-bright/15 border border-accent-bright/30 text-[10px] font-mono text-accent-bright flex items-center gap-0.5"
+                      title={`Soundboard volume set to ${customSoundboardVol}%`}
+                    >
+                      <Music className="w-3 h-3" />
+                      <span>{customSoundboardVol}%</span>
+                    </div>
+                  )}
+
                   {/* Local Mute Badge (Muted only for me) */}
                   {isLocallyMuted && !p.isLocal && (
                     <div

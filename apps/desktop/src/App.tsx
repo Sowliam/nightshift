@@ -4,6 +4,7 @@ import { RoomSidebar } from './components/layout/RoomSidebar';
 import { ChatStage } from './components/chat/ChatStage';
 import { ParticipantPanel } from './components/layout/ParticipantPanel';
 import { OnboardingModal } from './components/modals/OnboardingModal';
+import { SoundboardActiveBar } from './components/voice/SoundboardActiveBar';
 
 // Lazy-load secondary modals to minimize initial bundle size and speed up FCP
 const ScreenShareModal = React.lazy(() =>
@@ -205,6 +206,9 @@ export const App: React.FC = () => {
     <div className="w-screen h-screen flex flex-col bg-bg-main overflow-hidden text-text-primary select-none">
       {/* 1. Desktop Window Frame & TitleBar with Minimize, Maximize, Close */}
       <TitleBar />
+
+      {/* Floating Soundboard Active / Now Playing Bar */}
+      <SoundboardActiveBar />
 
       {/* 2. Main 3-Column Layout: Left Channels/Servers, Center Chat/Voice, Right Members */}
       <div className="flex-1 flex min-h-0 relative overflow-hidden">

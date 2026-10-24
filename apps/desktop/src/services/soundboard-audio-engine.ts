@@ -1,22 +1,28 @@
 import { SoundboardItem, soundboardStorage } from './soundboard.storage';
 
+export interface ActiveSoundInfo {
+  soundId: string;
+  name: string;
+  startedAt: number;
+  duration: number;
+}
+
 interface ActiveSoundInstance {
   soundId: string;
+  name: string;
   sourceNode: AudioBufferSourceNode;
   gainNode: GainNode;
   startedAt: number;
+  duration: number;
 }
 
 export class SoundboardAudioEngine {
   private audioContext: AudioContext | null = null;
-  private rawMicStream: MediaStream | null = null;
-  private micSourceNode: MediaStreamAudioSourceNode | null = null;
-  private micGainNode: GainNode | null = null;
   private soundboardBusGain: GainNode | null = null;
   private localMonitorGain: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
-  private mixedStreamTrack: MediaStreamTrack | null = null;
+  private soundboardTrack: MediaStreamTrack | null = null;
 
   private isMicMuted: boolean = false;
   private allowWhileMuted: boolean = false;
@@ -27,6 +33,7 @@ export class SoundboardAudioEngine {
   private activeInstances: Map<string, ActiveSoundInstance> = new Map();
   private audioBufferCache: Map<string, AudioBuffer> = new Map();
   private listeners: Set<() => void> = new Set();
+  private onActiveChangeHandler: ((active: ActiveSoundInfo[]) => void) | null = null;
 
   private getAudioContext(): AudioContext {
     if (!this.audioContext || this.audioContext.state === 'closed') {
@@ -40,27 +47,28 @@ export class SoundboardAudioEngine {
   }
 
   /**
-   * Initializes or refreshes the audio mixing pipeline with a raw microphone stream.
-   * Returns the single mixed MediaStreamTrack intended for LiveKit transmission.
+   * Initializes or returns the dedicated outgoing Soundboard audio track for LiveKit.
+   * This pipeline contains ONLY soundboard audio (no microphone audio mixed in),
+   * ensuring participants receive two separate, independently controllable tracks.
    */
-  public initializePipeline(rawMicStream?: MediaStream | null): MediaStreamTrack {
+  public initializePipeline(): MediaStreamTrack {
     const ctx = this.getAudioContext();
 
-    // Create or reuse bus gain nodes
+    // Soundboard Master Transmission Gain
     if (!this.soundboardBusGain) {
       this.soundboardBusGain = ctx.createGain();
       this.soundboardBusGain.gain.setValueAtTime(this.masterVolume, ctx.currentTime);
     }
 
+    // Local Monitor Gain (so user hears sound in headphones with zero mic echo)
     if (!this.localMonitorGain) {
       this.localMonitorGain = ctx.createGain();
       this.localMonitorGain.gain.setValueAtTime(this.localMonitorVolume, ctx.currentTime);
-      // Route soundboard to local headphones/speakers
       this.soundboardBusGain.connect(this.localMonitorGain);
       this.localMonitorGain.connect(ctx.destination);
     }
 
-    // Limiter / Dynamics compressor
+    // Dynamics Compressor / Limiter to prevent clipping
     if (!this.compressorNode) {
       this.compressorNode = ctx.createDynamicsCompressor();
       this.compressorNode.threshold.setValueAtTime(-6, ctx.currentTime);
@@ -71,64 +79,22 @@ export class SoundboardAudioEngine {
       this.soundboardBusGain.connect(this.compressorNode);
     }
 
-    // Destination node that generates the outgoing WebRTC stream
+    // Dedicated MediaStreamDestination generating the outgoing WebRTC track
     if (!this.destinationNode) {
       this.destinationNode = ctx.createMediaStreamDestination();
       this.compressorNode.connect(this.destinationNode);
-      this.mixedStreamTrack = this.destinationNode.stream.getAudioTracks()[0];
+      this.soundboardTrack = this.destinationNode.stream.getAudioTracks()[0];
     }
 
-    // Update microphone source if stream provided
-    if (rawMicStream) {
-      this.setMicrophoneStream(rawMicStream);
-    }
-
-    return this.mixedStreamTrack!;
+    this.updateSoundboardTransmissionState();
+    return this.soundboardTrack!;
   }
 
   /**
-   * Connects or swaps the raw microphone stream without interrupting the Soundboard
-   */
-  public setMicrophoneStream(stream: MediaStream | null): void {
-    const ctx = this.getAudioContext();
-    this.rawMicStream = stream;
-
-    // Disconnect previous mic nodes
-    if (this.micSourceNode) {
-      try {
-        this.micSourceNode.disconnect();
-      } catch {}
-      this.micSourceNode = null;
-    }
-
-    if (stream && stream.getAudioTracks().length > 0) {
-      try {
-        this.micSourceNode = ctx.createMediaStreamSource(stream);
-        if (!this.micGainNode) {
-          this.micGainNode = ctx.createGain();
-        }
-        const effectiveGain = this.isMicMuted ? 0 : 1;
-        this.micGainNode.gain.setValueAtTime(effectiveGain, ctx.currentTime);
-
-        this.micSourceNode.connect(this.micGainNode);
-        if (this.compressorNode) {
-          this.micGainNode.connect(this.compressorNode);
-        }
-      } catch (err) {
-        console.warn('Could not connect microphone to soundboard audio context:', err);
-      }
-    }
-  }
-
-  /**
-   * Sets microphone mute state. When muted, mic gain drops to 0 immediately.
+   * Sets microphone mute state. When muted, checks if soundboard transmission is allowed.
    */
   public setMicrophoneMuted(muted: boolean): void {
     this.isMicMuted = muted;
-    if (this.micGainNode && this.audioContext) {
-      const target = muted ? 0 : 1;
-      this.micGainNode.gain.setValueAtTime(target, this.audioContext.currentTime);
-    }
     this.updateSoundboardTransmissionState();
   }
 
@@ -139,11 +105,11 @@ export class SoundboardAudioEngine {
 
   private updateSoundboardTransmissionState(): void {
     if (!this.soundboardBusGain || !this.audioContext) return;
-    // If mic is muted and user hasn't explicitly allowed soundboard while muted:
-    // Silence outgoing soundboard transmission, but keep local monitor active.
     const shouldTransmit = !this.isMicMuted || this.allowWhileMuted;
     const targetVolume = shouldTransmit ? this.masterVolume : 0;
-    this.soundboardBusGain.gain.setValueAtTime(targetVolume, this.audioContext.currentTime);
+    try {
+      this.soundboardBusGain.gain.setValueAtTime(targetVolume, this.audioContext.currentTime);
+    } catch {}
   }
 
   public setMasterVolume(volumePercent: number): void {
@@ -151,10 +117,12 @@ export class SoundboardAudioEngine {
     this.masterVolume = clamped / 100;
     if (this.soundboardBusGain && this.audioContext) {
       const shouldTransmit = !this.isMicMuted || this.allowWhileMuted;
-      this.soundboardBusGain.gain.setValueAtTime(
-        shouldTransmit ? this.masterVolume : 0,
-        this.audioContext.currentTime
-      );
+      try {
+        this.soundboardBusGain.gain.setValueAtTime(
+          shouldTransmit ? this.masterVolume : 0,
+          this.audioContext.currentTime
+        );
+      } catch {}
     }
   }
 
@@ -162,7 +130,9 @@ export class SoundboardAudioEngine {
     const clamped = Math.max(0, Math.min(100, volumePercent));
     this.localMonitorVolume = clamped / 100;
     if (this.localMonitorGain && this.audioContext) {
-      this.localMonitorGain.gain.setValueAtTime(this.localMonitorVolume, this.audioContext.currentTime);
+      try {
+        this.localMonitorGain.gain.setValueAtTime(this.localMonitorVolume, this.audioContext.currentTime);
+      } catch {}
     }
   }
 
@@ -174,7 +144,6 @@ export class SoundboardAudioEngine {
     if (cached) return cached;
 
     const ctx = this.getAudioContext();
-    // decodeAudioData consumes the arrayBuffer, so we clone it
     const cloned = arrayBuffer.slice(0);
     const audioBuffer = await ctx.decodeAudioData(cloned);
     this.audioBufferCache.set(soundId, audioBuffer);
@@ -184,17 +153,17 @@ export class SoundboardAudioEngine {
   /**
    * Plays a sound effect.
    * If localOnly is true, routes ONLY to user's headphones/speakers (private preview).
-   * Otherwise mixes into both outgoing LiveKit stream and local headphones.
+   * Otherwise transmits through the dedicated LiveKit soundboard audio track and headphones.
    */
   public async playSound(item: SoundboardItem, localOnly = false): Promise<void> {
     const ctx = this.getAudioContext();
 
-    // Stop existing instance of this specific sound if playing
+    // If this sound is already playing, stop it immediately first
     if (this.activeInstances.has(item.id)) {
       this.stopSound(item.id);
     }
 
-    // Enforce concurrency limit: stop oldest instance if max reached
+    // Enforce max concurrent sounds limit (stop oldest sound)
     if (this.activeInstances.size >= this.maxConcurrentSounds) {
       let oldestId: string | null = null;
       let oldestTime = Infinity;
@@ -214,12 +183,12 @@ export class SoundboardAudioEngine {
     if (!audioBuffer) {
       const rawData = await soundboardStorage.getAudioData(item.id);
       if (!rawData) {
-        throw new Error(`Audio data not found for sound ${item.name}`);
+        throw new Error(`Audio data not found for sound "${item.name}"`);
       }
       audioBuffer = await this.loadAudioBuffer(item.id, rawData);
     }
 
-    // Create per-sound source and gain nodes
+    // Create per-sound source node and volume gain node
     const sourceNode = ctx.createBufferSource();
     sourceNode.buffer = audioBuffer;
 
@@ -237,7 +206,7 @@ export class SoundboardAudioEngine {
         itemGainNode.connect(ctx.destination);
       }
     } else {
-      // Transmit to voice room + local monitor
+      // Transmit to dedicated LiveKit soundboard track + local monitor
       if (!this.soundboardBusGain) {
         this.initializePipeline();
       }
@@ -246,53 +215,61 @@ export class SoundboardAudioEngine {
 
     const instance: ActiveSoundInstance = {
       soundId: item.id,
+      name: item.name,
       sourceNode,
       gainNode: itemGainNode,
       startedAt: Date.now(),
+      duration: audioBuffer.duration,
     };
 
     this.activeInstances.set(item.id, instance);
     this.notifyListeners();
 
     sourceNode.onended = () => {
-      this.activeInstances.delete(item.id);
-      try {
-        sourceNode.disconnect();
-        itemGainNode.disconnect();
-      } catch {}
-      this.notifyListeners();
+      // Clean up when sound finishes playing naturally
+      if (this.activeInstances.has(item.id)) {
+        this.activeInstances.delete(item.id);
+        try {
+          sourceNode.disconnect();
+          itemGainNode.disconnect();
+        } catch {}
+        this.notifyListeners();
+      }
     };
 
     sourceNode.start(0);
   }
 
   /**
-   * Stops an individual sound with a smooth fade-out to prevent audio pops
+   * Stops an individual sound immediately and reliably.
+   * Cancels scheduled audio values and immediately stops the buffer node.
    */
   public stopSound(soundId: string): void {
     const inst = this.activeInstances.get(soundId);
     if (!inst) return;
 
     this.activeInstances.delete(soundId);
-    this.notifyListeners();
+
+    inst.sourceNode.onended = null;
+
+    const ctx = this.audioContext;
+    const now = ctx ? ctx.currentTime : 0;
 
     try {
-      const ctx = this.getAudioContext();
-      // Smooth 30ms linear ramp to 0 before stopping
-      inst.gainNode.gain.setValueAtTime(inst.gainNode.gain.value, ctx.currentTime);
-      inst.gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.03);
-      setTimeout(() => {
-        try {
-          inst.sourceNode.stop();
-          inst.sourceNode.disconnect();
-          inst.gainNode.disconnect();
-        } catch {}
-      }, 35);
-    } catch {
-      try {
-        inst.sourceNode.stop();
-      } catch {}
-    }
+      inst.gainNode.gain.cancelScheduledValues(now);
+      inst.gainNode.gain.setValueAtTime(0, now);
+    } catch {}
+
+    try {
+      inst.sourceNode.stop(now);
+    } catch {}
+
+    try {
+      inst.sourceNode.disconnect();
+      inst.gainNode.disconnect();
+    } catch {}
+
+    this.notifyListeners();
   }
 
   /**
@@ -313,21 +290,28 @@ export class SoundboardAudioEngine {
     return Array.from(this.activeInstances.keys());
   }
 
-  public getMixedTrack(): MediaStreamTrack | null {
-    return this.mixedStreamTrack;
+  public getActiveSounds(): ActiveSoundInfo[] {
+    return Array.from(this.activeInstances.values()).map((inst) => ({
+      soundId: inst.soundId,
+      name: inst.name,
+      startedAt: inst.startedAt,
+      duration: inst.duration,
+    }));
+  }
+
+  public getSoundboardTrack(): MediaStreamTrack | null {
+    if (!this.soundboardTrack) {
+      this.initializePipeline();
+    }
+    return this.soundboardTrack;
   }
 
   public cleanup(): void {
     this.stopAllSounds();
-    if (this.rawMicStream) {
-      this.rawMicStream = null;
-    }
-    if (this.micSourceNode) {
-      try {
-        this.micSourceNode.disconnect();
-      } catch {}
-      this.micSourceNode = null;
-    }
+  }
+
+  public setOnActiveChange(handler: ((active: ActiveSoundInfo[]) => void) | null): void {
+    this.onActiveChangeHandler = handler;
   }
 
   public subscribe(listener: () => void): () => void {
@@ -339,6 +323,11 @@ export class SoundboardAudioEngine {
     for (const l of this.listeners) {
       try {
         l();
+      } catch {}
+    }
+    if (this.onActiveChangeHandler) {
+      try {
+        this.onActiveChangeHandler(this.getActiveSounds());
       } catch {}
     }
   }

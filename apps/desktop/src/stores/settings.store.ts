@@ -35,6 +35,8 @@ interface SettingsState {
   voiceActivationThreshold: number;
   participantVolumes: Record<string, number>;
   localMutedUsers: Record<string, boolean>;
+  soundboardVolumes: Record<string, number>;
+  localMutedSoundboards: Record<string, boolean>;
 
   // Actions
   refreshDevices: () => Promise<void>;
@@ -50,6 +52,9 @@ interface SettingsState {
   setParticipantVolume: (userId: string, volume: number) => void;
   setLocalMuted: (userId: string, muted: boolean) => void;
   toggleLocalMute: (userId: string) => void;
+  setSoundboardVolume: (userId: string, volume: number) => void;
+  setLocalMutedSoundboard: (userId: string, muted: boolean) => void;
+  toggleLocalMutedSoundboard: (userId: string) => void;
   setDeafened: (val: boolean) => void;
 
   setInputDevice: (deviceId: string) => void;
@@ -143,6 +148,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     voiceActivationThreshold: initial.sensitivityThreshold ?? 35,
     participantVolumes: initial.participantVolumes || {},
     localMutedUsers: initial.localMutedUsers || {},
+    soundboardVolumes: initial.soundboardVolumes || {},
+    localMutedSoundboards: initial.localMutedSoundboards || {},
 
     refreshDevices: async () => {
       try {
@@ -236,6 +243,27 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     toggleLocalMute: (userId: string) => {
       const current = !!get().localMutedUsers[userId];
       get().setLocalMuted(userId, !current);
+    },
+
+    setSoundboardVolume: (userId: string, volume: number) => {
+      set((state) => {
+        const updated = { ...state.soundboardVolumes, [userId]: volume };
+        persist({ soundboardVolumes: updated });
+        return { soundboardVolumes: updated };
+      });
+    },
+
+    setLocalMutedSoundboard: (userId: string, muted: boolean) => {
+      set((state) => {
+        const updated = { ...state.localMutedSoundboards, [userId]: muted };
+        persist({ localMutedSoundboards: updated });
+        return { localMutedSoundboards: updated };
+      });
+    },
+
+    toggleLocalMutedSoundboard: (userId: string) => {
+      const current = !!get().localMutedSoundboards[userId];
+      get().setLocalMutedSoundboard(userId, !current);
     },
 
     setDeafened: (val: boolean) => {
