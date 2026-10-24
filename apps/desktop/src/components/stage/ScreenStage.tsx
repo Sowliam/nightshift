@@ -598,8 +598,30 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
                 className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#18191c] hover:bg-[#2b2d31] border border-[#232428] hover:border-[#35373c] text-[11px] font-mono text-[#f2f3f5] transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="Active WebRTC RTT Latency"
               >
-                <Zap className="w-3 h-3 text-[#52B788]" />
-                <span>{currentPing !== null ? `${currentPing} ms` : 'Testing...'}</span>
+                <Zap
+                  className={`w-3 h-3 ${
+                    currentPing === null
+                      ? 'text-[#52B788]'
+                      : currentPing < 140
+                      ? 'text-[#52B788]'
+                      : currentPing <= 350
+                      ? 'text-amber-400'
+                      : 'text-destructive'
+                  }`}
+                />
+                <span
+                  className={
+                    currentPing === null
+                      ? 'text-[#f2f3f5]'
+                      : currentPing < 140
+                      ? 'text-[#52B788]'
+                      : currentPing <= 350
+                      ? 'text-amber-400'
+                      : 'text-destructive'
+                  }
+                >
+                  {currentPing !== null ? `${currentPing} ms` : 'Testing...'}
+                </span>
               </button>
 
               {/* Push To Talk Status Pill */}

@@ -137,7 +137,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
     if (status === 'unreachable' || ping === null) {
       return <span className="text-xs text-text-muted font-mono">Unreachable</span>;
     }
-    if (ping < 70) {
+    if (ping < 140) {
       return (
         <span className="px-2 py-0.5 rounded bg-online/20 text-online font-mono text-xs font-bold flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-online animate-pulse" />
@@ -145,7 +145,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
         </span>
       );
     }
-    if (ping < 160) {
+    if (ping <= 350) {
       return (
         <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-400 font-mono text-xs font-bold flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />

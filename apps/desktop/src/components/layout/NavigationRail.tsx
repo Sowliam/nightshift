@@ -75,7 +75,15 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             >
               <Globe className="w-5 h-5" />
               {currentPing !== null && (
-                <span className="text-[9px] font-mono text-accent font-bold mt-0.5">
+                <span
+                  className={`text-[9px] font-mono font-bold mt-0.5 ${
+                    currentPing < 140
+                      ? 'text-[#52B788]'
+                      : currentPing <= 350
+                      ? 'text-amber-400'
+                      : 'text-destructive'
+                  }`}
+                >
                   {currentPing}ms
                 </span>
               )}
@@ -90,7 +98,13 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         {currentPing !== null && (
           <button
             onClick={onOpenServers}
-            className="px-1.5 py-0.5 rounded-full bg-accent-subtle border border-accent/30 text-accent text-[10px] font-mono font-bold flex items-center gap-1 hover:bg-accent/20 transition-all"
+            className={`px-1.5 py-0.5 rounded-full border text-[10px] font-mono font-bold flex items-center gap-1 transition-all ${
+              currentPing < 140
+                ? 'bg-[#52B788]/15 border-[#52B788]/40 text-[#52B788] hover:bg-[#52B788]/25'
+                : currentPing <= 350
+                ? 'bg-amber-400/15 border-amber-400/40 text-amber-400 hover:bg-amber-400/25'
+                : 'bg-destructive/15 border-destructive/40 text-destructive hover:bg-destructive/25'
+            }`}
             title="Current RTT Ping - Click to test regions"
           >
             <Zap className="w-2.5 h-2.5" />

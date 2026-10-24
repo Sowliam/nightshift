@@ -296,27 +296,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     <div className="w-[260px] h-full bg-bg-secondary border-r border-border-subtle flex flex-col justify-between select-none shrink-0 z-20">
       {/* Top Header & Channels */}
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Window Traffic Lights & Server Brand */}
-        <div className="p-4 border-b border-border-subtle shrink-0 relative">
-          {/* Traffic Light Window Controls */}
-          <div className="flex items-center gap-2 mb-3.5 app-region-no-drag">
-            <span
-              onClick={() => (window as any).nightshift?.windowClose?.()}
-              className="w-3 h-3 rounded-full bg-[#ED6A5E] hover:opacity-80 transition-opacity cursor-pointer shadow-sm"
-              title="Close"
-            />
-            <span
-              onClick={() => (window as any).nightshift?.windowMinimize?.()}
-              className="w-3 h-3 rounded-full bg-[#F5BF4F] hover:opacity-80 transition-opacity cursor-pointer shadow-sm"
-              title="Minimize"
-            />
-            <span
-              onClick={() => (window as any).nightshift?.windowMaximize?.()}
-              className="w-3 h-3 rounded-full bg-[#61C554] hover:opacity-80 transition-opacity cursor-pointer shadow-sm"
-              title="Maximize"
-            />
-          </div>
-
+        {/* Server Brand Header */}
+        <div className="p-3 border-b border-border-subtle shrink-0 relative">
           {/* Server Selector Bar */}
           <div
             onClick={() => setIsServerMenuOpen(!isServerMenuOpen)}

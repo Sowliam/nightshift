@@ -29,19 +29,19 @@ const SignalBarsIcon: React.FC<{
   }
 
   // Determine signal health:
-  // Level 3 (Good, < 120ms) -> Green, all 3 arcs visible
-  // Level 2 (Weak / Moderate, 120 - 220ms) -> Yellow, outer arc removed (2 arcs visible)
-  // Level 1 (Very Weak, > 220ms) -> Red, outer and middle arcs removed (1 arc visible)
+  // Level 3 (Optimal, < 140ms) -> Green, all 3 arcs visible
+  // Level 2 (Acceptable / Fair, 140 - 350ms) -> Yellow, outer arc removed (2 arcs visible)
+  // Level 1 (High, > 350ms) -> Red, outer and middle arcs removed (1 arc visible)
   let level = 3;
   let strokeColor = '#52B788'; // green (text-accent-bright)
 
   if (ping === null) {
     level = 3;
     strokeColor = '#52B788';
-  } else if (ping > 220) {
+  } else if (ping > 350) {
     level = 1;
     strokeColor = '#E05252'; // red (text-destructive)
-  } else if (ping >= 120) {
+  } else if (ping >= 140) {
     level = 2;
     strokeColor = '#FBBF24'; // yellow/amber (text-amber-400)
   }
@@ -120,19 +120,19 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
 
   const roomName = activeChannel?.name || activeRoom?.name || 'Voice Channel';
 
-  // Dynamic Ping Color: green (< 120ms), amber (120 - 220ms), red (> 220ms)
+  // Dynamic Ping Color: green (< 140ms), amber (140 - 350ms), red (> 350ms)
   const getPingColor = (ping: number | null) => {
     if (ping === null) return 'text-text-muted';
-    if (ping < 120) return 'text-accent-bright';
-    if (ping <= 220) return 'text-amber-400';
+    if (ping < 140) return 'text-accent-bright';
+    if (ping <= 350) return 'text-amber-400';
     return 'text-destructive';
   };
 
   const getStatusTextColor = () => {
     if (isConnecting) return 'text-amber-400';
     if (currentPing === null) return 'text-accent-bright';
-    if (currentPing > 220) return 'text-destructive';
-    if (currentPing >= 120) return 'text-amber-400';
+    if (currentPing > 350) return 'text-destructive';
+    if (currentPing >= 140) return 'text-amber-400';
     return 'text-accent-bright';
   };
 
@@ -185,9 +185,9 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
               className={`w-1.5 h-1.5 rounded-full ${
                 isConnecting
                   ? 'bg-amber-400 animate-pulse'
-                  : currentPing !== null && currentPing < 120
+                  : currentPing !== null && currentPing < 140
                   ? 'bg-accent-bright'
-                  : currentPing !== null && currentPing <= 220
+                  : currentPing !== null && currentPing <= 350
                   ? 'bg-amber-400'
                   : currentPing !== null
                   ? 'bg-destructive'

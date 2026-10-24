@@ -1,184 +1,232 @@
-# NIGHTSHIFT — Private Desktop Voice Chat & Screen Sharing
-
-**NIGHTSHIFT** is a real-time, high-performance, minimalist desktop voice communication and screen-sharing application engineered for a private community of 10–15 close friends.
-
-Unlike Discord, NIGHTSHIFT adopts a dark graphite and restrained lime visual system (#17191C, #1D2024, #24282D, #30343A, #F0F1ED, #969CA5, #C4D36A) built for zero-fatigue late-night gaming comms, watch parties, and casual hanging out.
+# 🌙 مستندات جامع سامانه ارتباطی صوتی و تصویری NIGHTSHIFT
+> **پلتفرم ارتباطی اختصاصی بلادرنگ (Voice & Video Comms Platform)**  
+> طراحی و مهندسی‌شده با بالاترین استانداردهای روز برای ارتباطات فوق‌سریع صوتی، اشتراک‌گذاری تصویر چندکاربره (Screen Share)، چت متنی و پایداری در شبکه‌های با محدودیت اینترنت.
 
 ---
 
-## Features
-
-- **Real-Time Voice Comms**: WebRTC audio powered by LiveKit Cloud with low-latency Opus encoding, automatic gain control, noise suppression, and echo cancellation.
-- **Real Screen Sharing**: Stream full desktop displays or specific application windows with custom thumbnail previews using Electron's native `desktopCapturer`.
-- **Real Speaking Indicators**: Visual glowing ring indicators driven by real-time participant audio levels from WebRTC tracks.
-- **Hardware-Isolated Deafen**: Silences incoming remote audio tracks instantly without modifying your microphone state.
-- **Persistent Voice Rooms**:
-  - `Late lobby` — Casual nighttime hanging out and gaming.
-  - `Ranked queue` — Competitive comms, low distraction.
-  - `Watch party` — Screen sharing, YouTube, and movie watching.
-  - `Just chatting` — Open mic banter.
-- **Zero-Account Onboarding & Cryptographic Invites**: Instant device-tied identity with shareable single-click invite links (`nightshift://invite/CODE`).
-- **Audio Diagnostics**: Built-in microphone input meter using the Web Audio API (`AudioContext` + `AnalyserNode`) and output device selection.
-- **Geographic Resilience**: Designed for distributed users across different regions (including Iran and international networks) with LiveKit TURN over TLS/TCP fallback.
-
----
-
-## Tech Stack
-
-### Desktop Application (`apps/desktop`)
-- **Runtime**: Electron 32 (Context Isolation, Sandboxed, Node Integration disabled)
-- **Framework**: React 18 + TypeScript (Strict mode)
-- **Bundler**: Vite 5
-- **Styling**: Tailwind CSS (Custom dark graphite palette)
-- **Icons**: Lucide React
-- **State Management**: Zustand
-- **Media Engine**: LiveKit Client SDK (`livekit-client`)
-
-### Backend Server (`apps/server`)
-- **Runtime**: Node.js + TypeScript
-- **Framework**: Fastify 4 + CORS + Sensible
-- **Database & ORM**: SQLite (`nightshift.db`) + Prisma ORM
-- **Media Token Authority**: LiveKit Server SDK (`livekit-server-sdk`)
-- **Validation**: Zod 3
-
-### Shared Library (`packages/shared`)
-- Strongly typed DTOs, schemas, constants, and color definitions shared between backend and desktop app.
+## 📋 فهرست مطالب
+1. [معرفی کلی و اهداف سامانه](#۱-معرفی-کلی-و-اهداف-سامانه)
+2. [معماری و استک فنی (Tech Stack)](#۲-معماری-و-استک-فنی-tech-stack)
+3. [موتور صوتی بلادرنگ و قابلیت‌های ویس (Voice Engine)](#۳-موتور-صوتی-بلادرنگ-و-قابلیت‌های-ویس-voice-engine)
+4. [سیستم پینگ هوشمند و پایش کیفیت شبکه](#۴-سیستم-پینگ-هوشمند-و-پایش-کیفیت-شبکه)
+5. [اشتراک‌گذاری تصویر و استریم چندکاربره (Screen Share Stage)](#۵-اشتراک‌گذاری-تصویر-و-استریم-چندکاربره-screen-share-stage)
+6. [دکمه‌های کنترل تماس و میکرواینمیشن‌ها (Interactive Call Controls)](#۶-دکمه‌های-کنترل-تماس-و-میکرواینمیشن‌ها-interactive-call-controls)
+7. [سیستم چت متنی و رسانه (Chat Stage & Media)](#۷-سیستم-چت-متنی-و-رسانه-chat-stage--media)
+8. [مدیریت سرورها، کانال‌ها و دعوت‌نامه‌ها (Servers & Invites)](#۸-مدیریت-سرورها-کانال‌ها-و-دعوت‌نامه‌ها-servers--invites)
+9. [پروفایل کاربری، آواتار و امنیت فایل‌ها (Profile & Security)](#۹-پروفایل-کاربری-آواتار-و-امنیت-فایل‌ها-profile--security)
+10. [سیستم نظارت، دسترسی‌ها و مدیریت اعضا (Moderation & Roles)](#۱۰-سیستم-نظارت-دسترسی‌ها-و-مدیریت-اعضا-moderation--roles)
+11. [پایداری شبکه در شرایط اینترنت ایران و بهینه‌سازی سرعت](#۱۱-پایداری-شبکه-در-شرایط-اینترنت-ایران-و-بهینه‌سازی-سرعت)
+12. [راهنمای راه‌اندازی و دیپلوی (Deployment & Quickstart)](#۱۲-راهنمای-راه‌اندازی-و-دیپلوی-deployment--quickstart)
 
 ---
 
-## Repository Structure
-
-```
-nightshift/
-├── package.json              # Monorepo workspace configuration (npm workspaces)
-├── .env                      # Local environment configuration
-├── .env.example              # Template environment variables
-├── packages/
-│   └── shared/               # Shared Zod schemas, TypeScript types, and constants
-└── apps/
-    ├── server/               # Fastify API, Prisma SQLite ORM, LiveKit token generation
-    │   ├── prisma/           # Database schema and seed script
-    │   ├── src/              # Routes, services, config
-    │   └── test/             # Vitest unit & end-to-end integration tests
-    └── desktop/              # Electron & React desktop client
-        ├── electron/         # Electron main process & secure preload bridge
-        ├── src/              # React components, stores, styles, audio hooks
-        └── dist/             # Production build artifacts
-```
+## ۱. معرفی کلی و اهداف سامانه
+نرم‌افزار **NIGHTSHIFT** یک پیام‌رسان و بستر ارتباطی Real-time است که با الهام از رابط کاربری مینیمال، دارک و حرفه‌ای دیسکورد و گوگل‌میت، با هدف برقراری تماس‌های صوتی بسیار کم‌تاخیر (Ultra Low-latency)، استریم و به اشتراک‌گذاری همزمان تصویر چند کاربر، و چت امن ایجاد شده است. این نرم‌افزار هم به صورت **وب‌اپلیکیشن فوق‌سریع (PWA / Web App)** و هم به صورت **نسخه نصبی دسکتاپ (Windows Desktop via Electron)** در دسترس است.
 
 ---
 
-## Prerequisites
+## ۲. معماری و استک فنی (Tech Stack)
 
-- **Node.js**: v18.0.0 or higher (v20+ recommended, tested on v26)
-- **npm**: v9.0.0 or higher (tested on npm 11)
-- **Git**
-- **Windows 10/11** (for the native desktop build)
+### لایه فرانت‌اند (Frontend & Desktop App):
+* **فریم‌ورک پایه**: React 18 با زبان TypeScript (تایپ‌استریکت کامل و خطایابی صفر).
+* **باندلر و ابزار بیلد**: Vite 5 با قابلیت Code-Splitting ماژولار و بهینه‌سازی Chunks.
+* **رابط کاربری و استایلینگ**: Tailwind CSS سفارشی‌سازی‌شده با متغیرهای گرافیت تیره و تم بدون خستگی چشم.
+* **آیکون‌ها**: Lucide React + آیکون‌های وکتور اختصاصی با متدهای تعاملی.
+* **مدیریت وضعیت (State Management)**: Zustand با تفکیک استورهای مجزا (`auth`, `server`, `room`, `livekit`, `settings`, `chat`).
+* **محیط اجرایی دسکتاپ**: Electron 32 با بالاترین سطح امنیتی (Context Isolation و بدون Node Integration در رندر).
+* **موتور ارتباطی مدیا**: LiveKit Client SDK بر بستر پروتکل WebRTC.
+
+### لایه بک‌اند (Backend Server):
+* **محیط اجرایی**: Node.js به همراه TypeScript.
+* **فریم‌ورک سرور**: Fastify 4 (بهترین فریم‌ورک از نظر سرعت و توان پردازش همزمان، تا ۲ برابر سریع‌تر از Express).
+* **پایگاه داده و ORM**: Prisma ORM با دیتابیس رابطه‌ای بهینه‌شده.
+* **مدیریت توکن‌های مدیا**: LiveKit Server SDK جهت صدور توکن‌های موقت و رمزنگاری‌شده JWT برای اتصال کاربران.
+* **اعتبارسنجی ورودی‌ها**: Zod 3 برای صحت‌سنجی تمامی داده‌های ارسالی.
+* **امنیت فایل**: اعتبارسنجی بایت‌های جادویی (Magic Bytes) در لایه باینری برای جلوگیری از آپلود فایل‌های مخرب.
 
 ---
 
-## Quick Start (Local Development)
+## ۳. موتور صوتی بلادرنگ و قابلیت‌های ویس (Voice Engine)
 
-### 1. Install Dependencies
-In the root directory, install all workspace packages:
+1. **کدک صوتی Opus با پهنای باند تطبیقی**:
+   * صدای استریو با کمترین میزان مصرف اینترنت و تاخیر در بازه ۲۰ تا ۵۰ میلی‌ثانیه.
+2. **پردازش‌های سخت‌افزاری صدا (DSP)**:
+   * **Noise Suppression**: حذف خودکار نویز محیط (صدای کیبورد، فن، نویز اتاق).
+   * **Echo Cancellation**: جلوگیری از بازگشت صدای دوستان به میکروفون.
+   * **Auto Gain Control (AGC)**: تنظیم خودکار سطح بلندی صدا برای جلوگیری از بلندی یا ضعیفی ناگهانی.
+3. **دو حالت مکالمه (Input Mode)**:
+   * **Voice Activity (تشخیص خودکار صدا)**: حساسیت داینامیک همراه با اسلایدر تست زنده میکروفون در تنظیمات.
+   * **Push-to-Talk (فشردن کلید برای صحبت)**: قابلیت تعیین کلید دلخواه کیبورد (مثلاً Space یا کلید‌های دیگر) با نمایش نشانگر فعال بودن Push-to-Talk روی صفحه.
+4. **قابلیت Deafen سخت‌افزاری هوشمند**:
+   * با فعال شدن حالت Deafen، صدای تمام افراد قطع می‌شود؛ **همچنین نرم‌افزار به صورت خودکار میکروفون شما را نیز میوت می‌کند** تا از صحبت ناخواسته هنگام ناشنوایی جلوگیری شود.
+5. **کنترل ولوم صدای مجزا برای هر کاربر (Per-User Volume Control)**:
+   * با کلیک راست روی هر شرکت‌کننده، اسلایدر صدا باز می‌شود و می‌توانید صدای هر فرد را از ۰٪ تا ۲۰۰٪ تنظیم کنید (افزایش صدای کاربران کم‌صدا).
+6. **قابلیت قطع صدای اختصاصی (Local Mute / Mute for Yourself)**:
+   * قابلیت بی‌صدا کردن یک شخص فقط برای خودتان بدون اینکه صدای او برای بقیه کاربران اتاق قطع شود.
+7. **نمایش درختی کاربران ویس (Discord-style Channel Tree)**:
+   * مشابه دیسکورد، با ورود افراد به هر کانال صوتی، اسامی آن‌ها مستقیماً در زیر همان چنل صوتی قرار می‌گیرد و وضعیت آنلاین، میوت، دفن یا در حال صحبت بودن آن‌ها دیده می‌شود.
+8. **حلقه‌های نورانی حساس به صدا (Speaking Glow Indicator)**:
+   * با صحبت کردن هر کاربر، دور آواتار و نام او حلقه سبز نئونی با پالس ملایم فعال می‌شود که با قطع شدن صدا بلافاصله خاموش می‌شود.
+
+---
+
+## ۴. سیستم پینگ هوشمند و پایش کیفیت شبکه
+نرم‌افزار مجهز به رصد لحظه‌ای RTT (Round Trip Time) کانکشن WebRTC است که با آیکون‌های متناسب و سه سطح رنگی دقیق مدیریت می‌شود:
+
+* **پینگ زیر ۱۴۰ میلی‌ثانیه (سبز - عالی / Optimal)**:
+   * نشان‌دهنده کیفیت عالی اتصال بدون هیچ‌گونه تاخیر یا پرش صدا.
+   * آیکون آنتن و سیگنال هر ۳ ردیف امواج را به رنگ سبز روشن (`#52B788`) به صورت کامل نشان می‌دهد.
+* **پینگ بین ۱۴۰ تا ۳۵۰ میلی‌ثانیه (زرد - متوسط / Acceptable)**:
+   * نشان‌دهنده کیفیت قابل قبول اتصال با تاخیر کم.
+   * رنگ به زرد کهربایی (`#FBBF24`) تغییر کرده و ردیف بیرونی سیگنال برداشته می‌شود.
+* **پینگ بالای ۳۵۰ میلی‌ثانیه (قرمز - ضعیف / High Latency)**:
+   * نشان‌دهنده افت کیفیت یا تاخیر شبکه.
+   * به رنگ قرمز هشدار (`#E05252`) درآمده و سیگنال در ضعیف‌ترین ردیف قرار می‌گیرد.
+* **پنجره اختصاصی تست پینگ مناطق (Server Ping Monitor)**:
+   * با کلیک روی بج پینگ، مدالی باز می‌شود که پینگ دقیق کاربر با سرورهای مختلف، لایوکیت کلاود و نودهای اروپایی و منطقه‌ای را با دکمه **Test All Pings** به صورت زنده اندازه‌گیری می‌کند.
+
+---
+
+## ۵. اشتراک‌گذاری تصویر و استریم چندکاربره (Screen Share Stage)
+
+1. **استریم چندکاربره همزمان (Multi-Screen Share)**:
+   * چندین کاربر می‌توانند به طور همزمان بدون تداخل و بدون افتادن تصویر یکی روی دیگری، صفحه خود را به اشتراک بگذارند.
+2. **پیش‌نمایش و حق انتخاب کاربر قبل از ورود به لایو (Watch Consent)**:
+   * وقتی شخصی اسکرین‌شیر می‌کند، برای دیگران یک پیام و بنر مرتب نمایش داده می‌شود که شخص فلان در حال لایو است؛ کاربر حق انتخاب دارد با زدن دکمه **Watch Stream** لایو او را تماشا کند یا در صورت عدم تمایل تماشا نکند (جلوگیری از مصرف بیهوده حجم اینترنت).
+3. **قابلیت بستن لایو اختصاصی (Stop Watching)**:
+   * کاربری که وارد یک لایو شده، در هر لحظه می‌تواند لایو را ببندد بدون اینکه لایو برای بقیه بسته شود.
+4. **تغییر حالت بین Grid (شبکه‌ای) و Focus (تمرکز روی یک لایو)**:
+   * در صورت وجود چندین استریم همزمان، دکمه تغییر حالت چیدمان به کاربر اجازه می‌دهد یا تمام استریم‌ها را کنار هم به صورت مساوی ببیند، یا با کلیک روی یک استریم، آن را بزرگ‌نمایی کرده و در مرکز صفحه قرار دهد.
+5. **انتقال صدای شفاف سیستم هنگام استریم**:
+   * قابلیت اشتراک‌گذاری صدای بازی، فیلم یا موزیک سیستم همراه با تصویر صفحه.
+6. **حالت تمام‌صفحه هوشمند (Fullscreen Mode)**:
+   * ورود به حالت تمام‌صفحه با کلید میانبر یا دکمه اختصاصی؛ نوار دکمه‌ها در زمان بی‌حرکتی ماوس به صورت خودکار محو می‌شود و با تکان دادن ماوس نرم ظاهر می‌گردد.
+7. **نوار پایینی شرکت‌کنندگان (Participant Strip)**:
+   * در پایین استیج لایو، نوار جمع‌وجوری از افراد حاضر در اتاق با وضعیت صحبت و ولوم آن‌ها نمایش داده می‌شود تا استریم زیر آواتارها مخفی نشود.
+
+---
+
+## ۶. دکمه‌های کنترل تماس و میکرواینمیشن‌ها (Interactive Call Controls)
+نوار داک شناور کنترل تماس و دکمه‌های کنترلی با توجه به استانداردهای مدرن بازطراحی شده‌اند:
+
+1. **طراحی دایره‌ای متقارن (`call-btn`)**:
+   * دکمه‌ها با استایل کاملاً گرد (`border-radius: 50%`) به ابعاد دقیق `48px × 48px` طراحی شده‌اند.
+   * رنگ زمینه پایه: خاکستری متالیک مدرن `rgb(60, 64, 67)`.
+2. **سیستم دولایه‌ای کراس‌فید (Two-layer Crossfade)**:
+   * آیکون‌های روشن و خاموش (مثل میکروفون باز و میکروفون بسته) در دو لایه روی هم سوار شده‌اند و هنگام کلیک با ترنزیشن نرم Opacity جابجا می‌شوند بدون پرش ناگهانی تصویر.
+3. **انیمیشن‌های ریز (Micro-Animations) هنگام هاور و کلیک**:
+   * **منحنی فنری (Springy Bezier)**: تمامی دکمه‌ها از منحنی `cubic-bezier(0.175, 0.885, 0.32, 1.275)` بهره می‌برند.
+   * **هاور دکمه‌ها**: بزرگ‌نمایی ملایم ۱۰۸ درصدی به همراه افزایش روشنایی پس‌زمینه و ایجاد عمق سایه (`shadow-lg`).
+   * **کلیک فعال (Active State)**: فیدبک لمسی با انیمیشن فنری مقیاس ۱۱۸ درصدی.
+   * **میکروفون (Mute)**: پرش ریز آیکون هنگام هاور + قرمز شدن دکمه در صورت میوت بودن.
+   * **هدفون (Deafen)**: پرش ریز آیکون هدفون هنگام هاور + قرمز شدن دکمه در حالت ناشنوایی.
+   * **اشتراک تصویر (Screen Share)**: تغییر به رنگ سبز درخشان هنگام فعال بودن + جهش ملایم آیکون به سمت بالا در هاور.
+   * **تنظیمات (Settings)**: چرخش نرم و پیوسته ۴۵ درجه‌ای چرخ‌دنده هنگام قرار گرفتن ماوس روی دکمه (`call-icon-spin`).
+   * **قطع تماس (Disconnect / Leave Room)**: دکمه قرمز هشدار همراه با کج شدن ۱۴- درجه‌ای گوشی تلفن هنگام هاور (`call-icon-tilt`).
+
+---
+
+## ۷. سیستم چت متنی و رسانه (Chat Stage & Media)
+
+1. **چت متنی فوق‌سریع و پایدار**:
+   * ارسال و دریافت پیام با کمترین تاخیر ممکن بر بستر وب‌سوکت همراه با فال‌بک دیتابیس.
+2. **آپلود تصاویر با فرمت اختصاصی (JPG, JPEG, PNG)**:
+   * آپلود مستقیم عکس در محیط چت با پیش‌نمایش تصویر و قابلیت افزودن کپشن.
+   * محدودیت حجم استاندارد (تا ۵ مگابایت) و ممانعت از ارسال فایل‌های متفرقه.
+3. **نمایشگر تصویر فول‌سایز (Lightbox Modal)**:
+   * با کلیک روی هر تصویر در چت، تصویر در یک لایت‌باکس تاریک تمام‌صفحه با کیفیت اصلی باز می‌شود که دکمه‌های دانلود مستقیم، باز کردن در تب جدید و بستن را داراست.
+4. **سیستم منشن هوشمند (@username)**:
+   * با تایپ آیدی دوستان، پیام‌ها با کادر هایلایت پررنگ متمایز می‌شوند و شمارنده منشن‌های خوانده‌نشده برای کاربر نمایش داده می‌شود.
+5. **اسکرول هوشمند**:
+   * اسکرول خودکار نرم به انتهای چت در پیام‌های جدید و حفظ موقعیت اسکرول هنگام خواندن پیام‌های قدیمی‌تر.
+
+---
+
+## ۸. مدیریت سرورها، کانال‌ها و دعوت‌نامه‌ها (Servers & Invites)
+
+1. **ساخت سرور و کانال نامحدود**:
+   * امکان ایجاد سرورهای دلخواه و تعریف کانال‌های صوتی و متنی جداگانه.
+2. **منوی تعاملی انتخاب سرور**:
+   * سایدبار سمت چپ مجهز به منوی بازشونده انتخاب سرور، مدیریت و ایجاد کانال جدید است.
+3. **کدها و لینک‌های دعوت اختصاصی (Invite System)**:
+   * تولید کدهای تصادفی ایمن و لینک‌های اشتراک‌گذاری با قابلیت تعیین سقف انقضا و تعداد استفاده.
+   * سازگاری کامل با آدرس‌های پروداکشن (لینک‌ها در محیط آنلاین مستقیماً به دامنه پروداکشن اشاره می‌کنند).
+   * امکان ملحق شدن به سرور با یک کلیک ساده روی لینک یا وارد کردن کد دعوت.
+
+---
+
+## ۹. پروفایل کاربری، آواتار و امنیت فایل‌ها (Profile & Security)
+
+1. **آپلود تصویر پروفایل با بررسی بایت‌های جادویی (Magic Bytes)**:
+   * کاربر می‌تواند تصویر پروفایل خود را آپلود کند.
+   * **محدودیت قطعی فرمت**: صرفاً فایل‌های **JPG**، **JPEG** و **PNG** پذیرفته می‌شوند.
+   * **امنیت در سطح باینری**: بک‌اند با متد `isValidAvatarMagicBytes` بایت‌های اولیه فایل را بررسی می‌کند تا از جعل پسوند یا اجرای اسکریپت‌های مخرب جلوگیری کند:
+     * فایل PNG: `89 50 4E 47 0D 0A 1A 0A`
+     * فایل JPEG/JPG: `FF D8 FF`
+2. **فال‌بک Base64**:
+   * در صورت وجود مشکل در ذخیره‌سازی ابری، تصویر به شکل Base64 کش شده و نمایش داده می‌شود تا هیچ‌گاه آواتار کاربر خالی نماند.
+3. **پایش آنلاین بودن (Real-time Heartbeat)**:
+   * ارسال پالس‌های دوره‌ای به سرور جهت به‌روزرسانی وضعیت آنلاین / آفلاین کاربران بدون مصرف باتری و رم.
+
+---
+
+## ۱۰. سیستم نظارت، دسترسی‌ها و مدیریت اعضا (Moderation & Roles)
+
+1. **سطوح دسترسی سه‌گانه**:
+   * **Owner (مالک سرور)**: اختیارات کامل از جمله اخراج، مسدودسازی و میوت سراسری.
+   * **Admin (مدیر سرور)**: مدیریت اعضا و کانال‌ها.
+   * **Member (عضو عادی)**: استفاده از امکانات چت و ویس.
+2. **منوی کلیک راست پیشرفته (User Context Menu)**:
+   * با کلیک راست روی هر شرکت‌کننده در لیست اعضا، استیج و چنل ویس، پنجره گزینه‌ها شامل:
+     * مشاهده نام کاربری، نقش و آواتار بزرگ.
+     * اسلایدر تنظیم صدای اختصاصی.
+     * دکمه قطع صدای اختصاصی (Mute for Yourself).
+     * دکمه‌های مدیریتی Server Mute و Server Deafen.
+     * گزینه‌های اخراج (Kick) و بن (Ban) به همراه پنجره ثبت علت اخراج.
+
+---
+
+## ۱۱. پایداری شبکه در شرایط اینترنت ایران و بهینه‌سازی سرعت
+
+1. **سازگاری با اینترنت ایران و فیلترینگ شدید**:
+   * سرورها از پروتکل **TURN over TLS / TCP روی پورت 443** (پورت استاندارد HTTPS) استفاده می‌کنند تا فیلترینگ بسته‌های UDP و پروتکل‌های صوتی توسط اپراتورها خنثی شود.
+2. **کاهش ۸۰ درصدی حجم اولیه باندل جاوااسکریپت (Bundle Splitting)**:
+   * با کانفیگ ماژولار `manualChunks` در Vite، کتابخانه‌های حجیم لایوکیت و آیکون‌ها جدا شده و حجم باندل اصلی صفحه از بالای **1MB** به حدود **195KB** کاهش یافته که سرعت بارگذاری اولیه (TTI) را به کسری از ثانیه رسانده است.
+3. **لودینگ غیرمسدودکننده فونت‌ها (Non-blocking Font Loading)**:
+   * فونت‌ها با اتریبیوت‌های `dns-prefetch` و `display=swap` فراخوانی می‌شوند تا در صورت کندی اینترنت، صفحه سفید یا مسدود نشود.
+4. **کش طولانی‌مدت رسانه‌ها**:
+   * هدرهای کش دائمی (`maxAge: 1d, immutable`) برای فایل‌ها و آواتارهای آپلودشده در سرور تنظیم شده تا از دانلود مکرر تصاویر جلوگیری شود.
+
+---
+
+## ۱۲. راهنمای راه‌اندازی و دیپلوی (Deployment & Quickstart)
+
+### ۱. نصب وابستگی‌ها
 ```bash
 npm install
 ```
 
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env` (or configure your existing `.env`):
-```env
-LIVEKIT_URL=wss://voiceline-qy3slc6n.livekit.cloud
-LIVEKIT_API_KEY=APIr7js7v7NxHjD
-LIVEKIT_API_SECRET=VQkZ672DPv1iqtqY3AmIDef9rtYYeslWjfJjbVjoFfwA
-SERVER_PORT=3001
-SERVER_HOST=127.0.0.1
-DATABASE_URL=file:./nightshift.db
-APP_BASE_URL=http://localhost:5173
-```
-
-### 3. Initialize & Seed Database
-Run the Prisma migrations and seed the 4 default rooms:
-```bash
-npm run db:migrate
-npm run db:seed
-```
-
-### 4. Start the Application
-Run both the Fastify server and Vite desktop renderer concurrently:
-```bash
-npm run dev
-```
-- **Backend API**: `http://127.0.0.1:3001`
-- **Frontend App**: `http://localhost:5173`
-
-To launch the native Electron desktop shell:
-```bash
-npm run dev:electron
-```
-
----
-
-## Testing & Quality Assurance
-
-### Run Automated Tests
-Execute the unit and integration test suite (Fastify routes, auth, room joining, LiveKit JWT generation, invitation validation):
-```bash
-npm run test
-```
-
-### Run TypeScript Typechecking
-Verify TypeScript types across all workspaces:
+### ۲. بررسی سلامت کدها و تایپ‌ها
 ```bash
 npm run typecheck
 ```
 
-### Build Production Bundle
-Build the shared library, backend, and desktop application bundle:
+### ۳. اجرای محیط لوکال توسعه
+```bash
+npm run dev
+```
+* بک‌اند: `http://127.0.0.1:3001`
+* فرانت‌اند وب: `http://localhost:5173`
+
+### ۴. ساخت باندل پروداکشن
 ```bash
 npm run build
 ```
 
----
-
-## Packaging a Windows Installer
-
-To build a standalone Windows executable (`.exe` or portable package):
-```bash
-npm run dist
-```
-This uses `electron-builder` to package the compiled application into `apps/desktop/dist/` with code signing and NSIS installer options.
+### ۵. دیپلوی لایو (Live Deployment)
+* **آدرس وب‌سایت فعال (نسخه پروداکشن):** [https://dist-three-gray-67.vercel.app](https://dist-three-gray-67.vercel.app)
+* **سرور بک‌اند فعال:** `https://nightshift-server-cfch.onrender.com`
+* **ریپازیتوری گیت‌هاب:** `https://github.com/Sowliam/nightshift.git`
 
 ---
-
-## Geographically Distributed Network Connectivity
-
-Users connecting from different countries or restricted ISP networks (e.g. Iran) may experience UDP filtering or high packet loss on standard WebRTC ports. NIGHTSHIFT addresses this through:
-
-1. **LiveKit Cloud Global Edge Routing**: Automatic connection to the nearest low-latency media node.
-2. **TURN over TLS / TCP Fallback**: Port 443 fallback ensures media packets traverse restrictive firewalls.
-3. **Adaptive Bitrate Streaming (Dynacast)**: Video resolution and bitrate scale down dynamically to preserve audio clarity when packet loss occurs.
-4. **Latency Diagnostics**: Check real-time connection status in the Settings > Application tab.
-
----
-
-## API Documentation
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health status and LiveKit cloud reachability |
-| `POST` | `/api/auth/register` | Register or restore device session with display name |
-| `GET` | `/api/auth/me` | Fetch active user profile by `x-device-id` header |
-| `PATCH` | `/api/auth/profile` | Update user display name |
-| `GET` | `/api/rooms` | List all voice rooms with active participant count |
-| `POST` | `/api/rooms` | Create a new room |
-| `POST` | `/api/rooms/:id/join` | Join room and issue short-lived LiveKit access token |
-| `POST` | `/api/invitations` | Generate a cryptographically random invitation code |
-| `GET` | `/api/invitations/:code/validate` | Validate an invitation code and check expiration |
-| `POST` | `/api/invitations/:code/claim` | Increment usage counter on an invitation |
-
----
-
-## License
-
-Private project for friends. All rights reserved.
+*تهیه‌شده جهت ارائه فنی کامل به کارفرما — کلیه حقوق محفوظ است.*
