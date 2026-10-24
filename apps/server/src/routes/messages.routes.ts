@@ -1,7 +1,8 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { SendMessageSchema, MessageDto } from '@nightshift/shared';
+import { SendMessageSchema, MessageDto, MUSIC_BOT_USER } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
+import { musicBotService } from '../services/music/music-bot.service.js';
 import path from 'path';
 import fs from 'fs';
 import { nanoid } from 'nanoid';
@@ -147,6 +148,41 @@ export const messagesRoutes: FastifyPluginAsync = async (fastify) => {
       createdAt: message.createdAt.toISOString(),
       isMine: true,
     };
+
+    // Auto-detect and execute Music Bot slash commands
+    if (content.startsWith('/')) {
+      const isMusicCmd = /^\/(play|p|pause|resume|skip|s|stop|queue|q|nowplaying|np|volume|vol|remove|clearqueue|clear|help)(\s|$)/i.test(content);
+      if (isMusicCmd) {
+        try {
+          await musicBotService.ensureBotRecord(channel.serverId);
+          const cmdResult = await musicBotService.executeSlashCommand(
+            channel.serverId,
+            channelId,
+            content,
+            { id: user.id, displayName: user.displayName, username: user.username }
+          );
+
+          await prisma.message.create({
+            data: {
+              content: cmdResult.message,
+              channelId,
+              userId: MUSIC_BOT_USER.id,
+            },
+          });
+        } catch (cmdErr: any) {
+          try {
+            await musicBotService.ensureBotRecord(channel.serverId);
+            await prisma.message.create({
+              data: {
+                content: `⚠️ ${cmdErr?.message || 'Command execution failed'}`,
+                channelId,
+                userId: MUSIC_BOT_USER.id,
+              },
+            });
+          } catch {}
+        }
+      }
+    }
 
     return reply.status(201).send({ message: messageDto });
   });

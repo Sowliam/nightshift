@@ -5,6 +5,10 @@ import { prisma } from '../src/lib/prisma.js';
 
 describe('NIGHTSHIFT End-to-End Client Simulation', () => {
   let app: FastifyInstance;
+  let token: string;
+  let user: any;
+  let server: any;
+  let voiceChannel: any;
 
   beforeAll(async () => {
     app = await buildApp();
@@ -16,85 +20,108 @@ describe('NIGHTSHIFT End-to-End Client Simulation', () => {
     await prisma.$disconnect();
   });
 
-  it('Simulates complete user flow: register -> list rooms -> join room -> invite friend -> validate invite', async () => {
-    // 1. User registers device
-    const deviceId = `sim-device-${Date.now()}`;
+  it('Simulates complete user flow: register -> create server & voice channel -> configure music bot -> play command', async () => {
+    // 1. User registers
+    const username = `sim_user_${Date.now()}`;
     const regRes = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
       payload: {
-        displayName: 'Kian',
-        deviceId,
+        username,
+        displayName: 'Kian Pilot',
+        password: 'securePassword123',
       },
     });
-    expect(regRes.statusCode).toBe(200);
-    const { user } = JSON.parse(regRes.body);
-    expect(user.displayName).toBe('Kian');
+    expect(regRes.statusCode).toBe(201);
+    const regData = JSON.parse(regRes.body);
+    token = regData.token;
+    user = regData.user;
+    expect(user.displayName).toBe('Kian Pilot');
 
-    // 2. User lists rooms
-    const roomsRes = await app.inject({
-      method: 'GET',
-      url: '/api/rooms',
-    });
-    expect(roomsRes.statusCode).toBe(200);
-    const { rooms } = JSON.parse(roomsRes.body);
-    expect(rooms.length).toBeGreaterThanOrEqual(4);
-    const targetRoom = rooms[0];
+    const authHeaders = { Authorization: `Bearer ${token}` };
 
-    // 3. User joins room and receives LiveKit token
-    const joinRes = await app.inject({
+    // 2. User creates a server
+    const serverRes = await app.inject({
       method: 'POST',
-      url: `/api/rooms/${targetRoom.id}/join`,
+      url: '/api/servers',
+      headers: authHeaders,
       payload: {
-        userId: user.id,
+        name: 'The Lounge',
+        description: 'Music & Gaming Lounge',
       },
     });
-    expect(joinRes.statusCode).toBe(200);
-    const joinData = JSON.parse(joinRes.body);
-    expect(joinData.room.name).toBe(targetRoom.name);
-    expect(joinData.livekitUrl).toContain('livekit.cloud');
-    expect(joinData.token).toBeDefined();
+    expect(serverRes.statusCode).toBe(201);
+    server = JSON.parse(serverRes.body).server;
+    expect(server.name).toBe('The Lounge');
 
-    // 4. User generates an invitation link
-    const inviteRes = await app.inject({
+    // 3. User creates a voice channel
+    const channelRes = await app.inject({
       method: 'POST',
-      url: '/api/invitations',
-      headers: {
-        'x-device-id': deviceId,
-      },
+      url: `/api/servers/${server.id}/channels`,
+      headers: authHeaders,
       payload: {
-        roomId: targetRoom.id,
-        maxUses: 10,
-        expiresInHours: 48,
+        name: 'Chill Music',
+        type: 'voice',
       },
     });
-    expect(inviteRes.statusCode).toBe(201);
-    const { invitation } = JSON.parse(inviteRes.body);
-    expect(invitation.code).toBeDefined();
+    expect(channelRes.statusCode).toBe(201);
+    voiceChannel = JSON.parse(channelRes.body).channel;
+    expect(voiceChannel.type).toBe('voice');
 
-    // 5. Friend validates the invitation code
-    const valRes = await app.inject({
+    // 4. User queries bot status and configures it
+    const botRes = await app.inject({
       method: 'GET',
-      url: `/api/invitations/${invitation.code}/validate`,
+      url: `/api/servers/${server.id}/bot`,
+      headers: authHeaders,
     });
-    expect(valRes.statusCode).toBe(200);
-    const valData = JSON.parse(valRes.body);
-    expect(valData.valid).toBe(true);
-    expect(valData.roomName).toBe(targetRoom.name);
+    expect(botRes.statusCode).toBe(200);
+    const { bot } = JSON.parse(botRes.body);
+    expect(bot.botType).toBe('music');
+    expect(bot.isEnabled).toBe(true);
 
-    // 6. User updates profile display name
-    const updateRes = await app.inject({
+    // 5. Update bot settings (set default channel and volume)
+    const updateBotRes = await app.inject({
       method: 'PATCH',
-      url: '/api/auth/profile',
-      headers: {
-        'x-device-id': deviceId,
-      },
+      url: `/api/servers/${server.id}/bot`,
+      headers: authHeaders,
       payload: {
-        displayName: 'Kian V2',
+        defaultChannelId: voiceChannel.id,
+        volume: 75,
       },
     });
-    expect(updateRes.statusCode).toBe(200);
-    const updatedUser = JSON.parse(updateRes.body).user;
-    expect(updatedUser.displayName).toBe('Kian V2');
+    expect(updateBotRes.statusCode).toBe(200);
+    const updatedBot = JSON.parse(updateBotRes.body).bot;
+    expect(updatedBot.volume).toBe(75);
+    expect(updatedBot.defaultChannelId).toBe(voiceChannel.id);
+
+    // 6. User checks music session state
+    const sessionRes = await app.inject({
+      method: 'GET',
+      url: `/api/servers/${server.id}/music/session`,
+      headers: authHeaders,
+    });
+    expect(sessionRes.statusCode).toBe(200);
+    const { session } = JSON.parse(sessionRes.body);
+    expect(session.serverId).toBe(server.id);
+    expect(session.queue).toEqual([]);
+
+    // 7. Test slash command dispatch via text channel command endpoint
+    const textChannel = await prisma.channel.findFirst({
+      where: { serverId: server.id, type: 'text' },
+    });
+    expect(textChannel).toBeDefined();
+
+    const cmdRes = await app.inject({
+      method: 'POST',
+      url: `/api/servers/${server.id}/channels/${textChannel!.id}/command`,
+      headers: authHeaders,
+      payload: {
+        command: '/volume 85',
+      },
+    });
+    expect(cmdRes.statusCode).toBe(200);
+    const cmdBody = JSON.parse(cmdRes.body);
+    expect(cmdBody.result.success).toBe(true);
+    expect(cmdBody.botMessage.content).toContain('85%');
   });
 });

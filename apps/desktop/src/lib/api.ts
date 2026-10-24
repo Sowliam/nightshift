@@ -7,6 +7,9 @@ import {
   ServerInviteDto,
   MessageDto,
   VoiceJoinResponse,
+  ServerBotDto,
+  MusicSessionDto,
+  ConfigureBotInput,
   DEFAULT_PRODUCTION_API,
   DEFAULT_PRODUCTION_WEB,
   extractInviteCode,
@@ -577,6 +580,148 @@ class ApiClient {
       throw await this.parseError(res, 'Failed to upload image. Must be legitimate PNG or JPEG under 5MB.');
     }
 
+    return res.json();
+  }
+
+  // --- Music Bot & Integrations ---
+  async getBotSettings(serverId: string): Promise<ServerBotDto> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/bot`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to fetch bot settings');
+    }
+    const data = await res.json();
+    return data.bot;
+  }
+
+  async updateBotSettings(serverId: string, settings: Partial<ConfigureBotInput>): Promise<ServerBotDto> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/bot`, {
+      method: 'PATCH',
+      headers: this.getHeaders(true),
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to update bot settings');
+    }
+    const data = await res.json();
+    return data.bot;
+  }
+
+  async getMusicSession(serverId: string): Promise<MusicSessionDto> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/session`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to fetch music session');
+    }
+    const data = await res.json();
+    return data.session;
+  }
+
+  async playMusic(serverId: string, query: string, channelId?: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/play`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ query, channelId }),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to play track');
+    }
+    return res.json();
+  }
+
+  async pauseMusic(serverId: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/pause`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to pause music');
+    }
+    return res.json();
+  }
+
+  async resumeMusic(serverId: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/resume`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to resume music');
+    }
+    return res.json();
+  }
+
+  async skipMusic(serverId: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/skip`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to skip music');
+    }
+    return res.json();
+  }
+
+  async stopMusic(serverId: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/stop`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to stop music');
+    }
+    return res.json();
+  }
+
+  async setMusicVolume(serverId: string, volume: number): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/volume`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ volume }),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to set music volume');
+    }
+    return res.json();
+  }
+
+  async removeQueueTrack(serverId: string, position: number): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/remove`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ position }),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to remove track');
+    }
+    return res.json();
+  }
+
+  async clearMusicQueue(serverId: string): Promise<any> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/servers/${serverId}/music/clear`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+    });
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to clear queue');
+    }
+    return res.json();
+  }
+
+  async executeMusicCommand(serverId: string, channelId: string, command: string): Promise<any> {
+    const res = await this.fetchWithHandling(
+      `${this.getBaseUrl()}/api/servers/${serverId}/channels/${channelId}/command`,
+      {
+        method: 'POST',
+        headers: this.getHeaders(true),
+        body: JSON.stringify({ command }),
+      }
+    );
+    if (!res.ok) {
+      throw await this.parseError(res, 'Command failed');
+    }
     return res.json();
   }
 }

@@ -29,6 +29,7 @@ import { CallControlBar } from '../controls/CallControlBar';
 import { ConnectionState, Track, RoomEvent, RemoteAudioTrack } from 'livekit-client';
 import { api } from '../../lib/api';
 import { DEFAULT_PRODUCTION_WEB } from '@nightshift/shared';
+import { MusicPlayerBar } from '../music/MusicPlayerBar';
 
 interface StreamTileProps {
   share: ActiveScreenShare;
@@ -706,6 +707,9 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Music Player Bar (shows when music is active or loaded) */}
+      <MusicPlayerBar />
 
       {/* Unwatched Screen Share Banner when in Screen Stage */}
       {unwatchedShares.length > 0 && watchedShares.length > 0 && (

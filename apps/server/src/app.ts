@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { serversRoutes } from './routes/servers.routes.js';
 import { roomsRoutes } from './routes/rooms.routes.js';
 import { messagesRoutes } from './routes/messages.routes.js';
+import { musicRoutes } from './routes/music.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -68,6 +69,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(serversRoutes);
   await app.register(roomsRoutes);
   await app.register(messagesRoutes);
+  await app.register(musicRoutes);
 
   return app;
 }

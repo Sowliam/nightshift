@@ -304,3 +304,84 @@ export function extractInviteCode(input: string): string {
   clean = clean.split(/[?&#/]/)[0].trim();
   return clean;
 }
+
+// ==========================================
+// Music Bot Schemas & DTOs
+// ==========================================
+
+export type MusicSourceType = 'youtube' | 'soundcloud';
+
+export interface MusicTrackDto {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnailUrl?: string | null;
+  durationSeconds: number;
+  source: MusicSourceType;
+  url: string;
+  requestingUserId: string;
+  requestingUserName?: string;
+  status: 'pending' | 'playing' | 'paused' | 'failed' | 'finished';
+  errorMessage?: string;
+  addedAt: string;
+}
+
+export interface MusicSessionDto {
+  serverId: string;
+  channelId: string | null;
+  channelName?: string | null;
+  status: 'idle' | 'searching' | 'playing' | 'paused' | 'error';
+  currentTrack: MusicTrackDto | null;
+  queue: MusicTrackDto[];
+  volume: number;
+  positionSeconds: number;
+  isLiveKitConnected: boolean;
+  error?: string | null;
+}
+
+export interface ServerBotDto {
+  id: string;
+  serverId: string;
+  botType: 'music';
+  name: string;
+  displayName: string;
+  avatarUrl: string;
+  isEnabled: boolean;
+  defaultChannelId?: string | null;
+  volume: number;
+  session?: MusicSessionDto;
+}
+
+export const PlayMusicSchema = z.object({
+  query: z.string().trim().min(1, 'Query or URL is required'),
+  channelId: z.string().optional(),
+});
+
+export type PlayMusicInput = z.infer<typeof PlayMusicSchema>;
+
+export const VolumeMusicSchema = z.object({
+  volume: z.number().int().min(0, 'Volume cannot be below 0').max(100, 'Volume cannot exceed 100'),
+});
+
+export type VolumeMusicInput = z.infer<typeof VolumeMusicSchema>;
+
+export const RemoveQueueItemSchema = z.object({
+  position: z.number().int().min(1, 'Queue position must be at least 1'),
+});
+
+export type RemoveQueueItemInput = z.infer<typeof RemoveQueueItemSchema>;
+
+export const ConfigureBotSchema = z.object({
+  isEnabled: z.boolean().optional(),
+  defaultChannelId: z.string().nullable().optional(),
+  volume: z.number().int().min(0).max(100).optional(),
+});
+
+export type ConfigureBotInput = z.infer<typeof ConfigureBotSchema>;
+
+export const MUSIC_BOT_USER = {
+  id: 'nightshift-music-bot',
+  username: 'music-bot',
+  displayName: 'NIGHTSHIFT Music',
+  avatarUrl: '/assets/music-bot-avatar.png',
+} as const;
