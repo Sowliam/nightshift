@@ -13,14 +13,10 @@ import {
   Upload,
   Trash2,
   AlertCircle,
-  Bot,
-  Disc,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
-import { useServerStore } from '../../stores/server.store';
-import { useMusicStore } from '../../stores/music.store';
 import { sounds } from '../../services/sound.service';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { getApiBase, setApiBase, getFullAvatarUrl } from '../../lib/api';
@@ -31,7 +27,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'voice' | 'account' | 'bots' | 'about'>('voice');
+  const [activeTab, setActiveTab] = useState<'voice' | 'account' | 'about'>('voice');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [micLevel, setMicLevel] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -64,34 +60,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
   const { setAudioInputDevice, setAudioOutputDevice } = useLiveKitStore();
-  const { activeServerId, servers, channels, members } = useServerStore();
-  const { botInfo, loadBot, updateSettings, isLoading: botLoading } = useMusicStore();
-
-  const activeServer = servers.find((s) => s.id === activeServerId);
-  const currentMember = members.find((m) => m.userId === user?.id);
-  const isServerAdmin =
-    activeServer?.role === 'owner' ||
-    activeServer?.role === 'admin' ||
-    currentMember?.role === 'owner' ||
-    currentMember?.role === 'admin';
-  const voiceChannels = channels.filter((c) => c.type === 'voice');
-
-  const [botVolume, setBotVolume] = useState(80);
-  const [botDefaultChannel, setBotDefaultChannel] = useState<string>('');
-  const [botSaveSuccess, setBotSaveSuccess] = useState(false);
-
-  useEffect(() => {
-    if (isOpen && activeServerId) {
-      loadBot(activeServerId);
-    }
-  }, [isOpen, activeServerId]);
-
-  useEffect(() => {
-    if (botInfo) {
-      setBotVolume(botInfo.volume);
-      setBotDefaultChannel(botInfo.defaultChannelId || '');
-    }
-  }, [botInfo]);
 
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -299,18 +267,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             >
               <SlidersHorizontal className="w-4 h-4" />
               <span>My Account</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('bots')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'bots'
-                  ? 'bg-highlight text-highlight-text shadow-sm'
-                  : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
-              }`}
-            >
-              <Bot className="w-4 h-4" />
-              <span>Bots & Integrations</span>
             </button>
 
             <button
@@ -764,176 +720,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     Log Out of Account
                   </button>
                 </div>
-              </div>
-            )}
-
-            {activeTab === 'bots' && (
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-text-primary">Bots & Integrations</h3>
-                  <p className="text-xs text-text-secondary mt-1">
-                    Manage built-in bots, voice playback, and automated assistants for your server.
-                  </p>
-                </div>
-
-                {!activeServer ? (
-                  <div className="p-6 rounded-xl bg-bg-elevated border border-border-subtle text-center space-y-2">
-                    <Bot className="w-8 h-8 text-text-muted mx-auto" />
-                    <p className="text-xs text-text-secondary">No server selected.</p>
-                    <p className="text-[11px] text-text-muted">
-                      Select or join a server from the navigation rail to manage its bots.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Server Info Header */}
-                    <div className="px-4 py-3 rounded-xl bg-bg-elevated border border-border-subtle flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-xs font-bold text-text-primary">{activeServer.name}</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#1e1f22] border border-[#2b2d31] text-[#949ba4] uppercase">
-                          Your Role: {currentMember?.role || activeServer.role}
-                        </span>
-                      </div>
-                      {!isServerAdmin && (
-                        <span className="text-[11px] text-amber-400">View Only (Requires Admin)</span>
-                      )}
-                    </div>
-
-                    {/* Music Bot Card */}
-                    <div className="p-5 rounded-2xl bg-bg-elevated border border-border-subtle space-y-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-center gap-3.5">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1a1b1e] to-[#25272b] border border-[#313338] flex items-center justify-center text-accent-bright shrink-0 shadow-md">
-                            <Disc className="w-6 h-6 animate-spin" style={{ animationDuration: '6s' }} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-sm font-bold text-text-primary">NIGHTSHIFT Music Bot</h4>
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                                  botInfo?.isEnabled
-                                    ? 'bg-accent-bright/20 text-accent-bright border border-accent-bright/30'
-                                    : 'bg-destructive/20 text-destructive border border-destructive/30'
-                                }`}
-                              >
-                                {botInfo?.isEnabled ? 'Enabled' : 'Disabled'}
-                              </span>
-                            </div>
-                            <p className="text-xs text-text-secondary mt-0.5">
-                              High-fidelity shared audio streaming from YouTube and SoundCloud directly into voice channels via LiveKit WebRTC.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Enable/Disable Toggle */}
-                        {isServerAdmin && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!activeServerId) return;
-                              await updateSettings(activeServerId, { isEnabled: !botInfo?.isEnabled });
-                            }}
-                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm ${
-                              botInfo?.isEnabled
-                                ? 'bg-destructive/15 text-destructive hover:bg-destructive hover:text-white'
-                                : 'bg-accent-bright text-black hover:bg-accent-bright/90'
-                            }`}
-                          >
-                            {botInfo?.isEnabled ? 'Disable Bot' : 'Enable Bot'}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Settings Form for Admins */}
-                      <div className="pt-4 border-t border-border-subtle space-y-4">
-                        {/* Default Voice Channel */}
-                        <div>
-                          <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider mb-1.5">
-                            Default Voice Channel
-                          </label>
-                          <select
-                            value={botDefaultChannel}
-                            disabled={!isServerAdmin || !botInfo?.isEnabled}
-                            onChange={(e) => setBotDefaultChannel(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl bg-bg-main border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight disabled:opacity-50 cursor-pointer"
-                          >
-                            <option value="">Auto-select first voice channel</option>
-                            {voiceChannels.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                🔊 {c.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Default Volume */}
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-[11px] font-bold text-text-muted uppercase tracking-wider">
-                              Default Volume
-                            </label>
-                            <span className="text-xs font-mono font-bold text-highlight">{botVolume}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={botVolume}
-                            disabled={!isServerAdmin || !botInfo?.isEnabled}
-                            onChange={(e) => setBotVolume(parseInt(e.target.value, 10))}
-                            className="w-full accent-accent-bright cursor-pointer h-1.5 bg-[#313338] rounded-lg disabled:opacity-50"
-                          />
-                        </div>
-
-                        {/* Save Button */}
-                        {isServerAdmin && (
-                          <div className="flex items-center gap-3 pt-2">
-                            <button
-                              type="button"
-                              disabled={botLoading}
-                              onClick={async () => {
-                                if (!activeServerId) return;
-                                const ok = await updateSettings(activeServerId, {
-                                  defaultChannelId: botDefaultChannel || null,
-                                  volume: botVolume,
-                                });
-                                if (ok) {
-                                  setBotSaveSuccess(true);
-                                  setTimeout(() => setBotSaveSuccess(false), 2500);
-                                }
-                              }}
-                              className="px-4 py-2 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
-                            >
-                              Save Bot Settings
-                            </button>
-                            {botSaveSuccess && (
-                              <span className="text-xs text-accent-bright font-medium flex items-center gap-1">
-                                <Check className="w-3.5 h-3.5" /> Settings Saved!
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Commands Reference List */}
-                      <div className="p-3.5 bg-[#141517] rounded-xl border border-border-subtle text-xs space-y-1.5">
-                        <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider">
-                          Supported Commands:
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-text-secondary">
-                          <div><span className="text-accent-bright">/play &lt;query&gt;</span> — Play song</div>
-                          <div><span className="text-accent-bright">/pause</span> — Pause playback</div>
-                          <div><span className="text-accent-bright">/resume</span> — Resume playback</div>
-                          <div><span className="text-accent-bright">/skip</span> — Skip track</div>
-                          <div><span className="text-accent-bright">/stop</span> — Stop & clear</div>
-                          <div><span className="text-accent-bright">/queue</span> — View queue</div>
-                          <div><span className="text-accent-bright">/volume &lt;0-100&gt;</span> — Set volume</div>
-                          <div><span className="text-accent-bright">/nowplaying</span> — Current track</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 

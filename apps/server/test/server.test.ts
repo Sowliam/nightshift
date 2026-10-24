@@ -31,36 +31,60 @@ describe('NIGHTSHIFT Server API', () => {
   });
 
   it('POST /api/auth/register should register a user', async () => {
-    const uniqueUser = `user_${Date.now()}`;
+    const testDeviceId = `test-device-${Date.now()}`;
     const res = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
       payload: {
-        username: uniqueUser,
         displayName: 'GhostRunner',
-        password: 'password123',
+        deviceId: testDeviceId,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.user).toBeDefined();
+    expect(body.user.displayName).toBe('GhostRunner');
+    expect(body.user.deviceId).toBe(testDeviceId);
+  });
+
+  it('POST /api/auth/register should reject empty display name', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        displayName: 'a',
+        deviceId: 'device-12345678',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('POST /api/invitations should create a valid invitation code', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/invitations',
+      payload: {
+        maxUses: 5,
+        expiresInHours: 24,
       },
     });
 
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.user).toBeDefined();
-    expect(body.user.displayName).toBe('GhostRunner');
-    expect(body.token).toBeDefined();
-  });
+    expect(body.invitation).toBeDefined();
+    expect(body.invitation.code).toBeDefined();
 
-  it('POST /api/auth/register should reject invalid username', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
-        username: 'a', // Too short
-        displayName: 'GhostRunner',
-        password: 'password123',
-      },
+    // Validate the invitation code
+    const valRes = await app.inject({
+      method: 'GET',
+      url: `/api/invitations/${body.invitation.code}/validate`,
     });
 
-    expect(res.statusCode).toBe(400);
+    expect(valRes.statusCode).toBe(200);
+    const valBody = JSON.parse(valRes.body);
+    expect(valBody.valid).toBe(true);
   });
 
   it('generateLiveKitToken creates valid signed token', async () => {

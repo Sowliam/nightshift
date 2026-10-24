@@ -22,8 +22,6 @@ import { useAuthStore } from './stores/auth.store';
 import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
 import { useSettingsStore } from './stores/settings.store';
-import { useMusicStore } from './stores/music.store';
-import { MusicQueueModal } from './components/modals/MusicQueueModal';
 import { ShieldAlert, RefreshCw, Server, Check } from 'lucide-react';
 import { getApiBase, setApiBase, api } from './lib/api';
 import { extractInviteCode } from '@nightshift/shared';
@@ -40,17 +38,9 @@ export const App: React.FC = () => {
   const [serverUrlInput, setServerUrlInput] = useState(() => getApiBase());
 
   const { user, isLoading: authLoading, initAuth } = useAuthStore();
-  const { fetchServers, activeServerId } = useServerStore();
+  const { fetchServers } = useServerStore();
   const { toggleMute, toggleDeafen, setPushToTalkActive } = useLiveKitStore();
   const { inputMode, pushToTalkKey } = useSettingsStore();
-  const { startPolling } = useMusicStore();
-
-  // Poll music bot session for the active server
-  useEffect(() => {
-    if (activeServerId) {
-      return startPolling(activeServerId);
-    }
-  }, [activeServerId, startPolling]);
 
   useEffect(() => {
     const initialize = async () => {
@@ -251,9 +241,6 @@ export const App: React.FC = () => {
 
       {/* User Onboarding / Login / Registration (Shown when unauthenticated) */}
       <OnboardingModal isOpen={!authLoading && !user} />
-
-      {/* Music Bot Queue & Now Playing Modal */}
-      <MusicQueueModal />
 
       {/* Server Offline Alert Banner */}
       {serverError && (

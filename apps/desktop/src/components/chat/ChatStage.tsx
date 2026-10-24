@@ -11,30 +11,13 @@ import {
   X,
   Maximize2,
   AlertCircle,
-  Music,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useChatStore } from '../../stores/chat.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
-import { useMusicStore } from '../../stores/music.store';
 import { ScreenStage } from '../stage/ScreenStage';
-import { MusicPlayerBar } from '../music/MusicPlayerBar';
 import { getApiBase } from '../../lib/api';
-
-const SLASH_COMMANDS = [
-  { cmd: '/play', syntax: '/play <query|url>', desc: 'Play music from YouTube or SoundCloud' },
-  { cmd: '/pause', syntax: '/pause', desc: 'Pause current playback' },
-  { cmd: '/resume', syntax: '/resume', desc: 'Resume playback' },
-  { cmd: '/skip', syntax: '/skip', desc: 'Skip current track' },
-  { cmd: '/stop', syntax: '/stop', desc: 'Stop playback and disconnect' },
-  { cmd: '/queue', syntax: '/queue', desc: 'View track queue' },
-  { cmd: '/nowplaying', syntax: '/nowplaying', desc: 'Show current playing track info' },
-  { cmd: '/volume', syntax: '/volume <0-100>', desc: 'Set music volume' },
-  { cmd: '/remove', syntax: '/remove <position>', desc: 'Remove track from queue' },
-  { cmd: '/clearqueue', syntax: '/clearqueue', desc: 'Clear all upcoming tracks' },
-  { cmd: '/help', syntax: '/help', desc: 'List all music bot commands' },
-];
 
 interface ChatStageProps {
   onToggleMembers: () => void;
@@ -183,13 +166,6 @@ export const ChatStage: React.FC<ChatStageProps> = ({
     if (newMsg) {
       await broadcastChatMessage(channelId, newMsg);
     }
-
-    // If a slash command was sent, reload music session to reflect state changes immediately
-    if (content.startsWith('/') && activeServerId) {
-      setTimeout(() => {
-        useMusicStore.getState().loadSession(activeServerId);
-      }, 700);
-    }
   };
 
   const formatTime = (isoString: string) => {
@@ -231,12 +207,6 @@ export const ChatStage: React.FC<ChatStageProps> = ({
       return <span key={index}>{part}</span>;
     });
   };
-
-  const matchingCommands = messageText.startsWith('/')
-    ? SLASH_COMMANDS.filter((c) =>
-        c.cmd.toLowerCase().startsWith(messageText.trim().split(' ')[0].toLowerCase())
-      )
-    : [];
 
   return (
     <div className="flex-1 h-full bg-bg-main flex flex-col relative overflow-hidden select-none">
@@ -283,9 +253,6 @@ export const ChatStage: React.FC<ChatStageProps> = ({
         />
       ) : (
         <div className="flex-1 flex flex-col min-h-0 relative">
-          {/* Music Player Bar (Shows active music playback status and controls) */}
-          <MusicPlayerBar />
-
           {/* Error Banner for file upload failures */}
           {uploadError && (
             <div className="mx-6 mt-3 px-4 py-2.5 rounded-xl bg-destructive/90 text-white text-xs font-semibold flex items-center gap-2 shadow-card z-20 animate-fade-in">
@@ -407,39 +374,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
           </div>
 
           {/* Floating Rounded Pill Chat Input */}
-          <div className="px-6 pb-6 pt-2 shrink-0 relative">
-            {/* Slash Command Suggestions Popover */}
-            {messageText.startsWith('/') && matchingCommands.length > 0 && (
-              <div className="absolute bottom-full left-6 right-6 mb-2 p-2 bg-[#121316]/95 border border-[#2b2d31] rounded-2xl shadow-2xl backdrop-blur-md z-30 max-h-56 overflow-y-auto space-y-1">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted px-2 py-1 flex items-center justify-between border-b border-[#232428] mb-1">
-                  <span className="flex items-center gap-1.5 text-highlight">
-                    <Music className="w-3 h-3" />
-                    <span>Music Bot Commands</span>
-                  </span>
-                  <span className="text-[9px] font-mono text-[#949ba4]">SELECT OR TYPE</span>
-                </div>
-                {matchingCommands.map((c) => (
-                  <button
-                    key={c.cmd}
-                    type="button"
-                    onClick={() => {
-                      setMessageText(c.syntax.includes('<') ? c.cmd + ' ' : c.cmd);
-                    }}
-                    className="w-full text-left px-3 py-1.5 rounded-xl hover:bg-highlight/15 hover:border-highlight/30 border border-transparent transition-all flex items-center justify-between group cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="font-mono text-xs font-bold text-highlight group-hover:text-white">
-                        {c.syntax}
-                      </span>
-                      <span className="text-[11px] text-text-secondary group-hover:text-text-primary">
-                        {c.desc}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
+          <div className="px-6 pb-6 pt-2 shrink-0">
             {/* Hidden File Input for strict Image Upload */}
             <input
               type="file"

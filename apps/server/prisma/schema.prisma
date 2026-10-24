@@ -34,23 +34,8 @@ model Server {
   members     ServerMember[]
   invites     ServerInvite[]
   bans        ServerBan[]
-  bots        ServerBot[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
-}
-
-model ServerBot {
-  id               String   @id @default(cuid())
-  serverId         String
-  server           Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  botType          String   @default("music") // "music"
-  isEnabled        Boolean  @default(true)
-  defaultChannelId String?
-  volume           Int      @default(80)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@unique([serverId, botType])
 }
 
 model Channel {
