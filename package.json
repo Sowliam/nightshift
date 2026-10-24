@@ -19,6 +19,7 @@
     "dev:dist": "npm run dist",
     "build": "npm run build --workspace=@nightshift/shared && npm run db:generate --workspace=@nightshift/server && npm run build --workspace=@nightshift/server && npm run build --workspace=@nightshift/desktop",
     "vercel-build": "npm run build --workspace=@nightshift/shared && npm run build:renderer --workspace=@nightshift/desktop",
+    "deploy:web": "npm run vercel-build && vercel deploy apps/desktop/dist --prod --project dist --yes",
     "dist": "npm run build && npm run dist --workspace=@nightshift/desktop",
     "typecheck": "npm run typecheck --workspace=@nightshift/shared && npm run typecheck --workspace=@nightshift/server && npm run typecheck --workspace=@nightshift/desktop",
     "test": "npm run test --workspace=@nightshift/server",
