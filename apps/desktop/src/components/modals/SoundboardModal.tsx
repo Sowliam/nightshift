@@ -9,6 +9,7 @@ import {
   Search,
   Square,
   Play,
+  Pause,
   Sliders,
   Check,
   AlertCircle,
@@ -22,8 +23,10 @@ export const SoundboardModal: React.FC = () => {
   const {
     sounds,
     activePlayingIds,
+    activeSounds,
     masterVolume,
     localMonitorVolume,
+    localMonitorMuted,
     allowWhileMuted,
     selectedCategory,
     searchQuery,
@@ -35,10 +38,12 @@ export const SoundboardModal: React.FC = () => {
     playSound,
     stopSound,
     stopAll,
+    togglePauseSound,
     updateSound,
     deleteSound,
     setMasterVolume,
     setLocalMonitorVolume,
+    setLocalMonitorMuted,
     setAllowWhileMuted,
     setSelectedCategory,
     setSearchQuery,
@@ -245,21 +250,48 @@ export const SoundboardModal: React.FC = () => {
               <span className="font-mono text-text-primary font-bold w-9">{masterVolume}%</span>
             </div>
 
-            {/* Local Headphones Volume */}
+            {/* Local Headphones Volume & Self-Monitor Mute (شنیدن فقط توسط بقیه) */}
             <div className="flex items-center gap-3">
-              <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider flex items-center gap-1">
-                <Headphones className="w-3.5 h-3.5" />
-                Local Monitor Volume:
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={localMonitorVolume}
-                onChange={(e) => setLocalMonitorVolume(Number(e.target.value))}
-                className="w-28 accent-accent-bright h-1.5 bg-[#232428] rounded-lg cursor-pointer"
-              />
-              <span className="font-mono text-text-primary font-bold w-9">{localMonitorVolume}%</span>
+              <button
+                type="button"
+                onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  localMonitorMuted
+                    ? 'bg-amber-400/20 text-amber-400 border-amber-400/40 shadow-sm'
+                    : 'bg-[#232428] hover:bg-[#2b2d31] text-text-primary hover:text-white border-[#313338]'
+                }`}
+                title={
+                  localMonitorMuted
+                    ? 'Click to unmute soundboard in your headphones'
+                    : 'Click to mute soundboard in your headphones (Music continues streaming to everyone else in channel)'
+                }
+              >
+                {localMonitorMuted ? (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Muted for Me (Channel Hears)</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5 text-accent-bright" />
+                    <span>Hear in My Headphones</span>
+                  </>
+                )}
+              </button>
+
+              {!localMonitorMuted && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={localMonitorVolume}
+                    onChange={(e) => setLocalMonitorVolume(Number(e.target.value))}
+                    className="w-24 accent-accent-bright h-1.5 bg-[#232428] rounded-lg cursor-pointer"
+                  />
+                  <span className="font-mono text-text-primary font-bold w-8">{localMonitorVolume}%</span>
+                </div>
+              )}
             </div>
 
             {/* Allow Playback While Mic is Muted */}
@@ -353,7 +385,10 @@ export const SoundboardModal: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredSounds.map((item) => {
-                const isPlaying = activePlayingIds.includes(item.id);
+                const activeSound = activeSounds.find((s) => s.soundId === item.id);
+                const isPaused = !!activeSound && activeSound.isPaused;
+                const isLocalOnly = !!activeSound && activeSound.isLocalOnly;
+                const isBroadcasting = !!activeSound && !activeSound.isLocalOnly;
                 const isAssigningKey = assigningHotkeySoundId === item.id;
                 const isEditing = editingSoundId === item.id;
 
@@ -361,35 +396,87 @@ export const SoundboardModal: React.FC = () => {
                   <div
                     key={item.id}
                     className={`relative p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between group ${
-                      isPlaying
+                      isLocalOnly
+                        ? 'bg-[#1e172e] border-purple-500/80 shadow-[0_0_20px_rgba(168,85,247,0.25)]'
+                        : isBroadcasting
                         ? 'bg-accent-bright/10 border-accent-bright shadow-[0_0_15px_rgba(82,183,136,0.2)]'
                         : 'bg-[#18191c] hover:bg-[#1f2024] border-[#2b2d31] hover:border-[#35373c]'
                     }`}
                   >
-                    {/* Top Row: Play Button + Sound Name + Delete */}
-                    <div className="flex items-start gap-2.5 mb-2.5">
-                      {/* Big Main Play/Stop Button */}
-                      <button
-                        onClick={() => {
-                          if (isPlaying) {
-                            stopSound(item.id);
-                          } else {
-                            playSound(item.id, false);
-                          }
-                        }}
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-150 cursor-pointer shadow-md ${
-                          isPlaying
-                            ? 'bg-destructive text-white hover:scale-105 active:scale-95 animate-pulse'
-                            : 'bg-accent-bright hover:bg-white text-black hover:scale-105 active:scale-95'
-                        }`}
-                        title={isPlaying ? 'Stop Playback' : 'Play to Voice Room & Headphones'}
-                      >
-                        {isPlaying ? (
-                          <Square className="w-4 h-4 fill-current" />
-                        ) : (
-                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                    {/* Private Preview Banner */}
+                    {isLocalOnly && (
+                      <div className="flex items-center justify-between text-[10px] font-bold text-purple-400 bg-purple-500/20 border border-purple-500/30 px-2.5 py-1 rounded-xl mb-2.5">
+                        <span className="flex items-center gap-1.5">
+                          <Headphones className="w-3.5 h-3.5 animate-pulse" />
+                          <span>فقط شما می‌شنوید (Private Preview)</span>
+                        </span>
+                        <button
+                          onClick={() => stopSound(item.id)}
+                          className="px-2 py-0.5 rounded bg-purple-500 hover:bg-purple-600 text-white text-[10px] font-bold cursor-pointer transition-all"
+                        >
+                          توقف تست
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Broadcasting Banner */}
+                    {isBroadcasting && (
+                      <div className="flex items-center justify-between text-[10px] font-bold text-accent-bright bg-accent-bright/15 border border-accent-bright/30 px-2.5 py-1 rounded-xl mb-2.5">
+                        <span className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-accent-bright animate-ping'}`} />
+                          <span>{isPaused ? '⏸ متوقف موقت (Paused)' : '📡 در حال پخش در چنل'}</span>
+                        </span>
+                        {localMonitorMuted && (
+                          <span className="text-amber-400 text-[10px] font-semibold bg-amber-400/10 px-1.5 py-0.5 rounded">
+                            بی‌صدا در هدفون شما
+                          </span>
                         )}
-                      </button>
+                      </div>
+                    )}
+
+                    {/* Top Row: Play/Pause/Stop Buttons + Sound Name + Delete */}
+                    <div className="flex items-start gap-2.5 mb-2.5">
+                      {/* Playback Action Buttons */}
+                      {isBroadcasting ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Pause / Resume button */}
+                          <button
+                            onClick={() => togglePauseSound(item.id)}
+                            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-amber-400 hover:bg-amber-300 text-black transition-all active:scale-95 cursor-pointer shadow-md font-bold"
+                            title={isPaused ? 'ادامه پخش (یا زدن دکمه هات‌کی)' : 'توقف موقت (یا یک بار زدن هات‌کی)'}
+                          >
+                            {isPaused ? (
+                              <Play className="w-4 h-4 fill-current ml-0.5" />
+                            ) : (
+                              <Pause className="w-4 h-4 fill-current" />
+                            )}
+                          </button>
+                          {/* Stop button */}
+                          <button
+                            onClick={() => stopSound(item.id)}
+                            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-destructive hover:bg-destructive/90 text-white transition-all active:scale-95 cursor-pointer shadow-md animate-pulse"
+                            title="قطع کامل پخش (یا دوبار زدن سریع هات‌کی)"
+                          >
+                            <Square className="w-3.5 h-3.5 fill-current" />
+                          </button>
+                        </div>
+                      ) : isLocalOnly ? (
+                        <button
+                          onClick={() => stopSound(item.id)}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-purple-600 hover:bg-purple-500 text-white transition-all active:scale-95 cursor-pointer shadow-md animate-pulse"
+                          title="توقف تست خصوصی"
+                        >
+                          <Square className="w-4 h-4 fill-current" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => playSound(item.id, false)}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-accent-bright hover:bg-white text-black hover:scale-105 active:scale-95 transition-all duration-150 cursor-pointer shadow-md"
+                          title="پخش در چنل صوتی و هدفون"
+                        >
+                          <Play className="w-4 h-4 fill-current ml-0.5" />
+                        </button>
+                      )}
 
                       {/* Title & Category Info */}
                       <div className="flex-1 min-w-0">
@@ -479,8 +566,8 @@ export const SoundboardModal: React.FC = () => {
                           isAssigningKey
                             ? 'Press any key on keyboard (or Escape to clear)'
                             : item.hotkey
-                            ? `Hotkey: ${item.hotkey}. Click to change.`
-                            : 'Click to assign keyboard shortcut'
+                            ? `Hotkey: ${item.hotkey}. 1 Tap: Pause/Resume. 2 Taps (<380ms): Stop.`
+                            : 'کلیک کنید برای تنظیم دکمه کیبورد'
                         }
                       >
                         {isAssigningKey ? 'Press Key...' : formatHotkeyLabel(item.hotkey)}
@@ -501,13 +588,24 @@ export const SoundboardModal: React.FC = () => {
                         </div>
 
                         {/* Local Preview Only (Headphone Icon) */}
-                        <button
-                          onClick={() => playSound(item.id, true)}
-                          className="p-1 rounded-lg hover:bg-[#2b2d31] text-[#949ba4] hover:text-white transition-colors cursor-pointer"
-                          title="Listen Locally (Private Preview - not heard by channel)"
-                        >
-                          <Headphones className="w-3.5 h-3.5" />
-                        </button>
+                        {isLocalOnly ? (
+                          <button
+                            onClick={() => stopSound(item.id)}
+                            className="px-2 py-1 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-[10px] font-bold flex items-center gap-1 shadow-md cursor-pointer animate-pulse"
+                            title="توقف تست خصوصی (فقط شما می‌شنوید)"
+                          >
+                            <Headphones className="w-3 h-3" />
+                            <span>تست خصوصی</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => playSound(item.id, true)}
+                            className="p-1 rounded-lg hover:bg-purple-500/20 text-[#949ba4] hover:text-purple-400 transition-colors cursor-pointer"
+                            title="Listen Locally (تست خصوصی در هدفون خودتان بدون شنیدن دیگران)"
+                          >
+                            <Headphones className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

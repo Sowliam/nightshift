@@ -162,7 +162,7 @@ export const App: React.FC = () => {
         const matchingSound = sounds.find((s) => s.hotkey && s.hotkey.toLowerCase() === e.code.toLowerCase());
         if (matchingSound) {
           e.preventDefault();
-          useSoundboardStore.getState().playSound(matchingSound.id);
+          useSoundboardStore.getState().handleHotkeyTrigger(matchingSound.id);
         }
       }
     };

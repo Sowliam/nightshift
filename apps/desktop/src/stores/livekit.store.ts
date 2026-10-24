@@ -67,6 +67,7 @@ interface LiveKitState {
   startWatchingStream: (participantIdentity: string) => void;
   stopWatchingStream: (participantIdentity: string) => void;
   setFocusedScreenShare: (participantIdentity: string | null) => void;
+  applyAudioProcessingSettings: () => Promise<void>;
   setAudioInputDevice: (deviceId: string) => Promise<void>;
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
   setPushToTalkActive: (active: boolean) => Promise<void>;
@@ -79,6 +80,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeCustomScreenTrack: LocalVideoTrack | null = null;
   let activeCustomScreenAudioTrack: LocalAudioTrack | null = null;
   let activeLocalSoundboardTrack: LocalAudioTrack | null = null;
+  let activeLocalMicTrack: MediaStreamTrack | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
@@ -96,35 +98,57 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       silenceTimer = null;
     }
     if (localAudioSource) {
-      localAudioSource.disconnect();
+      try {
+        localAudioSource.disconnect();
+      } catch {}
       localAudioSource = null;
     }
     if (localAudioContext) {
       localAudioContext.close().catch(() => {});
       localAudioContext = null;
     }
+    activeLocalMicTrack = null;
     set({ isLocallySpeaking: false });
   };
 
   const setupAudioAnalyser = (track: MediaStreamTrack) => {
     cleanupAudioAnalyser();
+    activeLocalMicTrack = track;
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       localAudioContext = new AudioCtx();
       const stream = new MediaStream([track]);
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
+
+      // Highpass Biquad Filter at 85 Hz:
+      // Eliminates breath puffs, airflow turbulence, table thumps, and mechanical mic hum
+      // without degrading vocal warmth or speech intelligibility
+      const highpass = localAudioContext.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.setValueAtTime(85, localAudioContext.currentTime);
+      highpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
+
       localAnalyser = localAudioContext.createAnalyser();
       localAnalyser.fftSize = 256;
-      localAudioSource.connect(localAnalyser);
+
+      localAudioSource.connect(highpass);
+      highpass.connect(localAnalyser);
 
       const buffer = new Uint8Array(localAnalyser.frequencyBinCount);
       let lastCheck = 0;
 
+      // In voice-activity mode, start with track muted at WebRTC level
+      // until user vocalization crosses the sensitivity threshold
+      const initialSettings = useSettingsStore.getState();
+      if (initialSettings.inputMode === 'voice-activity' && !get().isMuted && !get().isDeafened) {
+        track.enabled = false;
+      }
+
       const checkAudio = (timestamp: number) => {
         if (!localAnalyser) return;
-        // Throttle check to ~40ms (25fps) to save CPU and battery
-        if (timestamp - lastCheck >= 40) {
+        // Check at ~30fps (33ms)
+        if (timestamp - lastCheck >= 33) {
           lastCheck = timestamp;
           localAnalyser.getByteFrequencyData(buffer);
           let sum = 0;
@@ -132,13 +156,45 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const avg = sum / buffer.length;
           const normalized = Math.min(100, Math.round((avg / 128) * 100));
 
-          const threshold = useSettingsStore.getState().voiceActivationThreshold || 15;
+          const settings = useSettingsStore.getState();
+          const isPtt = settings.inputMode === 'push-to-talk';
           const isMuted = get().isMuted;
+          const isDeafened = get().isDeafened;
+          const threshold = settings.autoSensitivity
+            ? 18
+            : (settings.sensitivityThreshold ?? settings.voiceActivationThreshold ?? 25);
 
-          if (!isMuted && normalized > threshold) {
+          if (isMuted || isDeafened) {
+            if (track.enabled) track.enabled = false;
+            if (get().isLocallySpeaking) {
+              set({ isLocallySpeaking: false });
+              const localId = get().localParticipant?.identity;
+              if (localId) {
+                set((state) => {
+                  const updated = new Set(state.activeSpeakers);
+                  updated.delete(localId);
+                  return { activeSpeakers: updated };
+                });
+              }
+            }
+            localAnimFrame = requestAnimationFrame(checkAudio);
+            return;
+          }
+
+          if (isPtt) {
+            // Handled exclusively by setPushToTalkActive
+            localAnimFrame = requestAnimationFrame(checkAudio);
+            return;
+          }
+
+          // Voice Activity Gating:
+          if (normalized > threshold) {
             if (silenceTimer) {
               clearTimeout(silenceTimer);
               silenceTimer = null;
+            }
+            if (!track.enabled) {
+              track.enabled = true;
             }
             if (!get().isLocallySpeaking) {
               set({ isLocallySpeaking: true });
@@ -150,8 +206,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               }
             }
           } else {
+            // Below threshold: smooth hangover timer (350ms) to avoid clipping syllable ends
             if (!silenceTimer && get().isLocallySpeaking) {
               silenceTimer = setTimeout(() => {
+                track.enabled = false;
                 set({ isLocallySpeaking: false });
                 const localId = get().localParticipant?.identity;
                 if (localId) {
@@ -162,7 +220,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                   });
                 }
                 silenceTimer = null;
-              }, 300);
+              }, 350);
             }
           }
         }
@@ -568,6 +626,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           );
           if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
             setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+            await get().applyAudioProcessingSettings();
           }
         } catch (micErr: any) {
           console.warn('Microphone error:', micErr);
@@ -703,6 +762,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         soundboardAudioEngine.setMicrophoneMuted(newMuted);
         await room.localParticipant.setMicrophoneEnabled(!newMuted);
 
+        if (activeLocalMicTrack) {
+          activeLocalMicTrack.enabled = !newMuted && useSettingsStore.getState().inputMode !== 'voice-activity';
+        }
+
         set({ isMuted: newMuted });
         useSettingsStore.getState().setSelfMuted(newMuted);
         if (newMuted) {
@@ -722,9 +785,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (!room || !room.localParticipant) return;
 
       try {
+        if (activeLocalMicTrack) {
+          activeLocalMicTrack.enabled = active;
+        }
         soundboardAudioEngine.setMicrophoneMuted(!active);
         await room.localParticipant.setMicrophoneEnabled(active);
-        set({ isMuted: !active });
+        set({ isMuted: !active, isLocallySpeaking: active });
         useSettingsStore.getState().setSelfMuted(!active);
         if (active) {
           sounds.playPttActivate();
@@ -743,6 +809,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (newDeafened) {
         // Deafen ALWAYS mutes the user as well (like Discord: deafen = deafened + muted)
         try {
+          if (activeLocalMicTrack) {
+            activeLocalMicTrack.enabled = false;
+          }
           if (room?.localParticipant) {
             await room.localParticipant.setMicrophoneEnabled(false);
           }
@@ -1012,6 +1081,49 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     },
 
+    applyAudioProcessingSettings: async () => {
+      const settings = useSettingsStore.getState();
+      const isNoiseSuppressed = settings.noiseSuppression !== 'none';
+      const isEchoCancelled = settings.echoCancellation;
+
+      const constraints: MediaTrackConstraints = {
+        echoCancellation: isEchoCancelled ? { ideal: true } : false,
+        noiseSuppression: isNoiseSuppressed ? { ideal: true } : false,
+        autoGainControl: { ideal: true },
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 48000 },
+        ...(isEchoCancelled
+          ? {
+              googEchoCancellation: { ideal: true } as any,
+              googEchoCancellation2: { ideal: true } as any,
+              googDAEchoCancellation: { ideal: true } as any,
+            }
+          : {
+              googEchoCancellation: { ideal: false } as any,
+            }),
+        ...(isNoiseSuppressed
+          ? {
+              googNoiseSuppression: { ideal: true } as any,
+              googNoiseSuppression2: { ideal: true } as any,
+              googHighpassFilter: { ideal: true } as any,
+              googTypingNoiseDetection: { ideal: true } as any,
+            }
+          : {
+              googNoiseSuppression: { ideal: false } as any,
+              googHighpassFilter: { ideal: false } as any,
+            }),
+      };
+
+      if (activeLocalMicTrack) {
+        try {
+          await activeLocalMicTrack.applyConstraints(constraints);
+          console.log('[LiveKit] Applied Ultra voice audio constraints to active mic track');
+        } catch (err) {
+          console.warn('[LiveKit] Could not apply dynamic audio constraints:', err);
+        }
+      }
+    },
+
     setAudioInputDevice: async (deviceId: string) => {
       const { room } = get();
       if (room) {
@@ -1021,6 +1133,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         );
         if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
           setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+          await get().applyAudioProcessingSettings();
         }
       }
     },

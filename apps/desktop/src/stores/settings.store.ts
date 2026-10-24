@@ -189,7 +189,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     },
 
     setSensitivityThreshold: (sensitivityThreshold: number) => {
-      set({ sensitivityThreshold });
+      set({ sensitivityThreshold, voiceActivationThreshold: sensitivityThreshold });
       persist({ sensitivityThreshold });
     },
 

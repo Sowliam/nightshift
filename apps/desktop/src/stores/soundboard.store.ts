@@ -11,6 +11,7 @@ interface SoundboardState {
   activeSounds: ActiveSoundInfo[];
   masterVolume: number;
   localMonitorVolume: number;
+  localMonitorMuted: boolean;
   allowWhileMuted: boolean;
   selectedCategory: string;
   searchQuery: string;
@@ -22,17 +23,25 @@ interface SoundboardState {
   loadSounds: () => Promise<void>;
   importSound: (file: File, customName?: string, category?: string) => Promise<boolean>;
   playSound: (id: string, localOnly?: boolean) => Promise<void>;
+  pauseSound: (id: string) => void;
+  resumeSound: (id: string) => Promise<void>;
+  togglePauseSound: (id: string) => Promise<void>;
+  handleHotkeyTrigger: (id: string) => Promise<void>;
   stopSound: (id: string) => void;
   stopAll: () => void;
   updateSound: (id: string, updates: Partial<SoundboardItem>) => Promise<void>;
   deleteSound: (id: string) => Promise<void>;
   setMasterVolume: (vol: number) => void;
   setLocalMonitorVolume: (vol: number) => void;
+  setLocalMonitorMuted: (muted: boolean) => void;
   setAllowWhileMuted: (allow: boolean) => void;
   setSelectedCategory: (category: string) => void;
   setSearchQuery: (query: string) => void;
   setSoundboardOpen: (open: boolean) => void;
 }
+
+// Track hotkey double-tap timestamps
+const lastHotkeyPressTimestamps: Record<string, number> = {};
 
 export const useSoundboardStore = create<SoundboardState>()(
   persist(
@@ -64,6 +73,7 @@ export const useSoundboardStore = create<SoundboardState>()(
         activeSounds: [],
         masterVolume: 80,
         localMonitorVolume: 80,
+        localMonitorMuted: false,
         allowWhileMuted: false,
         selectedCategory: 'All',
         searchQuery: '',
@@ -78,6 +88,7 @@ export const useSoundboardStore = create<SoundboardState>()(
             const items = await soundboardStorage.getAllItems();
             soundboardAudioEngine.setMasterVolume(get().masterVolume);
             soundboardAudioEngine.setLocalMonitorVolume(get().localMonitorVolume);
+            soundboardAudioEngine.setLocalMonitorMuted(get().localMonitorMuted);
             soundboardAudioEngine.setAllowWhileMuted(get().allowWhileMuted);
             set({ sounds: items, isLoading: false });
           } catch (err: any) {
@@ -138,6 +149,49 @@ export const useSoundboardStore = create<SoundboardState>()(
           }
         },
 
+        pauseSound: (id: string) => {
+          soundboardAudioEngine.pauseSound(id);
+        },
+
+        resumeSound: async (id: string) => {
+          await soundboardAudioEngine.resumeSound(id);
+        },
+
+        togglePauseSound: async (id: string) => {
+          await soundboardAudioEngine.togglePauseSound(id);
+        },
+
+        /**
+         * Hotkey trigger behavior requested by user:
+         * - If sound is playing:
+         *   - Press once: Pause (or resume if already paused)
+         *   - Double-press within 380ms: Stop completely (قطع کامل)
+         * - If sound is not playing:
+         *   - Starts playback
+         */
+        handleHotkeyTrigger: async (id: string) => {
+          const now = Date.now();
+          const lastPress = lastHotkeyPressTimestamps[id] || 0;
+          const isDoublePress = (now - lastPress) < 380;
+          const isActive = soundboardAudioEngine.isPlaying(id) || soundboardAudioEngine.isPaused(id);
+
+          lastHotkeyPressTimestamps[id] = now;
+
+          if (isActive) {
+            if (isDoublePress) {
+              // Double-tap: Stop completely
+              lastHotkeyPressTimestamps[id] = 0;
+              get().stopSound(id);
+            } else {
+              // Single tap: Toggle pause
+              await get().togglePauseSound(id);
+            }
+          } else {
+            // Not playing: Play sound
+            await get().playSound(id, false);
+          }
+        },
+
         stopSound: (id: string) => {
           soundboardAudioEngine.stopSound(id);
           useLiveKitStore.getState().broadcastSoundboardStopped(id);
@@ -179,6 +233,11 @@ export const useSoundboardStore = create<SoundboardState>()(
           set({ localMonitorVolume: clamped });
         },
 
+        setLocalMonitorMuted: (muted: boolean) => {
+          soundboardAudioEngine.setLocalMonitorMuted(muted);
+          set({ localMonitorMuted: muted });
+        },
+
         setAllowWhileMuted: (allow: boolean) => {
           soundboardAudioEngine.setAllowWhileMuted(allow);
           set({ allowWhileMuted: allow });
@@ -198,12 +257,12 @@ export const useSoundboardStore = create<SoundboardState>()(
       };
     },
     {
-      name: 'nightshift_soundboard_settings',
+      name: 'nightshift-soundboard-store',
       partialize: (state) => ({
         masterVolume: state.masterVolume,
         localMonitorVolume: state.localMonitorVolume,
+        localMonitorMuted: state.localMonitorMuted,
         allowWhileMuted: state.allowWhileMuted,
-        selectedCategory: state.selectedCategory,
       }),
     }
   )

@@ -5,15 +5,22 @@ export interface ActiveSoundInfo {
   name: string;
   startedAt: number;
   duration: number;
+  isPaused: boolean;
+  isLocalOnly: boolean;
 }
 
 interface ActiveSoundInstance {
   soundId: string;
   name: string;
-  sourceNode: AudioBufferSourceNode;
+  item: SoundboardItem;
+  audioBuffer: AudioBuffer;
+  sourceNode: AudioBufferSourceNode | null;
   gainNode: GainNode;
   startedAt: number;
   duration: number;
+  pauseOffset: number;
+  isPaused: boolean;
+  isLocalOnly: boolean;
 }
 
 export class SoundboardAudioEngine {
@@ -28,6 +35,7 @@ export class SoundboardAudioEngine {
   private allowWhileMuted: boolean = false;
   private masterVolume: number = 0.8;
   private localMonitorVolume: number = 0.8;
+  private localMonitorMuted: boolean = false;
   private maxConcurrentSounds: number = 4;
 
   private activeInstances: Map<string, ActiveSoundInstance> = new Map();
@@ -40,10 +48,19 @@ export class SoundboardAudioEngine {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioCtx({ sampleRate: 48000 });
     }
-    if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch(() => {});
-    }
     return this.audioContext;
+  }
+
+  private async ensureAudioContext(): Promise<AudioContext> {
+    const ctx = this.getAudioContext();
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch (err) {
+        console.warn('AudioContext resume failed:', err);
+      }
+    }
+    return ctx;
   }
 
   /**
@@ -54,16 +71,17 @@ export class SoundboardAudioEngine {
   public initializePipeline(): MediaStreamTrack {
     const ctx = this.getAudioContext();
 
-    // Soundboard Master Transmission Gain
+    // Soundboard Master Transmission Gain (Outgoing to WebRTC)
     if (!this.soundboardBusGain) {
       this.soundboardBusGain = ctx.createGain();
       this.soundboardBusGain.gain.setValueAtTime(this.masterVolume, ctx.currentTime);
     }
 
-    // Local Monitor Gain (so user hears sound in headphones with zero mic echo)
+    // Local Monitor Gain (so user hears sound in their own headphones)
     if (!this.localMonitorGain) {
       this.localMonitorGain = ctx.createGain();
-      this.localMonitorGain.gain.setValueAtTime(this.localMonitorVolume, ctx.currentTime);
+      const currentMonitorVol = this.localMonitorMuted ? 0 : this.localMonitorVolume;
+      this.localMonitorGain.gain.setValueAtTime(currentMonitorVol, ctx.currentTime);
       this.soundboardBusGain.connect(this.localMonitorGain);
       this.localMonitorGain.connect(ctx.destination);
     }
@@ -126,12 +144,33 @@ export class SoundboardAudioEngine {
     }
   }
 
+  /**
+   * Adjusts the volume at which the user hears their own played soundboard sounds in their headphones.
+   */
   public setLocalMonitorVolume(volumePercent: number): void {
     const clamped = Math.max(0, Math.min(100, volumePercent));
     this.localMonitorVolume = clamped / 100;
+    this.updateLocalMonitorGain();
+  }
+
+  /**
+   * Allows the user who played the sound to completely silence it in their own headphones,
+   * while the sound continues transmitting at full quality to everyone else in the voice room!
+   */
+  public setLocalMonitorMuted(muted: boolean): void {
+    this.localMonitorMuted = muted;
+    this.updateLocalMonitorGain();
+  }
+
+  public isLocalMonitorMuted(): boolean {
+    return this.localMonitorMuted;
+  }
+
+  private updateLocalMonitorGain(): void {
     if (this.localMonitorGain && this.audioContext) {
+      const target = this.localMonitorMuted ? 0 : this.localMonitorVolume;
       try {
-        this.localMonitorGain.gain.setValueAtTime(this.localMonitorVolume, this.audioContext.currentTime);
+        this.localMonitorGain.gain.setValueAtTime(target, this.audioContext.currentTime);
       } catch {}
     }
   }
@@ -143,7 +182,7 @@ export class SoundboardAudioEngine {
     const cached = this.audioBufferCache.get(soundId);
     if (cached) return cached;
 
-    const ctx = this.getAudioContext();
+    const ctx = await this.ensureAudioContext();
     const cloned = arrayBuffer.slice(0);
     const audioBuffer = await ctx.decodeAudioData(cloned);
     this.audioBufferCache.set(soundId, audioBuffer);
@@ -152,13 +191,18 @@ export class SoundboardAudioEngine {
 
   /**
    * Plays a sound effect.
-   * If localOnly is true, routes ONLY to user's headphones/speakers (private preview).
-   * Otherwise transmits through the dedicated LiveKit soundboard audio track and headphones.
+   * If localOnly is true:
+   *   - Routes ONLY to user's local speakers/headphones (private audition).
+   *   - NEVER touches the outgoing WebRTC track or LiveKit broadcast.
+   *   - Works reliably even when not connected to a voice room.
+   * If localOnly is false:
+   *   - Transmits to the voice room via dedicated soundboardTrack.
+   *   - Also routes to local monitor (headphones) according to localMonitorVolume / localMonitorMuted.
    */
   public async playSound(item: SoundboardItem, localOnly = false): Promise<void> {
-    const ctx = this.getAudioContext();
+    const ctx = await this.ensureAudioContext();
 
-    // If this sound is already playing, stop it immediately first
+    // If this sound is already playing or paused, stop it first
     if (this.activeInstances.has(item.id)) {
       this.stopSound(item.id);
     }
@@ -188,7 +232,7 @@ export class SoundboardAudioEngine {
       audioBuffer = await this.loadAudioBuffer(item.id, rawData);
     }
 
-    // Create per-sound source node and volume gain node
+    // Create buffer source node and per-sound gain node
     const sourceNode = ctx.createBufferSource();
     sourceNode.buffer = audioBuffer;
 
@@ -199,14 +243,13 @@ export class SoundboardAudioEngine {
     sourceNode.connect(itemGainNode);
 
     if (localOnly) {
-      // Local preview only: connect to localMonitorGain -> ctx.destination
-      if (this.localMonitorGain) {
-        itemGainNode.connect(this.localMonitorGain);
-      } else {
-        itemGainNode.connect(ctx.destination);
-      }
+      // 100% PRIVATE LOCAL PREVIEW:
+      // Direct connection to ctx.destination only (user's audio output)
+      // Completely isolated from the LiveKit transmission pipeline
+      itemGainNode.connect(ctx.destination);
     } else {
-      // Transmit to dedicated LiveKit soundboard track + local monitor
+      // BROADCAST TO CHANNEL:
+      // Connect to soundboardBusGain (which splits to WebRTC outgoing stream and local monitor)
       if (!this.soundboardBusGain) {
         this.initializePipeline();
       }
@@ -216,18 +259,24 @@ export class SoundboardAudioEngine {
     const instance: ActiveSoundInstance = {
       soundId: item.id,
       name: item.name,
+      item,
+      audioBuffer,
       sourceNode,
       gainNode: itemGainNode,
       startedAt: Date.now(),
       duration: audioBuffer.duration,
+      pauseOffset: 0,
+      isPaused: false,
+      isLocalOnly: localOnly,
     };
 
     this.activeInstances.set(item.id, instance);
     this.notifyListeners();
 
     sourceNode.onended = () => {
-      // Clean up when sound finishes playing naturally
-      if (this.activeInstances.has(item.id)) {
+      // Only clean up if this was a natural end and not a pause
+      const current = this.activeInstances.get(item.id);
+      if (current && !current.isPaused) {
         this.activeInstances.delete(item.id);
         try {
           sourceNode.disconnect();
@@ -241,6 +290,79 @@ export class SoundboardAudioEngine {
   }
 
   /**
+   * Pauses an active sound without resetting its playback position.
+   */
+  public pauseSound(soundId: string): void {
+    const inst = this.activeInstances.get(soundId);
+    if (!inst || inst.isPaused || !inst.sourceNode) return;
+
+    const ctx = this.audioContext;
+    const now = ctx ? ctx.currentTime : 0;
+    
+    // Calculate elapsed playback seconds
+    const elapsedSeconds = (Date.now() - inst.startedAt) / 1000;
+    inst.pauseOffset = Math.max(0, Math.min(inst.duration, elapsedSeconds));
+    inst.isPaused = true;
+
+    inst.sourceNode.onended = null;
+    try {
+      inst.sourceNode.stop(now);
+    } catch {}
+    try {
+      inst.sourceNode.disconnect();
+    } catch {}
+    inst.sourceNode = null;
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Resumes a paused sound from its exact pause point.
+   */
+  public async resumeSound(soundId: string): Promise<void> {
+    const inst = this.activeInstances.get(soundId);
+    if (!inst || !inst.isPaused) return;
+
+    const ctx = await this.ensureAudioContext();
+    const sourceNode = ctx.createBufferSource();
+    sourceNode.buffer = inst.audioBuffer;
+    sourceNode.connect(inst.gainNode);
+
+    const now = ctx.currentTime;
+    inst.startedAt = Date.now() - (inst.pauseOffset * 1000);
+    inst.isPaused = false;
+    inst.sourceNode = sourceNode;
+
+    sourceNode.onended = () => {
+      const current = this.activeInstances.get(soundId);
+      if (current && !current.isPaused) {
+        this.activeInstances.delete(soundId);
+        try {
+          sourceNode.disconnect();
+          inst.gainNode.disconnect();
+        } catch {}
+        this.notifyListeners();
+      }
+    };
+
+    sourceNode.start(now, inst.pauseOffset);
+    this.notifyListeners();
+  }
+
+  /**
+   * Toggles pause / resume for a playing sound.
+   */
+  public async togglePauseSound(soundId: string): Promise<void> {
+    const inst = this.activeInstances.get(soundId);
+    if (!inst) return;
+    if (inst.isPaused) {
+      await this.resumeSound(soundId);
+    } else {
+      this.pauseSound(soundId);
+    }
+  }
+
+  /**
    * Stops an individual sound immediately and reliably.
    * Cancels scheduled audio values and immediately stops the buffer node.
    */
@@ -250,22 +372,26 @@ export class SoundboardAudioEngine {
 
     this.activeInstances.delete(soundId);
 
-    inst.sourceNode.onended = null;
+    if (inst.sourceNode) {
+      inst.sourceNode.onended = null;
+      const ctx = this.audioContext;
+      const now = ctx ? ctx.currentTime : 0;
 
-    const ctx = this.audioContext;
-    const now = ctx ? ctx.currentTime : 0;
+      try {
+        inst.gainNode.gain.cancelScheduledValues(now);
+        inst.gainNode.gain.setValueAtTime(0, now);
+      } catch {}
+
+      try {
+        inst.sourceNode.stop(now);
+      } catch {}
+
+      try {
+        inst.sourceNode.disconnect();
+      } catch {}
+    }
 
     try {
-      inst.gainNode.gain.cancelScheduledValues(now);
-      inst.gainNode.gain.setValueAtTime(0, now);
-    } catch {}
-
-    try {
-      inst.sourceNode.stop(now);
-    } catch {}
-
-    try {
-      inst.sourceNode.disconnect();
       inst.gainNode.disconnect();
     } catch {}
 
@@ -283,7 +409,18 @@ export class SoundboardAudioEngine {
   }
 
   public isPlaying(soundId: string): boolean {
-    return this.activeInstances.has(soundId);
+    const inst = this.activeInstances.get(soundId);
+    return !!inst && !inst.isPaused;
+  }
+
+  public isPaused(soundId: string): boolean {
+    const inst = this.activeInstances.get(soundId);
+    return !!inst && inst.isPaused;
+  }
+
+  public isLocalOnly(soundId: string): boolean {
+    const inst = this.activeInstances.get(soundId);
+    return !!inst && inst.isLocalOnly;
   }
 
   public getActivePlayingIds(): string[] {
@@ -296,6 +433,8 @@ export class SoundboardAudioEngine {
       name: inst.name,
       startedAt: inst.startedAt,
       duration: inst.duration,
+      isPaused: inst.isPaused,
+      isLocalOnly: inst.isLocalOnly,
     }));
   }
 

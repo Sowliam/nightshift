@@ -103,8 +103,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
+
+      const highpass = audioCtx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.setValueAtTime(85, audioCtx.currentTime);
+      highpass.Q.setValueAtTime(0.7, audioCtx.currentTime);
+
       const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
+      source.connect(highpass);
+      highpass.connect(analyser);
 
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
@@ -456,17 +463,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </button>
                   </div>
 
-                  {/* Live Mic Meter Bar */}
+                  {/* Live Mic Meter Bar with Cutoff Threshold Marker */}
                   <div className="space-y-1">
-                    <div className="w-full h-2 rounded-full bg-bg-elevated border border-border-subtle overflow-hidden">
+                    <div className="relative w-full h-3 rounded-full bg-bg-elevated border border-border-subtle overflow-hidden">
                       <div
-                        className="h-full bg-highlight transition-all duration-75"
+                        className={`h-full transition-all duration-75 ${
+                          micLevel > (autoSensitivity ? 18 : sensitivityThreshold)
+                            ? 'bg-emerald-500'
+                            : 'bg-highlight/50'
+                        }`}
                         style={{ width: `${micLevel}%` }}
                       />
+                      {/* Threshold Cutoff Line */}
+                      <div
+                        className="absolute top-0 bottom-0 w-1 bg-amber-400 z-10 shadow-sm transition-all"
+                        style={{ left: `${Math.min(99, Math.max(1, autoSensitivity ? 18 : sensitivityThreshold))}%` }}
+                        title={`Gate Threshold: ${autoSensitivity ? 18 : sensitivityThreshold}%`}
+                      />
                     </div>
-                    <div className="flex justify-between text-[10px] text-text-muted">
-                      <span>Mic Input Level: {micLevel}%</span>
-                      <span>{micLevel > (autoSensitivity ? 15 : sensitivityThreshold) ? 'Transmitting Audio' : 'Silence'}</span>
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-text-muted">Mic Input: <b className="text-text-primary">{micLevel}%</b> (Cutoff: {autoSensitivity ? '18% Auto' : `${sensitivityThreshold}%`})</span>
+                      <span className={`font-semibold ${micLevel > (autoSensitivity ? 18 : sensitivityThreshold) ? 'text-emerald-400' : 'text-text-muted'}`}>
+                        {micLevel > (autoSensitivity ? 18 : sensitivityThreshold) ? 'Transmitting Audio (Gate Open)' : 'Gate Closed (Breath Blocked)'}
+                      </span>
                     </div>
                   </div>
 
@@ -474,54 +493,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <div className="pt-2">
                       <div className="flex justify-between text-xs text-text-secondary mb-1">
                         <span>Manual Sensitivity Threshold</span>
-                        <span>{sensitivityThreshold}%</span>
+                        <span className="font-mono font-bold text-highlight">{sensitivityThreshold}%</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max="100"
                         value={sensitivityThreshold}
-                        onChange={(e) => setSensitivityThreshold(Number(e.target.value))}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setSensitivityThreshold(val);
+                        }}
                         className="w-full accent-highlight cursor-pointer"
                       />
+                      <div className="text-[10px] text-text-muted mt-1">
+                        Sounds below this threshold (like breathing or room fan) are completely muted.
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* 3. Noise Suppression (Matching Screenshot) */}
+                {/* 3. Noise Suppression */}
                 <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
                   <div>
                     <div className="text-xs font-bold text-text-primary">Noise Suppression</div>
                     <div className="text-[11px] text-text-secondary">
-                      Reduces background noise from your mic. Powered by Krisp.
+                      Advanced real-time noise cancellation and typing reduction
                     </div>
-                    <div className="text-xs font-black tracking-wider text-highlight mt-1">krisp</div>
+                    <div className="text-xs font-black tracking-wider text-highlight mt-1">Ultra Noise Gate</div>
                   </div>
                   <div className="relative">
                     <select
                       value={noiseSuppression}
-                      onChange={(e) => setNoiseSuppression(e.target.value as any)}
+                      onChange={(e) => {
+                        const val = e.target.value as any;
+                        setNoiseSuppression(val);
+                        useLiveKitStore.getState().applyAudioProcessingSettings();
+                      }}
                       className="px-4 py-2 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
                     >
-                      <option value="standard">Standard</option>
-                      <option value="krisp">Krisp AI</option>
-                      <option value="none">Disabled</option>
+                      <option value="krisp">Ultra Voice Isolation (Krisp + Highpass)</option>
+                      <option value="standard">Standard WebRTC Suppression</option>
+                      <option value="none">Disabled (Raw Audio)</option>
                     </select>
                     <ChevronDown className="w-4 h-4 text-text-muted absolute right-2.5 top-2.5 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* 4. Echo Cancellation (Matching Screenshot) */}
+                {/* 4. Echo Cancellation */}
                 <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
                   <div>
                     <div className="text-xs font-bold text-text-primary">Echo Cancellation</div>
                     <div className="text-[11px] text-text-secondary">
-                      Eliminates room echo when speaking without headphones
+                      Hardware & software acoustic echo cancellation for open speakers
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setEchoCancellation(!echoCancellation)}
+                    onClick={() => {
+                      const next = !echoCancellation;
+                      setEchoCancellation(next);
+                      useLiveKitStore.getState().applyAudioProcessingSettings();
+                    }}
                     className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
                       echoCancellation ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
                     }`}
