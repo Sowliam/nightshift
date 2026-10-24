@@ -9,13 +9,17 @@ import {
   Info,
   LogOut,
   ChevronDown,
+  Camera,
+  Upload,
+  Trash2,
+  AlertCircle,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { sounds } from '../../services/sound.service';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
-import { getApiBase, setApiBase } from '../../lib/api';
+import { getApiBase, setApiBase, getFullAvatarUrl } from '../../lib/api';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,8 +58,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setOutputDevice,
   } = useSettingsStore();
 
-  const { user, updateDisplayName, logout } = useAuthStore();
+  const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
   const { setAudioInputDevice, setAudioOutputDevice } = useLiveKitStore();
+
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarSuccess, setAvatarSuccess] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -145,6 +154,71 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (ok) {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
+    }
+  };
+
+  const getInitials = (name?: string | null) => {
+    if (!name || typeof name !== 'string') return 'U';
+    const clean = name.trim();
+    if (!clean) return 'U';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarError(null);
+    setAvatarSuccess(false);
+
+    // Validate strictly: JPG, JPEG, PNG only
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    const validExts = ['.jpg', '.jpeg', '.png'];
+
+    if (!validTypes.includes(file.type) && !validExts.includes(ext)) {
+      setAvatarError('Only JPG, JPEG, and PNG image files are allowed.');
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('Image file size must be less than 5MB.');
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const ok = await updateAvatar(file);
+      if (ok) {
+        setAvatarSuccess(true);
+        setTimeout(() => setAvatarSuccess(false), 2500);
+      } else {
+        setAvatarError('Failed to update avatar image.');
+      }
+    } catch (err: any) {
+      setAvatarError(err.message || 'Failed to update avatar image.');
+    } finally {
+      setIsUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarError(null);
+    setIsUploadingAvatar(true);
+    try {
+      const ok = await updateAvatar(null);
+      if (ok) {
+        setAvatarSuccess(true);
+        setTimeout(() => setAvatarSuccess(false), 2500);
+      }
+    } finally {
+      setIsUploadingAvatar(false);
     }
   };
 
@@ -508,8 +582,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div>
                   <h3 className="text-sm font-bold text-text-primary mb-1">My Account</h3>
                   <p className="text-xs text-text-secondary">
-                    Your unique username and display name (nickname) are stored securely on the NIGHTSHIFT network.
+                    Your unique username, avatar picture, and display name are stored securely on the NIGHTSHIFT network.
                   </p>
+                </div>
+
+                {/* Profile Picture / Avatar Upload Card */}
+                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle space-y-4">
+                  <div>
+                    <div className="text-[11px] font-bold text-text-muted uppercase tracking-wider mb-2">
+                      Profile Picture (Avatar)
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      {/* Avatar preview with click-to-upload */}
+                      <div
+                        onClick={() => avatarInputRef.current?.click()}
+                        className="relative w-20 h-20 rounded-full bg-[#18191c] border-2 border-[#2b2d31] flex items-center justify-center text-xl font-black text-[#f2f3f5] shrink-0 cursor-pointer group shadow-card overflow-hidden hover:border-[#5865f2] transition-all"
+                        title="Click to choose a JPG, JPEG, or PNG picture"
+                      >
+                        {user?.avatarUrl ? (
+                          <img
+                            src={getFullAvatarUrl(user.avatarUrl)!}
+                            alt={user.displayName}
+                            className="w-full h-full object-cover group-hover:opacity-75 transition-opacity"
+                          />
+                        ) : (
+                          <span>{user ? getInitials(user.displayName) : 'U'}</span>
+                        )}
+
+                        {/* Hover Camera Overlay */}
+                        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white">
+                          <Camera className="w-5 h-5 mb-0.5" />
+                          <span className="text-[9px] font-bold uppercase tracking-wider">Change</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={avatarInputRef}
+                            type="file"
+                            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                            onChange={handleAvatarChange}
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            disabled={isUploadingAvatar}
+                            onClick={() => avatarInputRef.current?.click()}
+                            className="px-3.5 py-1.5 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {isUploadingAvatar ? 'Uploading...' : 'Upload Picture'}
+                          </button>
+
+                          {user?.avatarUrl && (
+                            <button
+                              type="button"
+                              disabled={isUploadingAvatar}
+                              onClick={handleRemoveAvatar}
+                              className="px-3 py-1.5 rounded-xl bg-destructive/15 hover:bg-destructive text-destructive hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Remove
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="text-[11.5px] text-[#949ba4] leading-relaxed">
+                          Supported image formats: <strong className="text-[#dbdee1]">JPG, JPEG, PNG</strong> (Max 5MB).
+                        </div>
+
+                        {avatarSuccess && (
+                          <span className="text-xs text-[#23a55a] font-bold flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> Avatar updated successfully!
+                          </span>
+                        )}
+
+                        {avatarError && (
+                          <span className="text-xs text-[#f23f43] font-medium flex items-center gap-1 bg-[#f23f43]/10 p-2 rounded-lg border border-[#f23f43]/20">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {avatarError}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle space-y-3">

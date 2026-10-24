@@ -471,7 +471,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
   } = useLiveKitStore();
 
   const { inputMode, pushToTalkKey } = useSettingsStore();
-  const { getSelectedRoom, activeRoomId } = useRoomStore();
+  const { getSelectedRoom } = useRoomStore();
   const {
     channels,
     activeChannelId,

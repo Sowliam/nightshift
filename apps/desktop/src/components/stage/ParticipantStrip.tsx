@@ -3,8 +3,10 @@ import { Mic, MicOff, Monitor, VolumeX } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSettingsStore } from '../../stores/settings.store';
+import { useServerStore } from '../../stores/server.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { Track } from 'livekit-client';
+import { getFullAvatarUrl } from '../../lib/api';
 
 export const ParticipantStrip: React.FC = () => {
   const {
@@ -17,6 +19,7 @@ export const ParticipantStrip: React.FC = () => {
     isScreenSharing,
   } = useLiveKitStore();
   const { user } = useAuthStore();
+  const members = useServerStore((s) => s.members);
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const [contextMenu, setContextMenu] = useState<{
@@ -44,6 +47,7 @@ export const ParticipantStrip: React.FC = () => {
   const participantsList: Array<{
     identity: string;
     name: string;
+    avatarUrl?: string | null;
     isLocal: boolean;
     isSpeaking: boolean;
     isMuted: boolean;
@@ -52,9 +56,11 @@ export const ParticipantStrip: React.FC = () => {
 
   // Add local participant
   if (localParticipant) {
+    const localMember = members.find((m) => m.userId === localParticipant.identity || m.username === user?.username);
     participantsList.push({
       identity: localParticipant.identity,
       name: user?.displayName || localParticipant.name || 'You',
+      avatarUrl: user?.avatarUrl || localMember?.avatarUrl,
       isLocal: true,
       isSpeaking: isLocallySpeaking || activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking,
       isMuted: isMuted,
@@ -71,9 +77,12 @@ export const ParticipantStrip: React.FC = () => {
       (pub) => pub.source === Track.Source.ScreenShare && !pub.isMuted
     );
 
+    const remoteMember = members.find((m) => m.userId === p.identity || m.username === p.name || m.displayName === p.name);
+
     participantsList.push({
       identity: p.identity,
       name: p.name || p.identity,
+      avatarUrl: remoteMember?.avatarUrl,
       isLocal: false,
       isSpeaking: activeSpeakers.has(p.identity) || p.isSpeaking,
       isMuted: isMicMuted,
@@ -118,11 +127,19 @@ export const ParticipantStrip: React.FC = () => {
               {/* Avatar with speaking indicator ring */}
               <div className="relative">
                 <div
-                  className={`w-8 h-8 rounded-full bg-bg-secondary border flex items-center justify-center text-xs font-bold text-text-primary ${
+                  className={`w-8 h-8 rounded-full bg-bg-secondary border flex items-center justify-center text-xs font-bold text-text-primary overflow-hidden ${
                     p.isSpeaking ? 'border-accent text-accent' : 'border-border-subtle'
                   }`}
                 >
-                  {getInitials(p.name)}
+                  {p.avatarUrl ? (
+                    <img
+                      src={getFullAvatarUrl(p.avatarUrl)!}
+                      alt={p.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    getInitials(p.name)
+                  )}
                 </div>
 
                 {p.isSpeaking && (

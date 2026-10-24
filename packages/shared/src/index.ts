@@ -57,7 +57,9 @@ export const UpdateProfileSchema = z.object({
     .string()
     .trim()
     .min(2, 'Display name must be at least 2 characters')
-    .max(32, 'Display name cannot exceed 32 characters'),
+    .max(32, 'Display name cannot exceed 32 characters')
+    .optional(),
+  avatarUrl: z.string().nullable().optional(),
 });
 
 export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>;
@@ -170,6 +172,7 @@ export interface ServerMemberDto {
   userId: string;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
   role: 'owner' | 'admin' | 'member';
   isServerMuted: boolean;
   isServerDeafened: boolean;
@@ -199,6 +202,7 @@ export interface MessageDto {
   userId: string;
   username: string;
   displayName: string;
+  avatarUrl?: string | null;
   attachmentUrl?: string | null;
   attachmentType?: string | null;
   createdAt: string;

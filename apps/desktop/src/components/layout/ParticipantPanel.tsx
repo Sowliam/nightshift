@@ -11,11 +11,6 @@ import {
   Headphones,
   AlertTriangle,
   Search,
-  Settings,
-  Gamepad2,
-  Tv,
-  Radio,
-  Flame,
   Check,
   X,
 } from 'lucide-react';
@@ -25,11 +20,12 @@ import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { ServerMemberDto } from '@nightshift/shared';
+import { getFullAvatarUrl } from '../../lib/api';
 
 export const ParticipantPanel: React.FC = () => {
-  const { activeServerId, servers, members, fetchMembers, moderateMember, activeChannelId, channels } = useServerStore();
+  const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
-  const { activeSpeakers, isLocallySpeaking, availableScreenShares = [], activeScreenTrack } = useLiveKitStore();
+  const { activeSpeakers, isLocallySpeaking } = useLiveKitStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,7 +50,6 @@ export const ParticipantPanel: React.FC = () => {
   const [modReason, setModReason] = useState('');
 
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
-  const activeChannel = channels.find((c) => c.id === activeChannelId) || null;
   const currentMember = members.find((m) => m.userId === user?.id);
   const isOwnerOrAdmin = currentMember?.role === 'owner' || currentMember?.role === 'admin';
 
@@ -101,82 +96,6 @@ export const ParticipantPanel: React.FC = () => {
   // Partition filtered members into online & offline
   const onlineMembers = filteredMembers.filter((m) => m && m.isOnline);
   const offlineMembers = filteredMembers.filter((m) => m && !m.isOnline);
-
-  // Compute dynamic Activity feed matching Discord layout
-  const activities = useMemo(() => {
-    const list: Array<{
-      id: string;
-      user: string;
-      avatarInitials: string;
-      title: string;
-      subtitle: string;
-      iconType: 'game' | 'live' | 'music' | 'voice';
-      badgeColor: string;
-      badgeText: string;
-    }> = [];
-
-    // 1. Live Screen Shares
-    if (activeScreenTrack && user) {
-      const uName = user.displayName || user.username || 'User';
-      list.push({
-        id: 'local-share',
-        user: uName,
-        avatarInitials: getInitials(uName),
-        title: 'Screen Share Live',
-        subtitle: `📺 In #${activeChannel?.name || 'Voice'}`,
-        iconType: 'live',
-        badgeColor: 'bg-red-500/20 text-red-400 border border-red-500/40',
-        badgeText: 'LIVE',
-      });
-    }
-
-    if (Array.isArray(availableScreenShares)) {
-      availableScreenShares.forEach((share) => {
-        if (!share) return;
-        const sName = share.participantName || 'Guest';
-        list.push({
-          id: `remote-${share.participantIdentity}`,
-          user: sName,
-          avatarInitials: getInitials(sName),
-          title: 'Screen Share',
-          subtitle: `📺 In #${activeChannel?.name || 'Voice'}`,
-          iconType: 'live',
-          badgeColor: 'bg-red-500/20 text-red-400 border border-red-500/40',
-          badgeText: 'LIVE',
-        });
-      });
-    }
-
-    // 2. Realistic gaming/presence activities matching Image 1
-    const onlineOthers = onlineMembers.filter((m) => m && m.userId !== user?.id);
-    const primaryActive = onlineOthers[0] || (user ? { displayName: user.displayName || user.username, username: user.username } : null);
-
-    if (primaryActive) {
-      const activeName = primaryActive.displayName || primaryActive.username || 'User';
-      list.push({
-        id: 'game-dota',
-        user: activeName,
-        avatarInitials: getInitials(activeName),
-        title: 'Dota 2',
-        subtitle: '🏆 Most played: 12h',
-        iconType: 'game',
-        badgeColor: 'bg-red-600/30 text-red-300 border border-red-500/30',
-        badgeText: 'DOTA',
-      });
-      list.push({
-        id: 'game-cs2',
-        user: activeName,
-        avatarInitials: getInitials(activeName),
-        title: 'Counter-Strike 2',
-        subtitle: '🎮 3h ago',
-        iconType: 'game',
-        badgeColor: 'bg-amber-500/30 text-amber-300 border border-amber-500/30',
-        badgeText: 'CS2',
-      });
-    }
-
-    return list.slice(0, 3);
-  }, [activeScreenTrack, availableScreenShares, onlineMembers, user, activeChannel]);
 
   const canModerate = (target: ServerMemberDto) => {
     if (!target) return false;
@@ -241,7 +160,7 @@ export const ParticipantPanel: React.FC = () => {
   const isBotUser = (member: ServerMemberDto) => {
     if (!member) return false;
     const str = ((member.displayName || '') + ' ' + (member.username || '') + ' ' + (member.role || '')).toLowerCase();
-    return str.includes('bot') || member.role === 'bot' || str.includes('app');
+    return str.includes('bot') || (member.role as string) === 'bot' || str.includes('app');
   };
 
   const renderMemberItem = (member: ServerMemberDto, isOnline: boolean) => {
@@ -283,7 +202,7 @@ export const ParticipantPanel: React.FC = () => {
           {/* Avatar with Status Dot */}
           <div className="relative shrink-0">
             <div
-              className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs font-black transition-all shadow-sm ${
+              className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs font-black transition-all shadow-sm overflow-hidden ${
                 isSpeakingNow
                   ? 'bg-[#23a55a] border-[#23a55a] text-black ring-2 ring-[#23a55a]/70 ring-offset-2 ring-offset-[#111214]'
                   : isOnline
@@ -291,7 +210,15 @@ export const ParticipantPanel: React.FC = () => {
                   : 'bg-[#18191c] border-[#2b2d31] text-[#80848e] opacity-60'
               }`}
             >
-              {getInitials(member.displayName)}
+              {member.avatarUrl ? (
+                <img
+                  src={getFullAvatarUrl(member.avatarUrl)!}
+                  alt={member.displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                getInitials(member.displayName)
+              )}
             </div>
 
             {/* Online / Offline status badge */}
@@ -495,54 +422,6 @@ export const ParticipantPanel: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* ACTIVITY SECTION (Matching Image 1) */}
-            {activities.length > 0 && !query && (
-              <div>
-                <div className="text-[12px] font-bold tracking-wider text-[#949ba4] uppercase mb-2 px-1 flex items-center justify-between">
-                  <span>Activity — {activities.length}</span>
-                  <Settings className="w-3.5 h-3.5 text-[#949ba4] hover:text-white cursor-pointer transition-colors" />
-                </div>
-
-                <div className="space-y-2">
-                  {activities.map((act) => (
-                    <div
-                      key={act.id}
-                      className="bg-[#18191c] hover:bg-[#1e1f22] border border-[#232428] hover:border-[#35373c] rounded-xl p-2.5 flex items-center justify-between transition-all duration-200 cursor-pointer group shadow-sm hover:scale-[1.01]"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-7 h-7 rounded-full bg-[#2b2d31] flex items-center justify-center text-[10px] font-bold text-[#dbdee1] shrink-0 border border-[#232428]">
-                          {act.avatarInitials}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-[11px] font-semibold text-[#dbdee1] truncate leading-none">
-                            {act.user}
-                          </span>
-                          <span className="text-[13px] font-bold text-[#f2f3f5] leading-tight truncate mt-1">
-                            {act.title}
-                          </span>
-                          <span className="text-[11px] text-[#949ba4] truncate leading-tight mt-0.5">
-                            {act.subtitle}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Right Game / Stream Badge */}
-                      <div
-                        className={`px-2 py-1 rounded-lg text-[10.5px] font-black uppercase tracking-wider shrink-0 flex items-center gap-1 shadow-sm ${act.badgeColor}`}
-                      >
-                        {act.iconType === 'game' ? (
-                          <Gamepad2 className="w-3 h-3" />
-                        ) : (
-                          <Tv className="w-3 h-3 animate-pulse" />
-                        )}
-                        <span>{act.badgeText}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* ONLINE SECTION */}
             <div>
               <div className="text-[12px] font-bold tracking-wider text-[#949ba4] uppercase mb-1.5 px-1 flex items-center justify-between">

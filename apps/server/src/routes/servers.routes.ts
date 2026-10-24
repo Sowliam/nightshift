@@ -330,6 +330,7 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
         userId: m.userId,
         username: m.user.username,
         displayName: m.user.displayName,
+        avatarUrl: m.user.avatarUrl,
         role: m.role as 'owner' | 'admin' | 'member',
         isServerMuted: m.isServerMuted,
         isServerDeafened: m.isServerDeafened,

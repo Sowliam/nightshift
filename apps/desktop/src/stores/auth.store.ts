@@ -10,6 +10,7 @@ interface AuthState {
   register: (username: string, displayName: string, password: string) => Promise<boolean>;
   login: (username: string, password: string) => Promise<boolean>;
   updateDisplayName: (displayName: string) => Promise<boolean>;
+  updateAvatar: (fileOrUrl: File | string | null) => Promise<boolean>;
   logout: () => void;
   clearError: () => void;
 }
@@ -63,6 +64,52 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     } catch (err: any) {
       set({ error: err.message || 'Failed to update name' });
+      return false;
+    }
+  },
+
+  updateAvatar: async (fileOrUrl: File | string | null) => {
+    const { user } = get();
+    if (!user) return false;
+
+    set({ isLoading: true, error: null });
+    try {
+      if (typeof fileOrUrl === 'string' || fileOrUrl === null) {
+        try {
+          const updated = await api.updateProfile(user.displayName, fileOrUrl);
+          set({ user: updated, isLoading: false });
+        } catch {
+          const updated = { ...user, avatarUrl: fileOrUrl };
+          set({ user: updated, isLoading: false });
+        }
+        return true;
+      }
+
+      // It's a File
+      try {
+        const res = await api.uploadAvatar(fileOrUrl);
+        set({ user: res.user, isLoading: false });
+        return true;
+      } catch {
+        // Fallback to base64 data URL
+        const base64Url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(fileOrUrl);
+        });
+
+        try {
+          const updated = await api.updateProfile(user.displayName, base64Url);
+          set({ user: updated, isLoading: false });
+        } catch {
+          const updated = { ...user, avatarUrl: base64Url };
+          set({ user: updated, isLoading: false });
+        }
+        return true;
+      }
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to update avatar', isLoading: false });
       return false;
     }
   },

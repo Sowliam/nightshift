@@ -71,6 +71,15 @@ export const setApiBase = (url: string | null) => {
 export let API_BASE = getApiBase();
 const TOKEN_KEY = 'nightshift_auth_token';
 
+export const getFullAvatarUrl = (url?: string | null): string | null => {
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const base = getApiBase();
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 class ApiClient {
   private token: string | null = null;
 
@@ -264,11 +273,15 @@ class ApiClient {
     }
   }
 
-  async updateProfile(displayName: string): Promise<UserDto> {
+  async updateProfile(displayName?: string, avatarUrl?: string | null): Promise<UserDto> {
+    const payload: any = {};
+    if (displayName !== undefined) payload.displayName = displayName;
+    if (avatarUrl !== undefined) payload.avatarUrl = avatarUrl;
+
     const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/profile`, {
       method: 'PATCH',
       headers: this.getHeaders(true),
-      body: JSON.stringify({ displayName }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -277,6 +290,23 @@ class ApiClient {
 
     const data = await res.json();
     return data.user;
+  }
+
+  async uploadAvatar(file: File): Promise<{ user: UserDto; url: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/auth/avatar`, {
+      method: 'POST',
+      headers: this.getHeaders(false),
+      body: formData,
+    });
+
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to upload avatar image');
+    }
+
+    return res.json();
   }
 
   async sendHeartbeat(): Promise<boolean> {

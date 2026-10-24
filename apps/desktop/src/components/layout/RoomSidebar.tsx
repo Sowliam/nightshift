@@ -21,7 +21,7 @@ import { useServerStore } from '../../stores/server.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSettingsStore } from '../../stores/settings.store';
-import { api } from '../../lib/api';
+import { api, getFullAvatarUrl } from '../../lib/api';
 import { extractInviteCode } from '@nightshift/shared';
 import { ConnectionState } from 'livekit-client';
 import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
@@ -566,13 +566,21 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                             <div className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs">
                               <div className="flex items-center gap-2 min-w-0">
                                 <div
-                                  className={`relative w-5 h-5 rounded-full bg-highlight flex items-center justify-center text-[10px] font-black text-highlight-text shrink-0 shadow-sm transition-all ${
+                                  className={`relative w-5 h-5 rounded-full bg-highlight flex items-center justify-center text-[10px] font-black text-highlight-text shrink-0 shadow-sm transition-all overflow-hidden ${
                                     (isLocallySpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)))
                                       ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
                                       : ''
                                   }`}
                                 >
-                                  {getInitials(user?.displayName || 'You')}
+                                  {user?.avatarUrl ? (
+                                    <img
+                                      src={getFullAvatarUrl(user.avatarUrl)!}
+                                      alt={user.displayName}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    getInitials(user?.displayName || 'You')
+                                  )}
                                 </div>
                                 <span className="text-xs font-semibold text-text-primary truncate">
                                   {user?.displayName || 'You'} <span className="text-[10px] text-text-muted font-normal">(you)</span>
@@ -720,10 +728,18 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
             className="flex items-center gap-2.5 min-w-0 flex-1 mr-1 p-1 -ml-0.5 rounded-xl hover:bg-[#1f2024]/70 transition-all duration-150 cursor-pointer group"
             title="Open User Settings"
           >
-            <div className="w-9 h-9 rounded-full bg-[#18191c] border border-[#2b2d31] flex items-center justify-center text-xs font-black text-[#f2f3f5] shrink-0 shadow-sm relative group-hover:scale-105 transition-transform">
-              {user ? getInitials(user.displayName) : 'U'}
+            <div className="w-9 h-9 rounded-full bg-[#18191c] border border-[#2b2d31] flex items-center justify-center text-xs font-black text-[#f2f3f5] shrink-0 shadow-sm relative group-hover:scale-105 transition-transform overflow-hidden">
+              {user?.avatarUrl ? (
+                <img
+                  src={getFullAvatarUrl(user.avatarUrl)!}
+                  alt={user.displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                user ? getInitials(user.displayName) : 'U'
+              )}
               {/* Online Presence Dot */}
-              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#23a55a] border-2 border-[#0e0f11] shadow-sm" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#23a55a] border-2 border-[#0e0f11] shadow-sm z-10" />
             </div>
             <div className="flex flex-col min-w-0 leading-tight">
               <span className="text-[13.5px] font-bold text-[#f2f3f5] truncate group-hover:text-white transition-colors">

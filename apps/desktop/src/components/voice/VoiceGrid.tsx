@@ -7,10 +7,12 @@ import { useServerStore } from '../../stores/server.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { Track } from 'livekit-client';
+import { getFullAvatarUrl } from '../../lib/api';
 
 interface VoiceParticipant {
   identity: string;
   name: string;
+  avatarUrl?: string | null;
   isLocal: boolean;
   isSpeaking: boolean;
   isMuted: boolean;
@@ -46,6 +48,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     disconnect,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
+  const members = useServerStore((s) => s.members);
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
   const participantVolumes = useSettingsStore((s) => s.participantVolumes);
 
@@ -76,9 +79,12 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
       activeSpeakers.has(localIdentity) ||
       localParticipant.isSpeaking;
 
+    const localMember = members.find((m) => m.userId === localIdentity || m.username === user?.username);
+
     participants.push({
       identity: localIdentity,
       name: user?.displayName || localParticipant.name || 'You',
+      avatarUrl: user?.avatarUrl || localMember?.avatarUrl,
       isLocal: true,
       isSpeaking: !isMuted && localSpeaking,
       isMuted: isMuted,
@@ -96,9 +102,12 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
       (pub) => pub.source === Track.Source.ScreenShare && !pub.isMuted
     );
 
+    const remoteMember = members.find((m) => m.userId === p.identity || m.username === p.name || m.displayName === p.name);
+
     participants.push({
       identity: p.identity,
       name: p.name || p.identity,
+      avatarUrl: remoteMember?.avatarUrl,
       isLocal: false,
       isSpeaking: activeSpeakers.has(p.identity) || p.isSpeaking,
       isMuted: isRemoteMuted,
@@ -307,7 +316,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
               {/* Center Avatar with Speaking Glow */}
               <div className="relative">
                 <div
-                  className={`rounded-full flex items-center justify-center font-black tracking-wider transition-all duration-150 select-none ${
+                  className={`rounded-full flex items-center justify-center font-black tracking-wider transition-all duration-150 select-none overflow-hidden ${
                     count === 1 ? 'w-24 h-24 text-2xl' : count <= 4 ? 'w-20 h-20 text-xl' : 'w-14 h-14 text-sm'
                   } ${
                     p.isSpeaking
@@ -315,7 +324,15 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                       : 'bg-bg-main border border-border-subtle text-highlight'
                   }`}
                 >
-                  {getInitials(p.name)}
+                  {p.avatarUrl ? (
+                    <img
+                      src={getFullAvatarUrl(p.avatarUrl)!}
+                      alt={p.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    getInitials(p.name)
+                  )}
                 </div>
 
                 {/* Speaking Wave Pulse */}

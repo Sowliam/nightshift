@@ -2,13 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Hash,
   Users,
-  Search,
   Plus,
   Smile,
   Image as ImageIcon,
   Send,
-  Radio,
-  MessageSquare,
   Sparkles,
   Loader2,
   X,
@@ -51,10 +48,9 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
   const { user } = useAuthStore();
   const { messagesByChannel, loadMessages, sendMessage, uploadImage } = useChatStore();
-  const { broadcastChatMessage, activeScreenTrack } = useLiveKitStore();
+  const { broadcastChatMessage } = useLiveKitStore();
 
   const [messageText, setMessageText] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'chat' | 'stream'>('chat');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -68,7 +64,6 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
   const channelId = activeChannel?.id || '';
   const isVoiceChannel = activeChannel?.type === 'voice';
-  const isStreaming = !!activeScreenTrack;
 
   // Load message history on channel change
   useEffect(() => {
@@ -85,16 +80,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   }, [channelId, isVoiceChannel]);
 
   const messages = (channelId && messagesByChannel[channelId]) || [];
-
-  // Filter messages by search if search query typed
-  const filteredMessages = searchQuery.trim()
-    ? messages.filter(
-        (m) =>
-          m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          m.username.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : messages;
+  const filteredMessages = messages;
 
   // Auto scroll to bottom on new message
   useEffect(() => {
@@ -324,8 +310,16 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                       className="group flex items-start gap-3.5 py-1.5 px-2 -mx-2 rounded-xl hover:bg-bg-elevated/40 transition-colors"
                     >
                       {/* Avatar */}
-                      <div className="w-9 h-9 rounded-full bg-highlight text-highlight-text border border-border flex items-center justify-center text-xs font-black shadow-sm shrink-0 mt-0.5">
-                        {(msg.displayName || msg.username || 'U').slice(0, 1).toUpperCase()}
+                      <div className="w-9 h-9 rounded-full bg-highlight text-highlight-text border border-border flex items-center justify-center text-xs font-black shadow-sm shrink-0 mt-0.5 overflow-hidden">
+                        {msg.avatarUrl ? (
+                          <img
+                            src={getFullAttachmentUrl(msg.avatarUrl)}
+                            alt={msg.displayName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          (msg.displayName || msg.username || 'U').slice(0, 1).toUpperCase()
+                        )}
                       </div>
 
                       <div className="flex-1 min-w-0">
