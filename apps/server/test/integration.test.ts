@@ -16,85 +16,78 @@ describe('NIGHTSHIFT End-to-End Client Simulation', () => {
     await prisma.$disconnect();
   });
 
-  it('Simulates complete user flow: register -> list rooms -> join room -> invite friend -> validate invite', async () => {
-    // 1. User registers device
-    const deviceId = `sim-device-${Date.now()}`;
+  it('Simulates complete user flow: register -> list servers -> join voice -> update profile', async () => {
+    // 1. User registers account
+    const username = `kian_${Date.now().toString(36)}`;
     const regRes = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
       payload: {
+        username,
         displayName: 'Kian',
-        deviceId,
+        password: 'Password123!',
       },
     });
-    expect(regRes.statusCode).toBe(200);
-    const { user } = JSON.parse(regRes.body);
+    expect(regRes.statusCode).toBe(201);
+    const { user, token } = JSON.parse(regRes.body);
     expect(user.displayName).toBe('Kian');
+    expect(token).toBeDefined();
 
-    // 2. User lists rooms
-    const roomsRes = await app.inject({
-      method: 'GET',
-      url: '/api/rooms',
+    // 2. User creates a server
+    const serverRes = await app.inject({
+      method: 'POST',
+      url: '/api/servers',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      payload: {
+        name: 'Kian Realm',
+      },
     });
-    expect(roomsRes.statusCode).toBe(200);
-    const { rooms } = JSON.parse(roomsRes.body);
-    expect(rooms.length).toBeGreaterThanOrEqual(4);
-    const targetRoom = rooms[0];
+    expect(serverRes.statusCode).toBe(201);
+    const { server } = JSON.parse(serverRes.body);
+    expect(server.name).toBe('Kian Realm');
 
-    // 3. User joins room and receives LiveKit token
+    // 3. User lists channels for the server
+    const channelsRes = await app.inject({
+      method: 'GET',
+      url: `/api/servers/${server.id}/channels`,
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    expect(channelsRes.statusCode).toBe(200);
+    const { channels } = JSON.parse(channelsRes.body);
+    const voiceChannel = channels.find((c: any) => c.type === 'voice');
+    expect(voiceChannel).toBeDefined();
+
+    // 4. User joins voice channel and receives LiveKit token
     const joinRes = await app.inject({
       method: 'POST',
-      url: `/api/rooms/${targetRoom.id}/join`,
-      payload: {
-        userId: user.id,
+      url: `/api/channels/${voiceChannel.id}/join`,
+      headers: {
+        authorization: `Bearer ${token}`,
       },
     });
     expect(joinRes.statusCode).toBe(200);
     const joinData = JSON.parse(joinRes.body);
-    expect(joinData.room.name).toBe(targetRoom.name);
-    expect(joinData.livekitUrl).toContain('livekit.cloud');
+    expect(joinData.channel.id).toBe(voiceChannel.id);
+    expect(joinData.livekitUrl).toBeDefined();
     expect(joinData.token).toBeDefined();
 
-    // 4. User generates an invitation link
-    const inviteRes = await app.inject({
-      method: 'POST',
-      url: '/api/invitations',
-      headers: {
-        'x-device-id': deviceId,
-      },
-      payload: {
-        roomId: targetRoom.id,
-        maxUses: 10,
-        expiresInHours: 48,
-      },
-    });
-    expect(inviteRes.statusCode).toBe(201);
-    const { invitation } = JSON.parse(inviteRes.body);
-    expect(invitation.code).toBeDefined();
-
-    // 5. Friend validates the invitation code
-    const valRes = await app.inject({
-      method: 'GET',
-      url: `/api/invitations/${invitation.code}/validate`,
-    });
-    expect(valRes.statusCode).toBe(200);
-    const valData = JSON.parse(valRes.body);
-    expect(valData.valid).toBe(true);
-    expect(valData.roomName).toBe(targetRoom.name);
-
-    // 6. User updates profile display name
+    // 5. User updates profile display name
     const updateRes = await app.inject({
       method: 'PATCH',
       url: '/api/auth/profile',
       headers: {
-        'x-device-id': deviceId,
+        authorization: `Bearer ${token}`,
       },
       payload: {
-        displayName: 'Kian V2',
+        displayName: 'Kian Prime',
       },
     });
     expect(updateRes.statusCode).toBe(200);
     const updatedUser = JSON.parse(updateRes.body).user;
-    expect(updatedUser.displayName).toBe('Kian V2');
+    expect(updatedUser.displayName).toBe('Kian Prime');
   });
 });

@@ -1,20 +1,16 @@
 import React from 'react';
 import {
   PhoneOff,
-  Headphones,
-  VolumeX,
-  Settings,
   Monitor,
   Radio,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useRoomStore } from '../../stores/room.store';
 import { ConnectionState } from 'livekit-client';
-
 import { useServerStore } from '../../stores/server.store';
 
 interface VoiceConnectedPanelProps {
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onOpenScreenShareModal: () => void;
   onDisconnect?: () => void;
 }
@@ -84,18 +80,13 @@ const SignalBarsIcon: React.FC<{
 };
 
 export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
-  onOpenSettings,
   onOpenScreenShareModal,
   onDisconnect,
 }) => {
   const {
     connectionState,
     currentPing,
-    isMuted,
-    isDeafened,
     isScreenSharing,
-    toggleMute,
-    toggleDeafen,
     disconnect,
     stopScreenShare,
   } = useLiveKitStore();
@@ -149,7 +140,7 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
 
   return (
     <div className="border-t border-border-subtle bg-bg-secondary/95 px-3 py-2 flex flex-col gap-2 select-none shrink-0 transition-all duration-200">
-      {/* Top Status & Disconnect Row */}
+      {/* Top Status & Controls Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           {/* Signal Indicator with dynamic rows and color */}
@@ -170,8 +161,8 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
           </div>
         </div>
 
-        {/* Right Info: WebRTC Real Ping + Disconnect Hangup Button */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Right Info: WebRTC Real Ping + Screen Share Button + Disconnect Hangup Button */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* RTC Ping Indicator */}
           <div
             className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-elevated/80 border border-border-subtle/60 text-[10px] font-mono cursor-help"
@@ -199,6 +190,24 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
             </span>
           </div>
 
+          {/* Screen Share Button */}
+          <button
+            onClick={() => {
+              if (isScreenSharing) {
+                stopScreenShare();
+              } else {
+                onOpenScreenShareModal();
+              }
+            }}
+            className={`call-btn call-btn-xs ${isScreenSharing ? 'is-active-success' : ''}`}
+            title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
+            aria-label={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
+          >
+            <div className="call-icon-layer call-icon-on call-icon-bounce">
+              <Monitor className="w-3.5 h-3.5 stroke-[2.2]" />
+            </div>
+          </button>
+
           {/* Red Disconnect Button (Always available to cancel/disconnect) */}
           <button
             onClick={handleDisconnect}
@@ -211,75 +220,6 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
             </div>
           </button>
         </div>
-      </div>
-
-      {/* Control Action Buttons Bar */}
-      <div className="flex items-center justify-around pt-1 px-1">
-        {/* Mute Button */}
-        <button
-          onClick={toggleMute}
-          className={`call-btn call-btn-sm ${isMuted ? 'is-active-danger' : ''}`}
-          title={isMuted ? 'Unmute (Ctrl+Shift+M)' : 'Mute (Ctrl+Shift+M)'}
-          aria-label={isMuted ? 'Unmute' : 'Mute'}
-        >
-          <div className="call-icon-layer call-icon-on call-icon-bounce">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
-              <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
-            </svg>
-          </div>
-          <div className="call-icon-layer call-icon-off call-icon-bounce">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4.02 4.02 0 0 0 12 8V7a.5.5 0 0 1 1 0v1zm-5 4c.818 0 1.578-.245 2.212-.667l.718.719a4.973 4.973 0 0 1-2.43.923V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 1 0v1a4 4 0 0 0 4 4zm3-9v4.879L5.158 2.037A3.001 3.001 0 0 1 11 3z" />
-              <path d="M9.486 10.607 5 6.12V8a3 3 0 0 0 4.486 2.607zm-7.84-9.253 12 12 .708-.708-12-12-.708.708z" />
-            </svg>
-          </div>
-        </button>
-
-        {/* Deafen Button */}
-        <button
-          onClick={toggleDeafen}
-          className={`call-btn call-btn-sm ${isDeafened ? 'is-active-danger' : ''}`}
-          title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
-          aria-label={isDeafened ? 'Undeafen' : 'Deafen'}
-        >
-          <div className="call-icon-layer call-icon-on call-icon-bounce">
-            <Headphones className="w-4 h-4 stroke-[2.2]" />
-          </div>
-          <div className="call-icon-layer call-icon-off call-icon-bounce">
-            <VolumeX className="w-4 h-4 stroke-[2.2]" />
-          </div>
-        </button>
-
-        {/* Screen Share Button */}
-        <button
-          onClick={() => {
-            if (isScreenSharing) {
-              stopScreenShare();
-            } else {
-              onOpenScreenShareModal();
-            }
-          }}
-          className={`call-btn call-btn-sm ${isScreenSharing ? 'is-active-success' : ''}`}
-          title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
-          aria-label={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
-        >
-          <div className="call-icon-layer call-icon-on call-icon-bounce">
-            <Monitor className="w-4 h-4 stroke-[2.2]" />
-          </div>
-        </button>
-
-        {/* Settings Button */}
-        <button
-          onClick={onOpenSettings}
-          className="call-btn call-btn-sm"
-          title="Voice Settings"
-          aria-label="Settings"
-        >
-          <div className="call-icon-layer call-icon-on call-icon-spin">
-            <Settings className="w-4 h-4 stroke-[2.2]" />
-          </div>
-        </button>
       </div>
     </div>
   );

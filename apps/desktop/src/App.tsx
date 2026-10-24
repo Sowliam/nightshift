@@ -18,10 +18,15 @@ const InviteModal = React.lazy(() =>
 const ServerPingModal = React.lazy(() =>
   import('./components/modals/ServerPingModal').then((m) => ({ default: m.ServerPingModal }))
 );
+const SoundboardModal = React.lazy(() =>
+  import('./components/modals/SoundboardModal').then((m) => ({ default: m.SoundboardModal }))
+);
+
 import { useAuthStore } from './stores/auth.store';
 import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
 import { useSettingsStore } from './stores/settings.store';
+import { useSoundboardStore } from './stores/soundboard.store';
 import { ShieldAlert, RefreshCw, Server, Check } from 'lucide-react';
 import { getApiBase, setApiBase, api } from './lib/api';
 import { extractInviteCode } from '@nightshift/shared';
@@ -61,6 +66,13 @@ export const App: React.FC = () => {
       } catch (err: any) {
         console.error('Auth initialization error:', err);
       }
+
+      // Initialize soundboard library & engine settings
+      try {
+        await useSoundboardStore.getState().loadSounds();
+      } catch (err) {
+        console.error('Soundboard initialization error:', err);
+      }
     };
 
     initialize();
@@ -93,7 +105,7 @@ export const App: React.FC = () => {
     }
   }, [user?.id]);
 
-  // Global hotkeys for Push-to-Talk, Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D)
+  // Global hotkeys for Push-to-Talk, Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D), Soundboard (Ctrl+Shift+S)
   useEffect(() => {
     const matchesPttKey = (e: KeyboardEvent) => {
       let key = e.code;
@@ -110,7 +122,15 @@ export const App: React.FC = () => {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      // Hotkey: Ctrl+Shift+S or Cmd+Shift+S -> Toggle Soundboard
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'KeyS') {
+        e.preventDefault();
+        const current = useSoundboardStore.getState().isSoundboardOpen;
+        useSoundboardStore.getState().setSoundboardOpen(!current);
         return;
       }
 
@@ -132,12 +152,23 @@ export const App: React.FC = () => {
       if (inputMode === 'push-to-talk' && !e.repeat && matchesPttKey(e)) {
         e.preventDefault();
         setPushToTalkActive(true);
+        return;
+      }
+
+      // Soundboard individual hotkey triggers (e.g. Numpad1, KeyZ, etc.)
+      if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const sounds = useSoundboardStore.getState().sounds;
+        const matchingSound = sounds.find((s) => s.hotkey && s.hotkey.toLowerCase() === e.code.toLowerCase());
+        if (matchingSound) {
+          e.preventDefault();
+          useSoundboardStore.getState().playSound(matchingSound.id);
+        }
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
       }
 
@@ -237,6 +268,9 @@ export const App: React.FC = () => {
             onClose={() => setIsServerPingOpen(false)}
           />
         )}
+
+        {/* NIGHTSHIFT Soundboard Modal */}
+        <SoundboardModal />
       </React.Suspense>
 
       {/* User Onboarding / Login / Registration (Shown when unauthenticated) */}

@@ -2,12 +2,14 @@ import React from 'react';
 import {
   Headphones,
   VolumeX,
+  Volume2,
   Monitor,
   PhoneOff,
   Settings,
   LayoutGrid,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { useSoundboardStore } from '../../stores/soundboard.store';
 import { ConnectionState } from 'livekit-client';
 
 interface CallControlBarProps {
@@ -108,6 +110,21 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
         </div>
       </button>
 
+      {/* 4. Soundboard Button (opens soundboard panel) */}
+      <button
+        onClick={() => {
+          const current = useSoundboardStore.getState().isSoundboardOpen;
+          useSoundboardStore.getState().setSoundboardOpen(!current);
+        }}
+        className="call-btn"
+        title="Open Soundboard (Ctrl+Shift+S)"
+        aria-label="Soundboard"
+      >
+        <div className="call-icon-layer call-icon-on call-icon-bounce">
+          <Volume2 className="w-5 h-5 stroke-[2.2]" />
+        </div>
+      </button>
+
       {/* Optional Grid Layout Toggle */}
       {onToggleGrid && (
         <button
@@ -122,7 +139,7 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
         </button>
       )}
 
-      {/* 4. Settings (with spinning gear micro-animation on hover) */}
+      {/* 5. Settings (with spinning gear micro-animation on hover) */}
       <button
         onClick={onOpenSettings}
         className="call-btn"
@@ -136,7 +153,7 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
 
       <div className="w-[1px] h-7 bg-white/20 mx-1" />
 
-      {/* 5. Disconnect / Leave Room (Danger Red with tilt micro-animation on hover) */}
+      {/* 6. Disconnect / Leave Room (Danger Red with tilt micro-animation on hover) */}
       <button
         onClick={disconnect}
         className="call-btn call-btn-danger"
@@ -150,4 +167,3 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
     </div>
   );
 };
-

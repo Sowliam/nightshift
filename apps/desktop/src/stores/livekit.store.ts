@@ -18,6 +18,8 @@ import { ScreenShareOptions, MessageDto } from '@nightshift/shared';
 import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
+import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
+import { useSoundboardStore } from './soundboard.store';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -505,10 +507,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           await room.localParticipant.setMicrophoneEnabled(!isPtt);
           set({ isMuted: isPtt });
 
-          // Find local audio track to start live analyzer
+          // Find local audio track to initialize soundboard audio mixer & analyzer
           const micPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
           if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-            setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+            const rawTrack = (micPub.track as LocalAudioTrack).mediaStreamTrack!;
+            const rawStream = new MediaStream([rawTrack]);
+            const mixedTrack = soundboardAudioEngine.initializePipeline(rawStream);
+            soundboardAudioEngine.setMicrophoneMuted(isPtt);
+            await (micPub.track as LocalAudioTrack).replaceTrack(mixedTrack, true);
+            setupAudioAnalyser(mixedTrack);
           }
         } catch (micErr: any) {
           console.warn('Microphone error:', micErr);
@@ -542,6 +549,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         pingInterval = null;
       }
       cleanupAudioAnalyser();
+      soundboardAudioEngine.cleanup();
 
       if (activeCustomScreenAudioTrack) {
         activeCustomScreenAudioTrack.stop();
@@ -615,7 +623,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       const newMuted = !isMuted;
       try {
-        await room.localParticipant.setMicrophoneEnabled(!newMuted);
+        const allowWhileMuted = useSoundboardStore.getState().allowWhileMuted;
+        soundboardAudioEngine.setMicrophoneMuted(newMuted);
+
+        if (allowWhileMuted) {
+          if (!room.localParticipant.isMicrophoneEnabled) {
+            await room.localParticipant.setMicrophoneEnabled(true);
+          }
+        } else {
+          await room.localParticipant.setMicrophoneEnabled(!newMuted);
+        }
+
         set({ isMuted: newMuted });
         useSettingsStore.getState().setSelfMuted(newMuted);
         if (newMuted) {
@@ -635,6 +653,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (!room || !room.localParticipant) return;
 
       try {
+        soundboardAudioEngine.setMicrophoneMuted(!active);
         await room.localParticipant.setMicrophoneEnabled(active);
         set({ isMuted: !active });
         useSettingsStore.getState().setSelfMuted(!active);
@@ -928,6 +947,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const { room } = get();
       if (room) {
         await room.switchActiveDevice('audioinput', deviceId);
+        const micPub = Array.from(room.localParticipant.audioTrackPublications.values())[0];
+        if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
+          const rawTrack = (micPub.track as LocalAudioTrack).mediaStreamTrack!;
+          const rawStream = new MediaStream([rawTrack]);
+          const mixedTrack = soundboardAudioEngine.initializePipeline(rawStream);
+          await (micPub.track as LocalAudioTrack).replaceTrack(mixedTrack, true);
+          setupAudioAnalyser(mixedTrack);
+        }
       }
     },
 

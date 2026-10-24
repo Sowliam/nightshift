@@ -1,0 +1,148 @@
+export interface SoundboardItem {
+  id: string;
+  name: string;
+  category: string;
+  volume: number; // 0 to 100
+  hotkey: string | null;
+  duration: number; // in seconds
+  createdAt: number;
+}
+
+interface StoredSoundRecord extends SoundboardItem {
+  audioBufferData: ArrayBuffer;
+}
+
+const DB_NAME = 'nightshift_soundboard_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'sound_records';
+
+class SoundboardStorage {
+  private dbPromise: Promise<IDBDatabase> | null = null;
+
+  private getDB(): Promise<IDBDatabase> {
+    if (this.dbPromise) return this.dbPromise;
+
+    this.dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          store.createIndex('category', 'category', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+      };
+
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
+
+      request.onerror = () => {
+        reject(new Error(`Failed to open Soundboard database: ${request.error?.message}`));
+      };
+    });
+
+    return this.dbPromise;
+  }
+
+  async getAllItems(): Promise<SoundboardItem[]> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+          const records: StoredSoundRecord[] = req.result || [];
+          // Strip large ArrayBuffer from metadata list for performance
+          const items: SoundboardItem[] = records.map(({ audioBufferData, ...meta }) => meta);
+          resolve(items);
+        };
+
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.warn('Error reading soundboard items from IndexedDB:', err);
+      return [];
+    }
+  }
+
+  async getAudioData(id: string): Promise<ArrayBuffer | null> {
+    try {
+      const db = await this.getDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.get(id);
+
+        req.onsuccess = () => {
+          const record: StoredSoundRecord | undefined = req.result;
+          resolve(record?.audioBufferData || null);
+        };
+
+        req.onerror = () => reject(req.error);
+      });
+    } catch (err) {
+      console.warn(`Error reading audio data for sound ${id}:`, err);
+      return null;
+    }
+  }
+
+  async saveSound(item: SoundboardItem, audioData: ArrayBuffer): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const record: StoredSoundRecord = {
+        ...item,
+        audioBufferData: audioData,
+      };
+      const req = store.put(record);
+
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async updateItem(id: string, updates: Partial<SoundboardItem>): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(id);
+
+      getReq.onsuccess = () => {
+        const record: StoredSoundRecord | undefined = getReq.result;
+        if (!record) {
+          return resolve();
+        }
+        const updatedRecord: StoredSoundRecord = {
+          ...record,
+          ...updates,
+          id, // ensure ID is preserved
+        };
+        const putReq = store.put(updatedRecord);
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  async deleteItem(id: string): Promise<void> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.delete(id);
+
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+}
+
+export const soundboardStorage = new SoundboardStorage();

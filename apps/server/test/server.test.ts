@@ -30,61 +30,65 @@ describe('NIGHTSHIFT Server API', () => {
     expect(body.services).toBeDefined();
   });
 
-  it('POST /api/auth/register should register a user', async () => {
-    const testDeviceId = `test-device-${Date.now()}`;
+  it('POST /api/auth/register should register a new account', async () => {
+    const uniqueUsername = `runner_${Date.now().toString(36)}`;
     const res = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
       payload: {
+        username: uniqueUsername,
         displayName: 'GhostRunner',
-        deviceId: testDeviceId,
-      },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.user).toBeDefined();
-    expect(body.user.displayName).toBe('GhostRunner');
-    expect(body.user.deviceId).toBe(testDeviceId);
-  });
-
-  it('POST /api/auth/register should reject empty display name', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: {
-        displayName: 'a',
-        deviceId: 'device-12345678',
-      },
-    });
-
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('POST /api/invitations should create a valid invitation code', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/invitations',
-      payload: {
-        maxUses: 5,
-        expiresInHours: 24,
+        password: 'Password123!',
       },
     });
 
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body);
-    expect(body.invitation).toBeDefined();
-    expect(body.invitation.code).toBeDefined();
+    expect(body.user).toBeDefined();
+    expect(body.user.username).toBe(uniqueUsername);
+    expect(body.user.displayName).toBe('GhostRunner');
+    expect(body.token).toBeDefined();
+  });
 
-    // Validate the invitation code
-    const valRes = await app.inject({
-      method: 'GET',
-      url: `/api/invitations/${body.invitation.code}/validate`,
+  it('POST /api/auth/login should authenticate registered account', async () => {
+    const uniqueUsername = `login_${Date.now().toString(36)}`;
+    await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        username: uniqueUsername,
+        displayName: 'LoginTest',
+        password: 'Password123!',
+      },
     });
 
-    expect(valRes.statusCode).toBe(200);
-    const valBody = JSON.parse(valRes.body);
-    expect(valBody.valid).toBe(true);
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {
+        username: uniqueUsername,
+        password: 'Password123!',
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    const body = JSON.parse(loginRes.body);
+    expect(body.user.username).toBe(uniqueUsername);
+    expect(body.token).toBeDefined();
+  });
+
+  it('POST /api/auth/register should reject invalid inputs', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: {
+        username: 'ab', // too short
+        displayName: 'a', // too short
+        password: '123', // too short
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 
   it('generateLiveKitToken creates valid signed token', async () => {

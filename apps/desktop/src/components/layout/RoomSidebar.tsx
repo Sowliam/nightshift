@@ -25,6 +25,7 @@ import { extractInviteCode } from '@nightshift/shared';
 import { ConnectionState } from 'livekit-client';
 import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
+import { useSoundboardStore } from '../../stores/soundboard.store';
 
 interface RoomSidebarProps {
   onOpenInvite: () => void;
@@ -771,6 +772,21 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
               </div>
               <div className="call-icon-layer call-icon-off call-icon-bounce">
                 <VolumeX className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
+            </button>
+
+            {/* Soundboard Button */}
+            <button
+              onClick={() => {
+                const current = useSoundboardStore.getState().isSoundboardOpen;
+                useSoundboardStore.getState().setSoundboardOpen(!current);
+              }}
+              className="call-btn call-btn-xs"
+              title="Open Soundboard (Ctrl+Shift+S)"
+              aria-label="Soundboard"
+            >
+              <div className="call-icon-layer call-icon-on call-icon-bounce">
+                <Volume2 className="w-3.5 h-3.5 stroke-[2.2]" />
               </div>
             </button>
 
