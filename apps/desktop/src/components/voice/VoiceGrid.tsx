@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X, VolumeX, Volume2, MoreVertical } from 'lucide-react';
+import { MicOff, Headphones, Monitor, Radio, Loader2, LogIn, Play, X, VolumeX, Volume2, MoreVertical, PhoneOff } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useRoomStore } from '../../stores/room.store';
@@ -43,6 +43,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     startWatchingStream,
     stopWatchingStream,
     stopScreenShare,
+    disconnect,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
@@ -143,23 +144,35 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
         </p>
 
         {!isRoomActive && onJoinVoice && (
-          <button
-            onClick={onJoinVoice}
-            disabled={isConnectingVoice}
-            className="px-6 py-2.5 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
-          >
-            {isConnectingVoice ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Connecting...</span>
-              </>
-            ) : (
-              <>
-                <LogIn className="w-4 h-4" />
-                <span>Join Voice Channel</span>
-              </>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onJoinVoice}
+              disabled={isConnectingVoice}
+              className="px-6 py-2.5 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+            >
+              {isConnectingVoice ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>Join Voice Channel</span>
+                </>
+              )}
+            </button>
+            {isConnectingVoice && (
+              <button
+                onClick={() => disconnect()}
+                className="px-4 py-2.5 rounded-xl bg-destructive/15 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Cancel Connection / Disconnect"
+              >
+                <PhoneOff className="w-4 h-4" />
+                <span>Disconnect</span>
+              </button>
             )}
-          </button>
+          </div>
         )}
       </div>
     );

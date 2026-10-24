@@ -170,34 +170,69 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     try {
       const pcManager = (room.engine as any)?.pcManager;
       const candidates = [
-        pcManager?.subscriber?.getStats ? pcManager.subscriber : null,
         pcManager?.publisher?.getStats ? pcManager.publisher : null,
-        (room.engine as any)?.subscriber?.getStats ? (room.engine as any).subscriber : null,
+        pcManager?.subscriber?.getStats ? pcManager.subscriber : null,
         (room.engine as any)?.publisher?.getStats ? (room.engine as any).publisher : null,
+        (room.engine as any)?.subscriber?.getStats ? (room.engine as any).subscriber : null,
         (room.engine as any)?.pc?.getStats ? (room.engine as any).pc : null,
       ].filter(Boolean);
 
+      let bestRtt: number | null = null;
+
       for (const transport of candidates) {
         try {
-          const stats = await transport.getStats();
-          if (stats) {
-            for (const report of stats.values()) {
+          const stats: RTCStatsReport = await transport.getStats();
+          if (!stats) continue;
+
+          let selectedPairId: string | undefined;
+          const candidatePairs: any[] = [];
+
+          for (const report of stats.values()) {
+            if (report.type === 'transport' && (report as any).selectedCandidatePairId) {
+              selectedPairId = (report as any).selectedCandidatePairId;
+            } else if (report.type === 'candidate-pair') {
+              candidatePairs.push(report);
+            }
+          }
+
+          // Prioritize: 1) transport's selectedCandidatePairId, 2) pair with selected === true, 3) nominated & succeeded
+          let activePair =
+            (selectedPairId ? stats.get(selectedPairId) : undefined) ??
+            candidatePairs.find((c) => c.selected && (c.currentRoundTripTime || c.totalRoundTripTime)) ??
+            candidatePairs.find(
+              (c) => c.nominated && c.state === 'succeeded' && (c.currentRoundTripTime || c.totalRoundTripTime)
+            );
+
+          if (!activePair && candidatePairs.length > 0) {
+            const valid = candidatePairs
+              .filter(
+                (c) =>
+                  (c.state === 'succeeded' || c.nominated) &&
+                  typeof c.currentRoundTripTime === 'number' &&
+                  c.currentRoundTripTime > 0
+              )
+              .sort((a, b) => a.currentRoundTripTime - b.currentRoundTripTime);
+            if (valid.length > 0) {
+              activePair = valid[0];
+            }
+          }
+
+          if (activePair) {
+            let rttSec = activePair.currentRoundTripTime;
+            if (typeof rttSec !== 'number' || rttSec <= 0) {
               if (
-                report.type === 'candidate-pair' &&
-                (report.state === 'succeeded' || report.nominated) &&
-                typeof report.currentRoundTripTime === 'number'
+                typeof activePair.totalRoundTripTime === 'number' &&
+                typeof activePair.responsesReceived === 'number' &&
+                activePair.responsesReceived > 0
               ) {
-                const rtt = Math.round(report.currentRoundTripTime * 1000);
-                if (rtt > 0 && rtt < 1500) {
-                  set({ currentPing: rtt });
-                  return;
-                }
+                rttSec = activePair.totalRoundTripTime / activePair.responsesReceived;
               }
-              if (report.type === 'remote-inbound-rtp' && typeof report.roundTripTime === 'number') {
-                const rtt = Math.round(report.roundTripTime * 1000);
-                if (rtt > 0 && rtt < 1500) {
-                  set({ currentPing: rtt });
-                  return;
+            }
+            if (typeof rttSec === 'number' && rttSec > 0) {
+              const rttMs = Math.round(rttSec * 1000);
+              if (rttMs > 0 && rttMs < 2000) {
+                if (bestRtt === null || rttMs < bestRtt) {
+                  bestRtt = rttMs;
                 }
               }
             }
@@ -205,9 +240,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } catch {}
       }
 
+      if (bestRtt !== null) {
+        set({ currentPing: bestRtt });
+        return;
+      }
+
       // Check engine's internal RTT calculation if available
       const engineRtt = (room.engine as any)?.rtt;
-      if (typeof engineRtt === 'number' && engineRtt > 0) {
+      if (typeof engineRtt === 'number' && engineRtt > 0 && engineRtt < 2000) {
         set({ currentPing: Math.round(engineRtt) });
         return;
       }
@@ -323,12 +363,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       set({ connectionState: ConnectionState.Connecting, error: null });
 
       const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
+        adaptiveStream: false, // Ensure full original stream resolution is never downscaled
+        dynacast: false,
         audioCaptureDefaults: {
           autoGainControl: true,
           echoCancellation: true,
           noiseSuppression: true,
+        },
+        publishDefaults: {
+          simulcast: false,
+          degradationPreference: 'maintain-resolution',
         },
       });
 
@@ -347,7 +391,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         useRoomStore.getState().fetchRooms();
         measurePing(room);
         if (pingInterval) clearInterval(pingInterval);
-        pingInterval = setInterval(() => measurePing(room), 2000);
+        pingInterval = setInterval(() => measurePing(room), 1000);
       });
 
       room.on(RoomEvent.ParticipantConnected, () => {
@@ -546,6 +590,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       useRoomStore.getState().setActiveRoom(null);
       useRoomStore.getState().setJoiningRoom(null);
+      useServerStore.getState().setActiveVoiceChannel(null);
+      useServerStore.getState().setJoiningVoiceChannel(null);
       useRoomStore.getState().fetchRooms();
     },
 
@@ -659,6 +705,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               mandatory: {
                 chromeMediaSource: 'desktop',
                 chromeMediaSourceId: sourceId,
+                minFrameRate: targetFps,
                 maxFrameRate: targetFps,
               },
             },
@@ -679,6 +726,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             constraints.video.mandatory.maxWidth = 2560;
             constraints.video.mandatory.minHeight = 1440;
             constraints.video.mandatory.maxHeight = 1440;
+          } else if (opts.resolution === '4k') {
+            constraints.video.mandatory.minWidth = 3840;
+            constraints.video.mandatory.maxWidth = 3840;
+            constraints.video.mandatory.minHeight = 2160;
+            constraints.video.mandatory.maxHeight = 2160;
+          } else {
+            // Source (Native monitor resolution, unconstrained)
+            constraints.video.mandatory.minWidth = 1280;
+            constraints.video.mandatory.maxWidth = 3840;
+            constraints.video.mandatory.minHeight = 720;
+            constraints.video.mandatory.maxHeight = 2160;
           }
 
           let stream: MediaStream;
@@ -705,16 +763,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const localTrack = new LocalVideoTrack(videoTrack);
           activeCustomScreenTrack = localTrack;
 
-          let maxBitrate = 5_000_000;
+          let maxBitrate = 8_000_000;
           if (opts.resolution === '720p') {
-            maxBitrate = targetFps === 60 ? 4_500_000 : 3_000_000;
+            maxBitrate = targetFps === 60 ? 6_000_000 : 4_500_000;
           } else if (opts.resolution === '1080p') {
-            maxBitrate = targetFps === 60 ? 8_000_000 : 5_000_000;
-          } else if (opts.resolution === '1440p' || opts.resolution === 'source') {
             maxBitrate = targetFps === 60 ? 12_000_000 : 8_000_000;
+          } else if (opts.resolution === '1440p') {
+            maxBitrate = targetFps === 60 ? 20_000_000 : 14_000_000;
+          } else if (opts.resolution === '4k' || opts.resolution === 'source') {
+            maxBitrate = targetFps === 60 ? 35_000_000 : 25_000_000;
           }
 
-          await room.localParticipant.publishTrack(localTrack, {
+          const pub = await room.localParticipant.publishTrack(localTrack, {
             name: 'screen-video',
             source: Track.Source.ScreenShare,
             videoEncoding: {
@@ -723,7 +783,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               priority: 'high',
             },
             simulcast: false,
+            degradationPreference: 'maintain-resolution',
           });
+
+          // Enforce 1:1 scale resolution and maintain-resolution on RTCRtpSender
+          try {
+            const sender = (pub as any)?.sender as RTCRtpSender | undefined;
+            if (sender && typeof sender.getParameters === 'function') {
+              const params = sender.getParameters();
+              if (params && params.encodings && params.encodings.length > 0) {
+                params.encodings.forEach((enc) => {
+                  enc.scaleResolutionDownBy = 1.0;
+                  enc.maxBitrate = maxBitrate;
+                  enc.maxFramerate = targetFps;
+                  enc.networkPriority = 'high';
+                });
+                (params as any).degradationPreference = 'maintain-resolution';
+                await sender.setParameters(params);
+              }
+            }
+          } catch (paramErr) {
+            console.warn('Sender parameter enforcement info:', paramErr);
+          }
 
           // Check if system audio track was captured
           const audioTracks = stream.getAudioTracks();
@@ -742,8 +823,26 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             }
           }
         } else {
-          const width = opts.resolution === '720p' ? 1280 : opts.resolution === '1440p' ? 2560 : 1920;
-          const height = opts.resolution === '720p' ? 720 : opts.resolution === '1440p' ? 1440 : 1080;
+          const width =
+            opts.resolution === '720p'
+              ? 1280
+              : opts.resolution === '1440p'
+              ? 2560
+              : opts.resolution === '4k'
+              ? 3840
+              : opts.resolution === 'source'
+              ? 3840
+              : 1920;
+          const height =
+            opts.resolution === '720p'
+              ? 720
+              : opts.resolution === '1440p'
+              ? 1440
+              : opts.resolution === '4k'
+              ? 2160
+              : opts.resolution === 'source'
+              ? 2160
+              : 1080;
           const targetFps = opts.frameRate || 30;
 
           await room.localParticipant.setScreenShareEnabled(true, {

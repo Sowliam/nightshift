@@ -4,6 +4,12 @@ import path from 'path';
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.ELECTRON_DEV === 'true' || !app.isPackaged;
 
+// Fix Windows Chromium hardware accelerated video decode & overlay bugs where WebRTC screen share turns green or hangs
+app.commandLine.appendSwitch('disable-accelerated-video-decode');
+app.commandLine.appendSwitch('disable-direct-composition-video-overlays');
+app.commandLine.appendSwitch('disable-features', 'DirectCompositionVideoOverlays,D3D11VideoDecoder');
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
+
 async function createWindow() {
   const iconPath = path.join(__dirname, '../public/logo.png');
 

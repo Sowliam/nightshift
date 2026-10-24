@@ -302,24 +302,42 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs font-medium text-text-secondary">Stream Resolution</span>
                 <span className="text-[11px] font-mono text-accent">
-                  {resolution === 'source' ? 'Native Original' : resolution}
+                  {resolution === 'source'
+                    ? 'Native Original (Lossless)'
+                    : resolution === '4k'
+                    ? '4K Ultra HD (3840x2160)'
+                    : resolution === '1440p'
+                    ? '2K QHD (2560x1440)'
+                    : resolution === '1080p'
+                    ? '1080p Full HD (1920x1080)'
+                    : '720p HD (1280x720)'}
                 </span>
               </div>
-              <div className="grid grid-cols-4 gap-2">
-                {(['720p', '1080p', '1440p', 'source'] as ScreenShareResolution[]).map((res) => {
+              <div className="grid grid-cols-5 gap-1.5">
+                {(['720p', '1080p', '1440p', '4k', 'source'] as ScreenShareResolution[]).map((res) => {
                   const isActive = resolution === res;
+                  const label =
+                    res === 'source'
+                      ? 'Source'
+                      : res === '4k'
+                      ? '4K UHD'
+                      : res === '1440p'
+                      ? '1440p'
+                      : res === '1080p'
+                      ? '1080p'
+                      : '720p';
                   return (
                     <button
                       key={res}
                       type="button"
                       onClick={() => setResolution(res)}
-                      className={`py-2 px-2 rounded-lg text-xs font-medium border text-center transition-all ${
+                      className={`py-2 px-1 rounded-lg text-xs font-medium border text-center transition-all ${
                         isActive
                           ? 'bg-accent text-bg-main border-accent font-bold shadow-sm'
                           : 'bg-bg-elevated border-border-subtle text-text-secondary hover:text-text-primary hover:border-text-secondary'
                       }`}
                     >
-                      {res === 'source' ? 'Source (4K)' : res.toUpperCase()}
+                      {label}
                     </button>
                   );
                 })}

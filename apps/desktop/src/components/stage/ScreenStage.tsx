@@ -16,6 +16,8 @@ import {
   EyeOff,
   LayoutGrid,
   Play,
+  Pause,
+  PhoneOff,
 } from 'lucide-react';
 import { useLiveKitStore, ActiveScreenShare } from '../../stores/livekit.store';
 import { useServerStore } from '../../stores/server.store';
@@ -53,6 +55,7 @@ const StreamTile: React.FC<StreamTileProps> = ({
   const { room, isDeafened } = useLiveKitStore();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLocalPreviewPaused, setIsLocalPreviewPaused] = useState(false);
   const [streamVolume, setStreamVolume] = useState(100);
   const [isStreamMuted, setIsStreamMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -153,15 +156,19 @@ const StreamTile: React.FC<StreamTileProps> = ({
     }
   }, [streamVolume, isStreamMuted, isDeafened, room, share.isLocal, share.participantIdentity]);
 
+  // Seamless in-app CSS viewport fullscreen (avoids D3D11 swapchain reset & green screen DXGI error)
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === containerRef.current);
+    if (!isFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFullscreen(false);
+      }
     };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [isFullscreen]);
 
   const handleMouseMove = () => {
     setShowControls(true);
@@ -178,16 +185,8 @@ const StreamTile: React.FC<StreamTileProps> = ({
     }
   };
 
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement && containerRef.current) {
-        await containerRef.current.requestFullscreen();
-      } else if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch (e) {
-      console.warn('Fullscreen toggle failed:', e);
-    }
+  const toggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
   };
 
   const togglePiP = async () => {
@@ -207,8 +206,10 @@ const StreamTile: React.FC<StreamTileProps> = ({
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setShowControls(false)}
-      className={`group relative w-full h-full rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-border-subtle shadow-card transition-all ${
-        isFullscreen ? 'rounded-none border-0' : ''
+      className={`group flex items-center justify-center bg-black transition-all ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 w-screen h-screen rounded-none border-0'
+          : 'relative w-full h-full rounded-2xl overflow-hidden border border-border-subtle shadow-card'
       }`}
     >
       <video
@@ -218,8 +219,13 @@ const StreamTile: React.FC<StreamTileProps> = ({
         muted
         onLoadedMetadata={handleVideoMetadata}
         onDoubleClick={toggleFullscreen}
-        className="w-full h-full object-contain cursor-pointer"
-        title="Double click for fullscreen"
+        className="w-full h-full object-contain cursor-pointer select-none"
+        style={{
+          backgroundColor: '#000000',
+          colorScheme: 'dark',
+          transform: 'translateZ(0)',
+        }}
+        title={isFullscreen ? 'Double-click to exit fullscreen (Esc)' : 'Double-click for fullscreen'}
       />
 
       {/* Dedicated audio element for remote screen share audio */}
@@ -248,7 +254,7 @@ const StreamTile: React.FC<StreamTileProps> = ({
           </span>
           <span className="text-accent font-bold tracking-wider text-[9px] uppercase bg-accent-subtle px-1.5 py-0.5 rounded flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-            LIVE
+            {isLocalPreviewPaused ? 'FROZEN PREVIEW' : 'LIVE'}
           </span>
           {resolution && (
             <span className="text-text-muted font-mono text-[9px] bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle/50 hidden sm:inline">
@@ -313,11 +319,50 @@ const StreamTile: React.FC<StreamTileProps> = ({
             </button>
           )}
 
+          {/* If streaming own screen, add Freeze / Resume Preview button */}
+          {share.isLocal && (
+            <button
+              onClick={() => {
+                if (videoRef.current) {
+                  if (isLocalPreviewPaused) {
+                    videoRef.current.play().catch(() => {});
+                    setIsLocalPreviewPaused(false);
+                  } else {
+                    videoRef.current.pause();
+                    setIsLocalPreviewPaused(true);
+                  }
+                }
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer mr-1 ${
+                isLocalPreviewPaused
+                  ? 'bg-accent/20 text-accent border border-accent/40'
+                  : 'bg-bg-elevated hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle'
+              }`}
+              title={
+                isLocalPreviewPaused
+                  ? 'Resume live stream preview'
+                  : 'Freeze preview to inspect lossless sharpness without infinite mirror loop'
+              }
+            >
+              {isLocalPreviewPaused ? (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current text-accent" />
+                  <span className="text-accent hidden sm:inline">Resume</span>
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Freeze</span>
+                </>
+              )}
+            </button>
+          )}
+
           {/* Fullscreen Toggle */}
           <button
             onClick={toggleFullscreen}
             className="p-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Fullscreen'}
           >
             {isFullscreen ? (
               <Minimize2 className="w-3.5 h-3.5 text-accent" />
@@ -348,6 +393,21 @@ const StreamTile: React.FC<StreamTileProps> = ({
           )}
         </div>
       </div>
+
+      {/* Bottom ESC exit hint when in Fullscreen */}
+      {isFullscreen && (
+        <div
+          className={`absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 rounded-full bg-bg-main/90 backdrop-blur-md border border-border-subtle text-xs text-text-muted z-20 pointer-events-none shadow-2xl transition-opacity duration-300 ${
+            showControls ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <span>Press</span>
+          <kbd className="px-2 py-0.5 rounded bg-bg-elevated border border-border-subtle text-accent font-mono text-xs font-bold shadow-sm">
+            ESC
+          </kbd>
+          <span>or double-click to exit fullscreen</span>
+        </div>
+      )}
     </div>
   );
 };
@@ -379,6 +439,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     currentPing,
     isLocallySpeaking,
     connect,
+    disconnect,
   } = useLiveKitStore();
 
   const { inputMode, pushToTalkKey } = useSettingsStore();
@@ -542,23 +603,35 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
         {/* Action Controls */}
         <div className="flex items-center gap-2">
           {!isRoomActive && (activeChannel || selectedRoom) && (
-            <button
-              onClick={handleJoinCurrentRoom}
-              disabled={isConnecting}
-              className="px-3.5 py-1.5 rounded-xl bg-highlight hover:bg-white text-highlight-text font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
-            >
-              {isConnecting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>Join Voice Channel</span>
-                </>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleJoinCurrentRoom}
+                disabled={isConnecting}
+                className="px-3.5 py-1.5 rounded-xl bg-highlight hover:bg-white text-highlight-text font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Join Voice Channel</span>
+                  </>
+                )}
+              </button>
+              {isConnecting && (
+                <button
+                  onClick={() => disconnect()}
+                  className="px-2.5 py-1.5 rounded-xl bg-destructive/15 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                  title="Cancel Connection / Disconnect"
+                >
+                  <PhoneOff className="w-3.5 h-3.5" />
+                  <span>Cancel</span>
+                </button>
               )}
-            </button>
+            </div>
           )}
 
           <button

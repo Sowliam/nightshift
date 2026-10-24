@@ -691,10 +691,19 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
           )}
         </div>
 
-        {/* Voice Connected Panel (Shown when user is connected to voice) */}
-        {activeVoiceChannelId && connectionState === ConnectionState.Connected && (
+        {/* Voice Connected Panel (Shown when user is connected OR connecting to voice) */}
+        {(activeVoiceChannelId ||
+          joiningVoiceChannelId ||
+          connectionState === ConnectionState.Connected ||
+          connectionState === ConnectionState.Connecting ||
+          connectionState === ConnectionState.Reconnecting) && (
           <VoiceConnectedPanel
-            onDisconnect={disconnect}
+            onDisconnect={async () => {
+              isJoiningRef.current = false;
+              setJoiningVoiceChannel(null);
+              setActiveVoiceChannel(null);
+              await disconnect();
+            }}
             onOpenSettings={onOpenSettings}
             onOpenScreenShareModal={onOpenScreenShareModal}
           />

@@ -213,7 +213,7 @@ export interface VoiceJoinResponse {
   user: UserDto;
 }
 
-export type ScreenShareResolution = '720p' | '1080p' | '1440p' | 'source';
+export type ScreenShareResolution = '720p' | '1080p' | '1440p' | '4k' | 'source';
 export type ScreenShareFramerate = 15 | 30 | 60;
 export type ScreenShareContentPreset = 'motion' | 'detail';
 
