@@ -1,9 +1,8 @@
 import React from 'react';
 import {
   PhoneOff,
-  Mic,
-  MicOff,
   Headphones,
+  VolumeX,
   Settings,
   Monitor,
   Radio,
@@ -203,40 +202,53 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
           {/* Red Disconnect Button (Always available to cancel/disconnect) */}
           <button
             onClick={handleDisconnect}
-            className="w-7 h-7 rounded-lg bg-destructive/15 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 flex items-center justify-center transition-all shadow-sm cursor-pointer"
+            className="call-btn call-btn-xs call-btn-danger"
             title={isConnecting ? 'Cancel Connection' : 'Disconnect from Voice Channel'}
+            aria-label="Disconnect"
           >
-            <PhoneOff className="w-3.5 h-3.5" />
+            <div className="call-icon-layer call-icon-on call-icon-tilt">
+              <PhoneOff className="w-3.5 h-3.5 stroke-[2.2]" />
+            </div>
           </button>
         </div>
       </div>
 
       {/* Control Action Buttons Bar */}
-      <div className="grid grid-cols-4 gap-1 pt-0.5">
+      <div className="flex items-center justify-around pt-1 px-1">
         {/* Mute Button */}
         <button
           onClick={toggleMute}
-          className={`py-1 rounded-lg flex items-center justify-center transition-all ${
-            isMuted
-              ? 'bg-destructive/20 text-destructive border border-destructive/40'
-              : 'bg-bg-elevated text-highlight hover:bg-highlight hover:text-highlight-text border border-border-subtle'
-          }`}
+          className={`call-btn call-btn-sm ${isMuted ? 'is-active-danger' : ''}`}
           title={isMuted ? 'Unmute (Ctrl+Shift+M)' : 'Mute (Ctrl+Shift+M)'}
+          aria-label={isMuted ? 'Unmute' : 'Mute'}
         >
-          {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+          <div className="call-icon-layer call-icon-on call-icon-bounce">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
+              <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
+            </svg>
+          </div>
+          <div className="call-icon-layer call-icon-off call-icon-bounce">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4.02 4.02 0 0 0 12 8V7a.5.5 0 0 1 1 0v1zm-5 4c.818 0 1.578-.245 2.212-.667l.718.719a4.973 4.973 0 0 1-2.43.923V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 1 0v1a4 4 0 0 0 4 4zm3-9v4.879L5.158 2.037A3.001 3.001 0 0 1 11 3z" />
+              <path d="M9.486 10.607 5 6.12V8a3 3 0 0 0 4.486 2.607zm-7.84-9.253 12 12 .708-.708-12-12-.708.708z" />
+            </svg>
+          </div>
         </button>
 
         {/* Deafen Button */}
         <button
           onClick={toggleDeafen}
-          className={`py-1 rounded-lg flex items-center justify-center transition-all ${
-            isDeafened
-              ? 'bg-destructive/20 text-destructive border border-destructive/40'
-              : 'bg-bg-elevated text-highlight hover:bg-highlight hover:text-highlight-text border border-border-subtle'
-          }`}
+          className={`call-btn call-btn-sm ${isDeafened ? 'is-active-danger' : ''}`}
           title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
+          aria-label={isDeafened ? 'Undeafen' : 'Deafen'}
         >
-          <Headphones className="w-3.5 h-3.5" />
+          <div className="call-icon-layer call-icon-on call-icon-bounce">
+            <Headphones className="w-4 h-4 stroke-[2.2]" />
+          </div>
+          <div className="call-icon-layer call-icon-off call-icon-bounce">
+            <VolumeX className="w-4 h-4 stroke-[2.2]" />
+          </div>
         </button>
 
         {/* Screen Share Button */}
@@ -248,23 +260,25 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
               onOpenScreenShareModal();
             }
           }}
-          className={`py-1 rounded-lg flex items-center justify-center transition-all ${
-            isScreenSharing
-              ? 'bg-highlight text-highlight-text font-bold shadow-sm'
-              : 'bg-bg-elevated text-highlight hover:bg-highlight hover:text-highlight-text border border-border-subtle'
-          }`}
+          className={`call-btn call-btn-sm ${isScreenSharing ? 'is-active-success' : ''}`}
           title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
+          aria-label={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
         >
-          <Monitor className="w-3.5 h-3.5" />
+          <div className="call-icon-layer call-icon-on call-icon-bounce">
+            <Monitor className="w-4 h-4 stroke-[2.2]" />
+          </div>
         </button>
 
         {/* Settings Button */}
         <button
           onClick={onOpenSettings}
-          className="py-1 rounded-lg bg-bg-elevated hover:bg-highlight hover:text-highlight-text text-highlight border border-border-subtle flex items-center justify-center transition-all"
+          className="call-btn call-btn-sm"
           title="Voice Settings"
+          aria-label="Settings"
         >
-          <Settings className="w-3.5 h-3.5" />
+          <div className="call-icon-layer call-icon-on call-icon-spin">
+            <Settings className="w-4 h-4 stroke-[2.2]" />
+          </div>
         </button>
       </div>
     </div>

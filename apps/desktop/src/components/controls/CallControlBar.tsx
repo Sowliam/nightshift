@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  Mic,
-  MicOff,
   Headphones,
   VolumeX,
   Monitor,
@@ -60,80 +58,94 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-[#111214]/95 backdrop-blur-md border border-[#2b2d31] shadow-2xl z-30 select-none ${className}`}
+      className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#1e1f22]/95 backdrop-blur-xl border border-[#313338]/90 shadow-[0_8px_32px_rgba(0,0,0,0.55)] z-30 select-none ${className}`}
     >
-      {/* Mic Mute / Unmute */}
+      {/* 1. Mic Mute / Unmute (with layered crossfade and hover bounce) */}
       <button
         onClick={toggleMute}
-        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-          isMuted
-            ? 'bg-[#da373c]/20 text-[#da373c] border border-[#da373c]/40 hover:bg-[#da373c]/30'
-            : 'bg-[#2b2d31] text-white hover:bg-[#35373c] border border-transparent'
-        }`}
-        title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+        className={`call-btn ${isMuted ? 'is-active-danger' : ''}`}
+        title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}
+        aria-label={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
       >
-        {isMuted ? <MicOff className="w-5 h-5 text-[#da373c]" /> : <Mic className="w-5 h-5" />}
+        <div className="call-icon-layer call-icon-on call-icon-bounce">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
+            <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
+          </svg>
+        </div>
+        <div className="call-icon-layer call-icon-off call-icon-bounce">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4.02 4.02 0 0 0 12 8V7a.5.5 0 0 1 1 0v1zm-5 4c.818 0 1.578-.245 2.212-.667l.718.719a4.973 4.973 0 0 1-2.43.923V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 1 0v1a4 4 0 0 0 4 4zm3-9v4.879L5.158 2.037A3.001 3.001 0 0 1 11 3z" />
+            <path d="M9.486 10.607 5 6.12V8a3 3 0 0 0 4.486 2.607zm-7.84-9.253 12 12 .708-.708-12-12-.708.708z" />
+          </svg>
+        </div>
       </button>
 
-      {/* Deafen / Undeafen */}
+      {/* 2. Deafen / Undeafen (with layered crossfade and hover bounce) */}
       <button
         onClick={toggleDeafen}
-        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-          isDeafened
-            ? 'bg-[#da373c]/20 text-[#da373c] border border-[#da373c]/40 hover:bg-[#da373c]/30'
-            : 'bg-[#2b2d31] text-white hover:bg-[#35373c] border border-transparent'
-        }`}
-        title={isDeafened ? 'Undeafen Audio' : 'Deafen (Mute Audio)'}
+        className={`call-btn ${isDeafened ? 'is-active-danger' : ''}`}
+        title={isDeafened ? 'Undeafen Audio (Ctrl+Shift+D)' : 'Deafen (Mute Audio) (Ctrl+Shift+D)'}
+        aria-label={isDeafened ? 'Undeafen Audio' : 'Deafen (Mute Audio)'}
       >
-        {isDeafened ? <VolumeX className="w-5 h-5 text-[#da373c]" /> : <Headphones className="w-5 h-5" />}
+        <div className="call-icon-layer call-icon-on call-icon-bounce">
+          <Headphones className="w-5 h-5 stroke-[2.2]" />
+        </div>
+        <div className="call-icon-layer call-icon-off call-icon-bounce">
+          <VolumeX className="w-5 h-5 stroke-[2.2]" />
+        </div>
       </button>
 
-      {/* Screen Share (Discord Green when active) */}
+      {/* 3. Screen Share (green when active, subtle bounce on hover) */}
       <button
         onClick={handleScreenShareClick}
-        className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-          isScreenSharing
-            ? 'bg-[#23a55a] text-white hover:bg-[#1a8a47] shadow-[0_0_12px_rgba(35,165,90,0.4)]'
-            : 'bg-[#2b2d31] text-white hover:bg-[#35373c] border border-transparent'
-        }`}
+        className={`call-btn ${isScreenSharing ? 'is-active-success' : ''}`}
         title={isScreenSharing ? 'Stop Screen Share' : 'Share Your Screen'}
+        aria-label={isScreenSharing ? 'Stop Screen Share' : 'Share Your Screen'}
       >
-        <Monitor className="w-5 h-5" />
+        <div className="call-icon-layer call-icon-on call-icon-bounce">
+          <Monitor className="w-5 h-5 stroke-[2.2]" />
+        </div>
       </button>
 
       {/* Optional Grid Layout Toggle */}
       {onToggleGrid && (
         <button
           onClick={onToggleGrid}
-          className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-            isGrid
-              ? 'bg-[#5865F2] text-white hover:bg-[#4752c4]'
-              : 'bg-[#2b2d31] text-white hover:bg-[#35373c]'
-          }`}
+          className={`call-btn ${isGrid ? 'is-active-accent' : ''}`}
           title={isGrid ? 'Focus Single Stream' : 'Switch to Grid View'}
+          aria-label={isGrid ? 'Focus Single Stream' : 'Switch to Grid View'}
         >
-          <LayoutGrid className="w-5 h-5" />
+          <div className="call-icon-layer call-icon-on call-icon-bounce">
+            <LayoutGrid className="w-5 h-5 stroke-[2.2]" />
+          </div>
         </button>
       )}
 
-      {/* Settings */}
+      {/* 4. Settings (with spinning gear micro-animation on hover) */}
       <button
         onClick={onOpenSettings}
-        className="w-11 h-11 rounded-xl flex items-center justify-center bg-[#2b2d31] text-white hover:bg-[#35373c] transition-all cursor-pointer"
-        title="Settings"
+        className="call-btn"
+        title="Voice & Video Settings"
+        aria-label="Settings"
       >
-        <Settings className="w-5 h-5" />
+        <div className="call-icon-layer call-icon-on call-icon-spin">
+          <Settings className="w-5 h-5 stroke-[2.2]" />
+        </div>
       </button>
 
-      <div className="w-[1px] h-6 bg-[#3f4147] mx-0.5" />
+      <div className="w-[1px] h-7 bg-white/20 mx-1" />
 
-      {/* Disconnect Call (Discord Red) */}
+      {/* 5. Disconnect / Leave Room (Danger Red with tilt micro-animation on hover) */}
       <button
         onClick={disconnect}
-        className="w-11 h-11 rounded-xl flex items-center justify-center bg-[#da373c] text-white hover:bg-[#a1282c] transition-all shadow-md cursor-pointer"
+        className="call-btn call-btn-danger"
         title="Disconnect / Leave Room"
+        aria-label="Disconnect / Leave Room"
       >
-        <PhoneOff className="w-5 h-5" />
+        <div className="call-icon-layer call-icon-on call-icon-tilt">
+          <PhoneOff className="w-5 h-5 stroke-[2.2]" />
+        </div>
       </button>
     </div>
   );

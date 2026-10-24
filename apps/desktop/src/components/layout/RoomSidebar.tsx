@@ -4,9 +4,8 @@ import {
   Volume2,
   Plus,
   ChevronDown,
-  Mic,
-  MicOff,
   Headphones,
+  MicOff,
   VolumeX,
   Monitor,
   Settings,
@@ -751,25 +750,29 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Mic Toggle Button */}
             <button
               onClick={() => {
                 toggleMute();
                 setSelfMuted(!isMuted);
               }}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
-                isMuted
-                  ? 'bg-[#f23f43]/15 text-[#f23f43] border border-[#f23f43]/30 hover:bg-[#f23f43]/25 shadow-sm'
-                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31]'
-              }`}
+              className={`call-btn call-btn-xs ${isMuted ? 'is-active-danger' : ''}`}
               title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}
+              aria-label={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
             >
-              {isMuted ? (
-                <MicOff className="w-4 h-4 stroke-[2.2]" />
-              ) : (
-                <Mic className="w-4 h-4 stroke-[2.2]" />
-              )}
+              <div className="call-icon-layer call-icon-on call-icon-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
+                  <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
+                </svg>
+              </div>
+              <div className="call-icon-layer call-icon-off call-icon-bounce">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4.02 4.02 0 0 0 12 8V7a.5.5 0 0 1 1 0v1zm-5 4c.818 0 1.578-.245 2.212-.667l.718.719a4.973 4.973 0 0 1-2.43.923V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 1 0v1a4 4 0 0 0 4 4zm3-9v4.879L5.158 2.037A3.001 3.001 0 0 1 11 3z" />
+                  <path d="M9.486 10.607 5 6.12V8a3 3 0 0 0 4.486 2.607zm-7.84-9.253 12 12 .708-.708-12-12-.708.708z" />
+                </svg>
+              </div>
             </button>
 
             {/* Deafen Toggle Button */}
@@ -778,27 +781,28 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                 toggleDeafen();
                 setSelfDeafened(!isDeafened);
               }}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
-                isDeafened
-                  ? 'bg-[#f23f43]/15 text-[#f23f43] border border-[#f23f43]/30 hover:bg-[#f23f43]/25 shadow-sm'
-                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31]'
-              }`}
+              className={`call-btn call-btn-xs ${isDeafened ? 'is-active-danger' : ''}`}
               title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
+              aria-label={isDeafened ? 'Undeafen' : 'Deafen'}
             >
-              {isDeafened ? (
-                <VolumeX className="w-4 h-4 stroke-[2.2]" />
-              ) : (
-                <Headphones className="w-4 h-4 stroke-[2.2]" />
-              )}
+              <div className="call-icon-layer call-icon-on call-icon-bounce">
+                <Headphones className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
+              <div className="call-icon-layer call-icon-off call-icon-bounce">
+                <VolumeX className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
             </button>
 
             {/* Settings Button */}
             <button
               onClick={onOpenSettings}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31] transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 group"
+              className="call-btn call-btn-xs"
               title="User Settings"
+              aria-label="User Settings"
             >
-              <Settings className="w-4 h-4 stroke-[2.2] transition-transform duration-300 group-hover:rotate-45" />
+              <div className="call-icon-layer call-icon-on call-icon-spin">
+                <Settings className="w-3.5 h-3.5 stroke-[2.2]" />
+              </div>
             </button>
           </div>
         </div>

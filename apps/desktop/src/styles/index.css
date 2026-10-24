@@ -94,3 +94,141 @@ body {
 button, input, select, a {
   transition: all 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
+
+/* ============================================================
+   Round Action Switch Buttons (Mute, Deafen, Share, Settings, Disconnect)
+   Based on Google Meet / Interactive Switch Animation
+   ============================================================ */
+.call-btn {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgb(60, 64, 67);
+  color: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  user-select: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.call-btn:hover {
+  background-color: rgba(60, 64, 67, 0.82);
+  transform: scale(1.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.call-btn:active {
+  transform: scale(1.18);
+}
+
+/* Small size variant for compact sidebars */
+.call-btn-sm {
+  width: 36px;
+  height: 36px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.call-btn-xs {
+  width: 32px;
+  height: 32px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* Red / Danger state (Muted, Deafened, Disconnect) */
+.call-btn.is-active-danger,
+.call-btn-danger {
+  background-color: #ea4335 !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 16px rgba(234, 67, 53, 0.45);
+}
+
+.call-btn.is-active-danger:hover,
+.call-btn-danger:hover {
+  background-color: #d93025 !important;
+  box-shadow: 0 6px 22px rgba(234, 67, 53, 0.6);
+}
+
+/* Green / Success state (Screen Sharing active) */
+.call-btn.is-active-success,
+.call-btn-success {
+  background-color: #23a55a !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 16px rgba(35, 165, 90, 0.5);
+}
+
+.call-btn.is-active-success:hover,
+.call-btn-success:hover {
+  background-color: #1a8a47 !important;
+  box-shadow: 0 0 22px rgba(35, 165, 90, 0.7);
+}
+
+/* Blurple / Accent state (Grid view, etc.) */
+.call-btn.is-active-accent {
+  background-color: #5865f2 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 16px rgba(88, 101, 242, 0.5);
+}
+
+.call-btn.is-active-accent:hover {
+  background-color: #4752c4 !important;
+}
+
+/* Layered crossfading icons (Mute, Deafen) */
+.call-icon-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.call-icon-on {
+  z-index: 4;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.call-icon-off {
+  z-index: 5;
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.call-btn.is-active-danger .call-icon-on {
+  opacity: 0;
+  transform: scale(0.85);
+}
+
+.call-btn.is-active-danger .call-icon-off {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Hover micro-animations on icons */
+.call-icon-bounce,
+.call-icon-spin,
+.call-icon-tilt {
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.call-btn:hover .call-icon-bounce {
+  transform: scale(1.15);
+}
+
+.call-btn:hover .call-icon-spin {
+  transform: rotate(45deg);
+}
+
+.call-btn:hover .call-icon-tilt {
+  transform: rotate(-14deg) scale(1.12);
+}
+
