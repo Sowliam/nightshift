@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { serversRoutes } from './routes/servers.routes.js';
 import { roomsRoutes } from './routes/rooms.routes.js';
 import { messagesRoutes } from './routes/messages.routes.js';
+import { soundsRoutes } from './routes/sounds.routes.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = fastify({
@@ -40,10 +41,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
   });
 
-  // Register multipart plugin for file/image uploads
+  // Register multipart plugin for file/audio uploads (40MB max for high-quality audio)
   await app.register(multipart, {
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB limit
+      fileSize: 40 * 1024 * 1024,
       files: 1,
     },
   });
@@ -68,6 +69,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(serversRoutes);
   await app.register(roomsRoutes);
   await app.register(messagesRoutes);
+  await app.register(soundsRoutes);
 
   return app;
 }

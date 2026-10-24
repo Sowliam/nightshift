@@ -18,13 +18,23 @@ import {
   Disc3,
   Music,
   FolderPlus,
+  Cloud,
+  CloudUpload,
+  Download,
+  RefreshCw,
+  CheckCircle2,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { Playlist, SoundboardItem } from '../../services/soundboard.storage';
+import { CloudSoundItem } from '../../lib/api';
 
 export const SoundboardModal: React.FC = () => {
   const {
     sounds,
+    cloudSounds,
+    isCloudLoading,
+    isCloudUploading,
+    cloudStorageStatus,
     playlists,
     activePlayingIds,
     activeSounds,
@@ -38,6 +48,12 @@ export const SoundboardModal: React.FC = () => {
     isImporting,
     error,
     loadSounds,
+    loadCloudSounds,
+    loadCloudStorageStatus,
+    uploadToCloud,
+    deleteFromCloud,
+    playCloudSound,
+    saveCloudToLocal,
     loadPlaylists,
     importSound,
     playSound,
@@ -63,7 +79,7 @@ export const SoundboardModal: React.FC = () => {
     setQueue,
   } = useSoundboardStore();
 
-  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'settings'>('library');
+  const [activeTab, setActiveTab] = useState<'library' | 'playlists' | 'favorites' | 'cloud' | 'settings'>('library');
   const [editingSoundId, setEditingSoundId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingCategory, setEditingCategory] = useState('');
@@ -71,13 +87,17 @@ export const SoundboardModal: React.FC = () => {
   const [playlistPopoverSoundId, setPlaylistPopoverSoundId] = useState<string | null>(null);
   const [newPlaylistInput, setNewPlaylistInput] = useState('');
   const [isCreatingNewPlaylist, setIsCreatingNewPlaylist] = useState(false);
+  const [savedLocalMap, setSavedLocalMap] = useState<Record<string, boolean>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cloudFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isSoundboardOpen) {
       loadSounds();
       loadPlaylists();
+      loadCloudSounds();
+      loadCloudStorageStatus();
     }
   }, [isSoundboardOpen]);
 
@@ -154,6 +174,56 @@ export const SoundboardModal: React.FC = () => {
     return matchesCategory && matchesSearch;
   });
 
+  const handleCloudFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac'];
+    const fileName = file.name.toLowerCase();
+    const isValid = validExtensions.some((ext) => fileName.endsWith(ext));
+
+    if (!isValid) {
+      alert('Supported audio formats: MP3, WAV, OGG, M4A, AAC, FLAC');
+      if (cloudFileInputRef.current) cloudFileInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > 40 * 1024 * 1024) {
+      alert('Audio file size exceeds the 40MB limit for cloud storage.');
+      if (cloudFileInputRef.current) cloudFileInputRef.current.value = '';
+      return;
+    }
+
+    await uploadToCloud(file);
+    if (cloudFileInputRef.current) cloudFileInputRef.current.value = '';
+  };
+
+  const handleSaveToLocal = async (item: CloudSoundItem) => {
+    setSavedLocalMap((prev) => ({ ...prev, [item.id]: true }));
+    const success = await saveCloudToLocal(item);
+    if (!success) {
+      setSavedLocalMap((prev) => ({ ...prev, [item.id]: false }));
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const filteredCloudSounds = cloudSounds.filter((s) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.category.toLowerCase().includes(q) ||
+      (s.uploaderName && s.uploaderName.toLowerCase().includes(q))
+    );
+  });
+
   const formatHotkeyLabel = (code: string | null) => {
     if (!code) return 'None';
     return code
@@ -179,12 +249,21 @@ export const SoundboardModal: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none animate-in fade-in duration-150">
       <div className="w-[880px] max-w-full h-[660px] max-h-[92vh] bg-[#101114] rounded-3xl border border-white/10 shadow-[0_25px_70px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden">
-        {/* Hidden File Input */}
+        {/* Hidden Local File Input */}
         <input
           ref={fileInputRef}
           type="file"
           accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac"
           onChange={handleFileUpload}
+          className="hidden"
+        />
+
+        {/* Hidden Cloud File Input (Cloudflare R2) */}
+        <input
+          ref={cloudFileInputRef}
+          type="file"
+          accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac"
+          onChange={handleCloudFileUpload}
           className="hidden"
         />
 
@@ -276,6 +355,24 @@ export const SoundboardModal: React.FC = () => {
               Playlists ({playlists.length})
             </button>
             <button
+              onClick={() => {
+                setActiveTab('cloud');
+                loadCloudSounds();
+                loadCloudStorageStatus();
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === 'cloud'
+                  ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20'
+                  : 'text-text-muted hover:text-white'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              <span>Cloud ({cloudSounds.length})</span>
+              {cloudStorageStatus?.r2Configured && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Cloudflare R2 Storage Connected" />
+              )}
+            </button>
+            <button
               onClick={() => setActiveTab('settings')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                 activeTab === 'settings'
@@ -295,24 +392,37 @@ export const SoundboardModal: React.FC = () => {
                 <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search title, category, hotkey..."
+                  placeholder={activeTab === 'cloud' ? 'Search cloud vault...' : 'Search title, category, hotkey...'}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-[#18191e] border border-white/5 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-text-muted focus:outline-none focus:border-accent-bright transition-all"
                 />
               </div>
 
-              {/* Import Sound Button */}
-              <button
-                type="button"
-                disabled={isImporting}
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 bg-accent-bright hover:bg-white text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-accent-bright/15 hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
-                title="Upload audio file (MP3, WAV, OGG, M4A)"
-              >
-                {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 stroke-[2.5]" />}
-                <span>{isImporting ? 'Importing...' : 'Add Sound'}</span>
-              </button>
+              {/* Upload Button based on Tab */}
+              {activeTab === 'cloud' ? (
+                <button
+                  type="button"
+                  disabled={isCloudUploading}
+                  onClick={() => cloudFileInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-sky-500/20 hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
+                  title="Upload audio to Cloudflare R2 (up to 40MB)"
+                >
+                  {isCloudUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+                  <span>{isCloudUploading ? 'Uploading...' : 'Upload to Cloud'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isImporting}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-accent-bright hover:bg-white text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-accent-bright/15 hover:scale-105 active:scale-95 cursor-pointer disabled:opacity-50"
+                  title="Upload audio file (MP3, WAV, OGG, M4A)"
+                >
+                  {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 stroke-[2.5]" />}
+                  <span>{isImporting ? 'Importing...' : 'Add Sound'}</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -772,7 +882,217 @@ export const SoundboardModal: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 4: Audio Settings */}
+          {/* TAB 4: Cloud Library (Cloudflare R2 Object Storage) */}
+          {activeTab === 'cloud' && (
+            <div className="space-y-4">
+              {/* Cloudflare R2 Banner */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-sky-950/40 via-[#161a23] to-[#121316] border border-sky-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-sky-950/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0 shadow-inner">
+                    <Cloud className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-white tracking-wide">Cloudflare R2 Audio Vault</h4>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                          cloudStorageStatus?.r2Configured
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            cloudStorageStatus?.r2Configured ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`}
+                        />
+                        {cloudStorageStatus?.r2Configured ? 'Active R2 Storage' : 'Local Storage Mode'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      {cloudStorageStatus?.r2Configured
+                        ? `Bucket: ${cloudStorageStatus.bucket} • 10 GB Free Tier • Zero egress bandwidth fees`
+                        : 'Server fallback storage active. To connect your Cloudflare R2 bucket, set R2_ACCOUNT_ID and credentials.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    onClick={() => {
+                      loadCloudSounds();
+                      loadCloudStorageStatus();
+                    }}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-text-muted hover:text-white border border-white/5 transition-all cursor-pointer"
+                    title="Refresh cloud audio tracks"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isCloudLoading ? 'animate-spin text-sky-400' : ''}`} />
+                  </button>
+
+                  <button
+                    onClick={() => cloudFileInputRef.current?.click()}
+                    disabled={isCloudUploading}
+                    className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-sky-500/20 active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    {isCloudUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
+                    <span>{isCloudUploading ? 'Uploading to R2...' : 'Upload Track'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Loading State */}
+              {isCloudLoading && cloudSounds.length === 0 && (
+                <div className="py-20 flex flex-col items-center justify-center text-center text-text-muted">
+                  <Loader2 className="w-8 h-8 animate-spin text-sky-400 mb-2" />
+                  <p className="text-xs font-semibold text-white">Fetching Cloud Tracks from Cloudflare R2...</p>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!isCloudLoading && filteredCloudSounds.length === 0 && (
+                <div className="py-16 flex flex-col items-center justify-center text-center text-text-muted">
+                  <div className="w-14 h-14 rounded-3xl bg-[#18191e] border border-white/5 flex items-center justify-center text-sky-400 mb-3 shadow-lg shadow-sky-950/20">
+                    <Cloud className="w-7 h-7 opacity-60" />
+                  </div>
+                  <h3 className="text-sm font-bold text-white mb-1">
+                    {searchQuery ? 'No Cloud Tracks Match Search' : 'Your Cloud Audio Vault is Empty'}
+                  </h3>
+                  <p className="text-xs text-text-muted max-w-sm mb-4">
+                    {searchQuery
+                      ? 'Try adjusting your search query.'
+                      : 'Upload tracks (up to 40MB each) to Cloudflare R2. Audio stored in the cloud persists forever, streams at high speed, and is available for everyone in voice channels!'}
+                  </p>
+                  {!searchQuery && (
+                    <button
+                      onClick={() => cloudFileInputRef.current?.click()}
+                      className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-sky-500/20 cursor-pointer transition-all"
+                    >
+                      <CloudUpload className="w-4 h-4" />
+                      <span>Upload Your First Song</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Cloud Sounds Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {filteredCloudSounds.map((item) => {
+                  const activeSound = activeSounds.find((s) => s.soundId === item.id);
+                  const isBroadcasting = !!activeSound;
+                  const isPaused = isBroadcasting && activeSound.isPaused;
+                  const isSavedLocally =
+                    savedLocalMap[item.id] ||
+                    sounds.some((s) => s.id === `snd_local_${item.id}` || s.name === item.name);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`relative p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between group ${
+                        isBroadcasting
+                          ? 'bg-gradient-to-b from-[#181f29] to-[#121316] border-sky-400/50 shadow-[0_0_15px_rgba(56,189,248,0.15)] ring-1 ring-sky-400/30'
+                          : 'bg-[#15161b] hover:bg-[#18191f] border-white/5 hover:border-white/10'
+                      }`}
+                    >
+                      {/* Top Info Row */}
+                      <div>
+                        <div className="flex items-start justify-between gap-1 mb-1.5">
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-white/5 text-sky-400 border border-sky-400/20 truncate max-w-[110px]">
+                            {item.category || 'Music'}
+                          </span>
+                          <span className="text-[10px] font-mono text-text-muted">
+                            {formatTime(item.duration)} • {formatBytes(item.sizeBytes)}
+                          </span>
+                        </div>
+
+                        <h4 className="font-bold text-xs text-white truncate max-w-[200px]" title={item.name}>
+                          {item.name}
+                        </h4>
+
+                        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-text-muted">
+                          <Cloud className="w-3 h-3 text-sky-400 shrink-0" />
+                          <span className="truncate">By {item.uploaderName || 'Anonymous'}</span>
+                        </div>
+                      </div>
+
+                      {/* Controls Row */}
+                      <div className="flex items-center justify-between gap-1 mt-3 pt-2.5 border-t border-white/5">
+                        <div className="flex items-center gap-1.5">
+                          {isBroadcasting ? (
+                            <>
+                              <button
+                                onClick={() => togglePauseSound(item.id)}
+                                className="w-7 h-7 rounded-lg bg-amber-400 hover:bg-amber-300 text-black flex items-center justify-center transition-all cursor-pointer shadow-sm"
+                                title={isPaused ? 'Resume playback' : 'Pause playback'}
+                              >
+                                {isPaused ? (
+                                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                ) : (
+                                  <Pause className="w-3.5 h-3.5 fill-current" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => stopSound(item.id)}
+                                className="w-7 h-7 rounded-lg bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center transition-all cursor-pointer shadow-sm"
+                                title="Stop playback"
+                              >
+                                <Square className="w-3 h-3 fill-current" />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => playCloudSound(item, false)}
+                              className="px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                              title="Stream to voice channel"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Play</span>
+                            </button>
+                          )}
+
+                          {/* Listen Locally (Headphones only) */}
+                          <button
+                            onClick={() => playCloudSound(item, true)}
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-purple-500/20 text-text-muted hover:text-purple-400 transition-colors cursor-pointer"
+                            title="Private preview in your headphones only"
+                          >
+                            <Headphones className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Save to Local Library */}
+                          <button
+                            onClick={() => handleSaveToLocal(item)}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              isSavedLocally
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-white/5 hover:bg-white/10 text-text-muted hover:text-white'
+                            }`}
+                            title={isSavedLocally ? 'Saved to local library' : 'Download copy to local library'}
+                          >
+                            {isSavedLocally ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+
+                        {/* Delete from R2 */}
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete "${item.name}" from Cloudflare R2?`)) {
+                              deleteFromCloud(item.id);
+                            }
+                          }}
+                          className="p-1 rounded-lg text-text-muted hover:text-rose-400 transition-colors cursor-pointer opacity-70 group-hover:opacity-100"
+                          title="Delete from cloud"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: Audio Settings */}
           {activeTab === 'settings' && (
             <div className="max-w-xl mx-auto space-y-6 py-4">
               {/* Channel Volume */}

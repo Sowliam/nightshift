@@ -7,6 +7,8 @@ export interface SoundboardItem {
   duration: number; // in seconds
   createdAt: number;
   isFavorite?: boolean;
+  audioUrl?: string;
+  source?: 'local' | 'cloud';
 }
 
 export interface Playlist {

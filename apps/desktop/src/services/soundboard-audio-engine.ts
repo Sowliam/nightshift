@@ -1,4 +1,5 @@
 import { SoundboardItem, soundboardStorage } from './soundboard.storage';
+import { api } from '../lib/api';
 
 export interface ActiveSoundInfo {
   soundId: string;
@@ -230,7 +231,20 @@ export class SoundboardAudioEngine {
     // Retrieve audio data
     let audioBuffer = this.audioBufferCache.get(item.id);
     if (!audioBuffer) {
-      const rawData = await soundboardStorage.getAudioData(item.id);
+      let rawData = await soundboardStorage.getAudioData(item.id);
+      if (!rawData && item.audioUrl) {
+        try {
+          const fullUrl = item.audioUrl.startsWith('http')
+            ? item.audioUrl
+            : `${api.getBaseUrl()}${item.audioUrl.startsWith('/') ? '' : '/'}${item.audioUrl}`;
+          const res = await fetch(fullUrl);
+          if (res.ok) {
+            rawData = await res.arrayBuffer();
+          }
+        } catch (fetchErr) {
+          console.warn(`Failed to fetch audio from URL: ${item.audioUrl}`, fetchErr);
+        }
+      }
       if (!rawData) {
         throw new Error(`Audio data not found for sound "${item.name}"`);
       }

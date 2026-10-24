@@ -90,21 +90,31 @@ class ApiClient {
   }
 
   constructor() {
-    this.token = localStorage.getItem(TOKEN_KEY);
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        this.token = localStorage.getItem(TOKEN_KEY);
+      } catch {}
+    }
   }
 
   setToken(token: string | null) {
     this.token = token;
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        if (token) {
+          localStorage.setItem(TOKEN_KEY, token);
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+        }
+      } catch {}
     }
   }
 
   getToken(): string | null {
-    if (!this.token) {
-      this.token = localStorage.getItem(TOKEN_KEY);
+    if (!this.token && typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        this.token = localStorage.getItem(TOKEN_KEY);
+      } catch {}
     }
     return this.token;
   }
@@ -579,6 +589,92 @@ class ApiClient {
 
     return res.json();
   }
+
+  // --- Cloudflare R2 Audio Library ---
+  async getCloudSounds(category?: string, search?: string): Promise<CloudSoundItem[]> {
+    const params = new URLSearchParams();
+    if (category && category !== 'All') params.append('category', category);
+    if (search && search.trim()) params.append('search', search.trim());
+
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/sounds?${params.toString()}`, {
+      headers: this.getHeaders(),
+    });
+
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to fetch cloud sounds');
+    }
+    return res.json();
+  }
+
+  async uploadCloudSound(
+    file: File,
+    name: string,
+    category: string = 'General',
+    duration: number = 0
+  ): Promise<CloudSoundItem> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    formData.append('category', category);
+    formData.append('duration', duration.toString());
+
+    const headers: Record<string, string> = {};
+    const t = this.getToken();
+    if (t) {
+      headers['Authorization'] = `Bearer ${t}`;
+    }
+
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/sounds/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to upload audio to Cloudflare R2');
+    }
+    return res.json();
+  }
+
+  async deleteCloudSound(id: string): Promise<void> {
+    const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/sounds/${id}`, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to delete cloud sound');
+    }
+  }
+
+  async getCloudStorageStatus(): Promise<CloudStorageStatus> {
+    try {
+      const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/sounds/status`);
+      if (!res.ok) return { r2Configured: false, bucket: '', provider: 'Offline' };
+      return res.json();
+    } catch {
+      return { r2Configured: false, bucket: '', provider: 'Offline' };
+    }
+  }
+}
+
+export interface CloudSoundItem {
+  id: string;
+  name: string;
+  category: string;
+  storageKey: string;
+  audioUrl: string;
+  duration: number;
+  sizeBytes: number;
+  uploaderId?: string | null;
+  uploaderName?: string | null;
+  createdAt: string;
+}
+
+export interface CloudStorageStatus {
+  r2Configured: boolean;
+  bucket: string;
+  provider: string;
 }
 
 export const api = new ApiClient();

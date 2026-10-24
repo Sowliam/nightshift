@@ -4,11 +4,16 @@ import { SoundboardItem, Playlist, soundboardStorage } from '../services/soundbo
 import { soundboardAudioEngine, ActiveSoundInfo } from '../services/soundboard-audio-engine';
 import { seedDefaultSoundsIfEmpty } from '../services/soundboard-presets';
 import { useLiveKitStore } from './livekit.store';
+import { api, CloudSoundItem, CloudStorageStatus } from '../lib/api';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
 interface SoundboardState {
   sounds: SoundboardItem[];
+  cloudSounds: CloudSoundItem[];
+  isCloudLoading: boolean;
+  isCloudUploading: boolean;
+  cloudStorageStatus: CloudStorageStatus | null;
   playlists: Playlist[];
   activePlaylistId: string | null;
   queue: string[];
@@ -44,6 +49,14 @@ interface SoundboardState {
   updateSound: (id: string, updates: Partial<SoundboardItem>) => Promise<void>;
   deleteSound: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
+
+  // Cloudflare R2 / Server Cloud Library Actions
+  loadCloudSounds: () => Promise<void>;
+  loadCloudStorageStatus: () => Promise<void>;
+  uploadToCloud: (file: File, customName?: string, category?: string) => Promise<boolean>;
+  deleteFromCloud: (id: string) => Promise<boolean>;
+  playCloudSound: (cloudItem: CloudSoundItem, localOnly?: boolean) => Promise<void>;
+  saveCloudToLocal: (cloudItem: CloudSoundItem) => Promise<boolean>;
 
   // Playlist & Queue Actions
   createPlaylist: (name: string) => Promise<Playlist>;
@@ -111,6 +124,10 @@ export const useSoundboardStore = create<SoundboardState>()(
 
       return {
         sounds: [],
+        cloudSounds: [],
+        isCloudLoading: false,
+        isCloudUploading: false,
+        cloudStorageStatus: null,
         playlists: [],
         activePlaylistId: null,
         queue: [],
@@ -136,6 +153,8 @@ export const useSoundboardStore = create<SoundboardState>()(
           try {
             // Seed presets asynchronously in the background so it never blocks UI loading
             seedDefaultSoundsIfEmpty().catch((e) => console.warn('Preset seed notice:', e));
+            get().loadCloudStorageStatus().catch(() => {});
+            get().loadCloudSounds().catch(() => {});
 
             const items = await soundboardStorage.getAllItems();
             const storedPlaylists = await soundboardStorage.getAllPlaylists();
@@ -164,6 +183,136 @@ export const useSoundboardStore = create<SoundboardState>()(
             set({ playlists: list });
           } catch (err) {
             console.warn('Failed to load playlists:', err);
+          }
+        },
+
+        loadCloudSounds: async () => {
+          set({ isCloudLoading: true });
+          try {
+            const list = await api.getCloudSounds();
+            set({ cloudSounds: list, isCloudLoading: false });
+          } catch (err: any) {
+            console.warn('Failed to load cloud sounds:', err);
+            set({ isCloudLoading: false });
+          }
+        },
+
+        loadCloudStorageStatus: async () => {
+          try {
+            const status = await api.getCloudStorageStatus();
+            set({ cloudStorageStatus: status });
+          } catch (err) {
+            console.warn('Failed to load cloud storage status:', err);
+          }
+        },
+
+        uploadToCloud: async (file: File, customName?: string, category = 'General') => {
+          set({ isCloudUploading: true, error: null });
+          try {
+            if (file.size > 40 * 1024 * 1024) {
+              throw new Error('File exceeds maximum size of 40MB');
+            }
+            const rawName = file.name.replace(/\.[^/.]+$/, '');
+            const finalName = (customName && customName.trim()) || rawName;
+
+            let duration = 0;
+            try {
+              const arrayBuf = await file.arrayBuffer();
+              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+              const ctx = new AudioCtx();
+              const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
+              duration = Math.round(decoded.duration * 10) / 10;
+              ctx.close();
+            } catch {}
+
+            const newSound = await api.uploadCloudSound(file, finalName, category, duration);
+            set((state) => ({
+              cloudSounds: [newSound, ...state.cloudSounds],
+              isCloudUploading: false,
+            }));
+            return true;
+          } catch (err: any) {
+            console.error('Failed to upload sound to cloud:', err);
+            set({ error: err.message || 'Upload failed', isCloudUploading: false });
+            return false;
+          } finally {
+            set({ isCloudUploading: false });
+          }
+        },
+
+        deleteFromCloud: async (id: string) => {
+          try {
+            await api.deleteCloudSound(id);
+            set((state) => ({
+              cloudSounds: state.cloudSounds.filter((s) => s.id !== id),
+            }));
+            return true;
+          } catch (err: any) {
+            console.error('Failed to delete cloud sound:', err);
+            set({ error: err.message || 'Delete failed' });
+            return false;
+          }
+        },
+
+        playCloudSound: async (cloudItem: CloudSoundItem, localOnly = false) => {
+          try {
+            const soundboardItem: SoundboardItem = {
+              id: cloudItem.id,
+              name: cloudItem.name,
+              category: cloudItem.category,
+              volume: 80,
+              hotkey: null,
+              duration: cloudItem.duration,
+              createdAt: new Date(cloudItem.createdAt).getTime(),
+              audioUrl: cloudItem.audioUrl,
+              source: 'cloud',
+            };
+
+            const qIndex = get().queue.indexOf(cloudItem.id);
+            if (qIndex >= 0) {
+              set({ currentQueueIndex: qIndex });
+            } else if (!localOnly) {
+              set({ queue: [cloudItem.id], currentQueueIndex: 0 });
+            }
+
+            await soundboardAudioEngine.playSound(soundboardItem, localOnly);
+            if (!localOnly) {
+              useLiveKitStore.getState().broadcastSoundboardPlaying(soundboardItem.id, soundboardItem.name, soundboardItem.duration);
+            }
+          } catch (err: any) {
+            console.error(`Error playing cloud sound ${cloudItem.name}:`, err);
+            set({ error: err.message || 'Playback error' });
+          }
+        },
+
+        saveCloudToLocal: async (cloudItem: CloudSoundItem) => {
+          try {
+            const fullUrl = cloudItem.audioUrl.startsWith('http')
+              ? cloudItem.audioUrl
+              : `${api.getBaseUrl()}${cloudItem.audioUrl.startsWith('/') ? '' : '/'}${cloudItem.audioUrl}`;
+            const res = await fetch(fullUrl);
+            if (!res.ok) throw new Error('Failed to fetch audio from cloud');
+            const arrayBuffer = await res.arrayBuffer();
+
+            const localItem: SoundboardItem = {
+              id: `snd_local_${cloudItem.id}`,
+              name: cloudItem.name,
+              category: cloudItem.category,
+              volume: 80,
+              hotkey: null,
+              duration: cloudItem.duration,
+              createdAt: Date.now(),
+              isFavorite: false,
+            };
+
+            await soundboardStorage.saveSound(localItem, arrayBuffer);
+            const updatedSounds = await soundboardStorage.getAllItems();
+            set({ sounds: updatedSounds });
+            return true;
+          } catch (err: any) {
+            console.error('Failed to save cloud sound locally:', err);
+            set({ error: err.message || 'Failed to download to local library' });
+            return false;
           }
         },
 

@@ -102,3 +102,17 @@ model Message {
   attachmentType String?
   createdAt      DateTime @default(now())
 }
+
+model SoundItem {
+  id           String   @id @default(cuid())
+  name         String
+  category     String   @default("General")
+  storageKey   String
+  audioUrl     String
+  duration     Float    @default(0)
+  sizeBytes    Int      @default(0)
+  uploaderId   String?
+  uploaderName String?
+  createdAt    DateTime @default(now())
+}
+
