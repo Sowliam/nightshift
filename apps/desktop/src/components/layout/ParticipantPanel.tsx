@@ -29,7 +29,7 @@ import { ServerMemberDto } from '@nightshift/shared';
 export const ParticipantPanel: React.FC = () => {
   const { activeServerId, servers, members, fetchMembers, moderateMember, activeChannelId, channels } = useServerStore();
   const { user } = useAuthStore();
-  const { activeSpeakers, isLocallySpeaking, remoteScreenShares, activeScreenTrack } = useLiveKitStore();
+  const { activeSpeakers, isLocallySpeaking, availableScreenShares = [], activeScreenTrack } = useLiveKitStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,13 +76,14 @@ export const ParticipantPanel: React.FC = () => {
     return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  const getInitials = (name: string) => {
-    return (name || 'U')
-      .split(' ')
-      .map((part) => part[0])
-      .join('')
-      .substring(0, 2)
-      .toUpperCase();
+  const getInitials = (name?: string | null) => {
+    if (!name || typeof name !== 'string') return 'U';
+    const clean = name.trim();
+    if (!clean) return 'U';
+    const parts = clean.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
   };
 
   // Filter members by search query
@@ -91,15 +92,15 @@ export const ParticipantPanel: React.FC = () => {
     if (!query) return members;
     return members.filter(
       (m) =>
-        m.displayName.toLowerCase().includes(query) ||
-        m.username.toLowerCase().includes(query) ||
+        (m.displayName && m.displayName.toLowerCase().includes(query)) ||
+        (m.username && m.username.toLowerCase().includes(query)) ||
         (m.role && m.role.toLowerCase().includes(query))
     );
   }, [members, query]);
 
   // Partition filtered members into online & offline
-  const onlineMembers = filteredMembers.filter((m) => m.isOnline);
-  const offlineMembers = filteredMembers.filter((m) => !m.isOnline);
+  const onlineMembers = filteredMembers.filter((m) => m && m.isOnline);
+  const offlineMembers = filteredMembers.filter((m) => m && !m.isOnline);
 
   // Compute dynamic Activity feed matching Discord layout
   const activities = useMemo(() => {
@@ -116,10 +117,11 @@ export const ParticipantPanel: React.FC = () => {
 
     // 1. Live Screen Shares
     if (activeScreenTrack && user) {
+      const uName = user.displayName || user.username || 'User';
       list.push({
         id: 'local-share',
-        user: user.displayName || user.username,
-        avatarInitials: getInitials(user.displayName),
+        user: uName,
+        avatarInitials: getInitials(uName),
         title: 'Screen Share Live',
         subtitle: `📺 In #${activeChannel?.name || 'Voice'}`,
         iconType: 'live',
@@ -128,28 +130,33 @@ export const ParticipantPanel: React.FC = () => {
       });
     }
 
-    remoteScreenShares.forEach((share) => {
-      list.push({
-        id: `remote-${share.participantIdentity}`,
-        user: share.participantName,
-        avatarInitials: getInitials(share.participantName),
-        title: 'Screen Share',
-        subtitle: `📺 In #${activeChannel?.name || 'Voice'}`,
-        iconType: 'live',
-        badgeColor: 'bg-red-500/20 text-red-400 border border-red-500/40',
-        badgeText: 'LIVE',
+    if (Array.isArray(availableScreenShares)) {
+      availableScreenShares.forEach((share) => {
+        if (!share) return;
+        const sName = share.participantName || 'Guest';
+        list.push({
+          id: `remote-${share.participantIdentity}`,
+          user: sName,
+          avatarInitials: getInitials(sName),
+          title: 'Screen Share',
+          subtitle: `📺 In #${activeChannel?.name || 'Voice'}`,
+          iconType: 'live',
+          badgeColor: 'bg-red-500/20 text-red-400 border border-red-500/40',
+          badgeText: 'LIVE',
+        });
       });
-    });
+    }
 
     // 2. Realistic gaming/presence activities matching Image 1
-    const onlineOthers = onlineMembers.filter((m) => m.userId !== user?.id);
-    const primaryActive = onlineOthers[0] || (user ? { displayName: user.displayName, username: user.username } : null);
+    const onlineOthers = onlineMembers.filter((m) => m && m.userId !== user?.id);
+    const primaryActive = onlineOthers[0] || (user ? { displayName: user.displayName || user.username, username: user.username } : null);
 
     if (primaryActive) {
+      const activeName = primaryActive.displayName || primaryActive.username || 'User';
       list.push({
         id: 'game-dota',
-        user: primaryActive.displayName || primaryActive.username,
-        avatarInitials: getInitials(primaryActive.displayName || primaryActive.username),
+        user: activeName,
+        avatarInitials: getInitials(activeName),
         title: 'Dota 2',
         subtitle: '🏆 Most played: 12h',
         iconType: 'game',
@@ -158,8 +165,8 @@ export const ParticipantPanel: React.FC = () => {
       });
       list.push({
         id: 'game-cs2',
-        user: primaryActive.displayName || primaryActive.username,
-        avatarInitials: getInitials(primaryActive.displayName || primaryActive.username),
+        user: activeName,
+        avatarInitials: getInitials(activeName),
         title: 'Counter-Strike 2',
         subtitle: '🎮 3h ago',
         iconType: 'game',
@@ -169,9 +176,10 @@ export const ParticipantPanel: React.FC = () => {
     }
 
     return list.slice(0, 3);
-  }, [activeScreenTrack, remoteScreenShares, onlineMembers, user, activeChannel]);
+  }, [activeScreenTrack, availableScreenShares, onlineMembers, user, activeChannel]);
 
   const canModerate = (target: ServerMemberDto) => {
+    if (!target) return false;
     if (!isOwnerOrAdmin) return false;
     if (target.userId === user?.id) return false;
     if (currentMember?.role === 'owner') return true;
@@ -180,7 +188,7 @@ export const ParticipantPanel: React.FC = () => {
   };
 
   const handleToggleMute = async (target: ServerMemberDto) => {
-    if (!activeServerId) return;
+    if (!activeServerId || !target) return;
     const action = target.isServerMuted ? 'unmute' : 'mute';
     setModActionPending(target.userId);
     await moderateMember(activeServerId, target.userId, action);
@@ -189,7 +197,7 @@ export const ParticipantPanel: React.FC = () => {
   };
 
   const handleToggleDeafen = async (target: ServerMemberDto) => {
-    if (!activeServerId) return;
+    if (!activeServerId || !target) return;
     const action = target.isServerDeafened ? 'undeafen' : 'deafen';
     setModActionPending(target.userId);
     await moderateMember(activeServerId, target.userId, action);
@@ -214,7 +222,8 @@ export const ParticipantPanel: React.FC = () => {
 
   // Helper to determine member custom subtitle (matching Image 1)
   const getMemberSubtitle = (member: ServerMemberDto) => {
-    const nameLower = (member.displayName + ' ' + member.username).toLowerCase();
+    if (!member) return '';
+    const nameLower = ((member.displayName || '') + ' ' + (member.username || '')).toLowerCase();
     if (nameLower.includes('garlic') || nameLower.includes('gartic')) return 'garticbot.gg';
     if (nameLower.includes('google')) return '/help | google-bot.xyz';
     if (nameLower.includes('jockie')) return 'm!help';
@@ -226,11 +235,12 @@ export const ParticipantPanel: React.FC = () => {
     if (nameLower.includes('translat')) return '-t help | translator.nvu.io';
     if (nameLower.includes('snail')) return '/help';
     if (nameLower.includes('silent')) return 'silent';
-    return `@${member.username}`;
+    return member.username ? `@${member.username}` : '';
   };
 
   const isBotUser = (member: ServerMemberDto) => {
-    const str = (member.displayName + ' ' + member.username + ' ' + member.role).toLowerCase();
+    if (!member) return false;
+    const str = ((member.displayName || '') + ' ' + (member.username || '') + ' ' + (member.role || '')).toLowerCase();
     return str.includes('bot') || member.role === 'bot' || str.includes('app');
   };
 
