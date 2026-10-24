@@ -713,59 +713,76 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
           />
         )}
 
-        {/* User Identity Footer Profile */}
-        <div className="p-3 bg-bg-main border-t border-border-subtle flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-full bg-highlight border border-border-subtle flex items-center justify-center text-xs font-black text-highlight-text shrink-0 shadow-sm">
+        {/* User Identity Footer Profile (Upgraded with high contrast, animations & Discord styling) */}
+        <div className="p-2 mx-1.5 mb-1.5 bg-[#0e0f11] border border-[#232428] rounded-2xl flex items-center justify-between shrink-0 shadow-subtle backdrop-blur-sm select-none">
+          <div
+            onClick={onOpenSettings}
+            className="flex items-center gap-2.5 min-w-0 flex-1 mr-1 p-1 -ml-0.5 rounded-xl hover:bg-[#1f2024]/70 transition-all duration-150 cursor-pointer group"
+            title="Open User Settings"
+          >
+            <div className="w-9 h-9 rounded-full bg-[#18191c] border border-[#2b2d31] flex items-center justify-center text-xs font-black text-[#f2f3f5] shrink-0 shadow-sm relative group-hover:scale-105 transition-transform">
               {user ? getInitials(user.displayName) : 'U'}
+              {/* Online Presence Dot */}
+              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#23a55a] border-2 border-[#0e0f11] shadow-sm" />
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-bold text-text-primary truncate">
+            <div className="flex flex-col min-w-0 leading-tight">
+              <span className="text-[13.5px] font-bold text-[#f2f3f5] truncate group-hover:text-white transition-colors">
                 {user?.displayName || 'Connecting...'}
               </span>
-              <span className="text-[10px] text-text-muted truncate font-mono">
+              <span className="text-[11px] text-[#949ba4] truncate font-medium mt-0.5">
                 @{user?.username || 'user'}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-0.5 shrink-0">
+            {/* Mic Toggle Button */}
             <button
               onClick={() => {
                 toggleMute();
                 setSelfMuted(!isMuted);
               }}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
                 isMuted
-                  ? 'bg-destructive/20 text-destructive'
-                  : 'text-highlight hover:bg-bg-elevated hover:text-white'
+                  ? 'bg-[#f23f43]/15 text-[#f23f43] border border-[#f23f43]/30 hover:bg-[#f23f43]/25 shadow-sm'
+                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31]'
               }`}
-              title={isMuted ? 'Unmute Mic' : 'Mute Mic'}
+              title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}
             >
-              {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              {isMuted ? (
+                <MicOff className="w-4 h-4 stroke-[2.2]" />
+              ) : (
+                <Mic className="w-4 h-4 stroke-[2.2]" />
+              )}
             </button>
 
+            {/* Deafen Toggle Button */}
             <button
               onClick={() => {
                 toggleDeafen();
                 setSelfDeafened(!isDeafened);
               }}
-              className={`p-1.5 rounded-lg transition-colors ${
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 ${
                 isDeafened
-                  ? 'bg-destructive/20 text-destructive'
-                  : 'text-highlight hover:bg-bg-elevated hover:text-white'
+                  ? 'bg-[#f23f43]/15 text-[#f23f43] border border-[#f23f43]/30 hover:bg-[#f23f43]/25 shadow-sm'
+                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31]'
               }`}
-              title={isDeafened ? 'Undeafen Audio' : 'Deafen Audio'}
+              title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
             >
-              <Headphones className="w-4 h-4" />
+              {isDeafened ? (
+                <VolumeX className="w-4 h-4 stroke-[2.2]" />
+              ) : (
+                <Headphones className="w-4 h-4 stroke-[2.2]" />
+              )}
             </button>
 
+            {/* Settings Button */}
             <button
               onClick={onOpenSettings}
-              className="p-1.5 rounded-lg text-highlight hover:bg-bg-elevated hover:text-white transition-colors"
-              title="Settings"
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#2b2d31] transition-all duration-200 cursor-pointer active:scale-90 hover:scale-105 group"
+              title="User Settings"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-4 h-4 stroke-[2.2] transition-transform duration-300 group-hover:rotate-45" />
             </button>
           </div>
         </div>

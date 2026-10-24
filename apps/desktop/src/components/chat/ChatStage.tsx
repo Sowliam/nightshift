@@ -224,80 +224,38 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
   return (
     <div className="flex-1 h-full bg-bg-main flex flex-col relative overflow-hidden select-none">
-      {/* Top Bar Header */}
-      <div className="h-14 px-6 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-secondary/40 backdrop-blur-md z-10">
-        {/* Left: Channel Name */}
-        <div className="flex items-center gap-2 min-w-0">
-          {isVoiceChannel ? (
-            <Radio className="w-5 h-5 text-highlight animate-pulse shrink-0" />
-          ) : (
-            <Hash className="w-5 h-5 text-text-muted shrink-0" />
-          )}
-          <span className="text-sm font-bold text-text-primary tracking-wide truncate">
-            {activeChannel ? activeChannel.name : 'select a channel'}
-          </span>
-          {activeServer && (
-            <span className="text-[11px] text-text-muted px-2 py-0.5 rounded bg-bg-elevated border border-border-subtle font-medium truncate max-w-[120px]">
-              {activeServer.name}
+      {/* Top Bar Header - completely hidden on Voice Stage to remove the redundant double-stacked header */}
+      {(!isVoiceChannel || viewMode !== 'stream') && (
+        <div className="h-12 px-5 border-b border-[#232428] flex items-center justify-between shrink-0 bg-[#0e0f11]/85 backdrop-blur-md z-10 select-none">
+          {/* Left: Channel Name */}
+          <div className="flex items-center gap-2 min-w-0">
+            <Hash className="w-5 h-5 text-[#949ba4] shrink-0" />
+            <span className="text-[14px] font-bold text-[#f2f3f5] tracking-wide truncate">
+              {activeChannel ? activeChannel.name : 'select a channel'}
             </span>
-          )}
+            {activeServer && (
+              <span className="text-[11px] text-[#949ba4] px-2 py-0.5 rounded-md bg-[#18191c] border border-[#232428] font-medium truncate max-w-[140px]">
+                {activeServer.name}
+              </span>
+            )}
+          </div>
 
-          {/* Voice Room / Chat Toggle */}
-          {isVoiceChannel && (
-            <div className="ml-4 flex items-center gap-1 p-0.5 rounded-lg bg-bg-elevated border border-border-subtle text-xs">
-              <button
-                onClick={() => setViewMode('stream')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-all ${
-                  viewMode === 'stream'
-                    ? 'bg-highlight text-highlight-text font-bold shadow-sm'
-                    : 'text-text-secondary hover:text-highlight'
-                }`}
-              >
-                <Radio className="w-3.5 h-3.5" />
-                Voice Stage {isStreaming && <span className="w-1.5 h-1.5 rounded-full bg-online animate-ping" />}
-              </button>
-              <button
-                onClick={() => setViewMode('chat')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-all ${
-                  viewMode === 'chat'
-                    ? 'bg-highlight text-highlight-text font-bold shadow-sm'
-                    : 'text-text-secondary hover:text-highlight'
-                }`}
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                Chat
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right Action Icons & Search */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            onClick={onToggleMembers}
-            className={`p-1.5 rounded-lg transition-colors ${
-              isMembersOpen
-                ? 'text-highlight bg-bg-elevated border border-border-subtle'
-                : 'text-text-secondary hover:text-highlight hover:bg-bg-elevated'
-            }`}
-            title="Toggle Member List"
-          >
-            <Users className="w-4 h-4" />
-          </button>
-
-          {/* Search Bar */}
-          <div className="relative flex items-center">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search..."
-              className="w-40 focus:w-56 h-8 pl-8 pr-3 rounded-xl bg-bg-elevated border border-border-subtle focus:border-highlight text-xs text-text-primary placeholder:text-text-muted focus:outline-none transition-all"
-            />
-            <Search className="w-3.5 h-3.5 text-highlight absolute left-2.5 pointer-events-none" />
+          {/* Right Action: Toggle Member List with micro-animation */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onToggleMembers}
+              className={`p-2 rounded-xl transition-all duration-200 active:scale-90 hover:scale-105 cursor-pointer ${
+                isMembersOpen
+                  ? 'text-white bg-[#35373c]/70 shadow-sm border border-[#35373c]'
+                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#35373c]/40'
+              }`}
+              title="Toggle Member List"
+            >
+              <Users className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content Area: Voice Stage or Text Chat */}
       {viewMode === 'stream' && isVoiceChannel ? (

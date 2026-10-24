@@ -4,22 +4,22 @@
 
 :root {
   --bg-main: #0A0908; /* Primary Color: True Deep Black */
-  --bg-secondary: #121110; /* Sidebar & Panel Surface */
-  --bg-elevated: #1C1A18; /* Elevated Card Surface */
-  --bg-hover: #262421;
+  --bg-secondary: #111214; /* Discord-style Sidebar & Panel Surface */
+  --bg-elevated: #18191c; /* Elevated Card Surface */
+  --bg-hover: #2b2d31;
   --highlight: #F1FAEE; /* Buttons and Icons Highlight */
   --highlight-hover: #FFFFFF;
   --highlight-text: #0A0908;
-  --border: #292623;
-  --border-subtle: #1F1D1B;
-  --border-strong: #3D3935;
-  --text-primary: #F1FAEE;
-  --text-secondary: #A8A39D;
-  --text-muted: #736E68;
-  --accent: #F1FAEE;
-  --accent-hover: #FFFFFF;
-  --accent-bright: #52B788;
-  --destructive: #E05252;
+  --border: #232428;
+  --border-subtle: #1f2023;
+  --border-strong: #35373c;
+  --text-primary: #F2F3F5;
+  --text-secondary: #DBDEE1;
+  --text-muted: #949BA4;
+  --accent: #5865F2; /* Discord Blurple Accent */
+  --accent-hover: #4752C4;
+  --accent-bright: #23A55A; /* Discord Online Green */
+  --destructive: #F23F43; /* Discord DND / Danger Red */
 }
 
 body {
@@ -31,10 +31,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar */
+/* Custom Sleek Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -42,12 +42,13 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30343A;
-  border-radius: 3px;
+  background: #232428;
+  border-radius: 4px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3F444C;
+  background: #35373c;
 }
 
 /* Electron Window Drag Regions */
@@ -62,18 +63,34 @@ body {
 /* Speaking Wave & Pulse Animation */
 @keyframes speaking-glow {
   0%, 100% {
-    box-shadow: 0 0 0 2px rgba(196, 211, 106, 0.9);
+    box-shadow: 0 0 0 2px rgba(35, 165, 90, 0.9);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(196, 211, 106, 0.4);
+    box-shadow: 0 0 0 5px rgba(35, 165, 90, 0.35);
   }
 }
 
 .speaking-ring {
-  animation: speaking-glow 1.5s infinite ease-in-out;
+  animation: speaking-glow 1.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Transitions */
-button, input, select {
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+/* Smooth Fade In */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Micro-interaction Smooth Transitions */
+button, input, select, a {
+  transition: all 0.15s cubic-bezier(0.2, 0, 0, 1);
 }

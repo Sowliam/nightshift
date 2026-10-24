@@ -565,20 +565,20 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
 
   return (
     <div className="flex-1 h-full bg-bg-main flex flex-col relative overflow-hidden select-none">
-      {/* Top Bar */}
-      <div className="h-14 px-6 border-b border-border-subtle flex items-center justify-between shrink-0 bg-bg-secondary/40">
+      {/* Voice Channel Header */}
+      <div className="h-12 px-5 border-b border-[#232428] flex items-center justify-between shrink-0 bg-[#0e0f11]/85 backdrop-blur-md z-10 select-none">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Radio
-              className={`w-4 h-4 ${isRoomActive ? 'text-accent animate-pulse' : 'text-text-muted'}`}
+              className={`w-4 h-4 ${isRoomActive ? 'text-[#23a55a] animate-pulse' : 'text-[#949ba4]'}`}
             />
-            <h1 className="text-base font-semibold text-text-primary tracking-wide">
+            <h1 className="text-sm font-bold text-[#f2f3f5] tracking-wide">
               {channelName}
             </h1>
           </div>
 
           {(activeChannel || selectedRoom) && (
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-bg-elevated border border-border-subtle text-xs text-text-secondary">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#18191c] border border-[#232428] text-xs text-[#949ba4]">
               <Users className="w-3.5 h-3.5" />
               <span>{isRoomActive ? 'Connected' : 'Voice Channel'}</span>
             </div>
@@ -587,18 +587,18 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
           {/* Connection Status Badge */}
           {isRoomActive ? (
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-accent-subtle text-accent text-xs font-semibold uppercase tracking-wider">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#23a55a]/15 text-[#23a55a] text-[11px] font-bold uppercase tracking-wider">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#23a55a] animate-pulse" />
                 Live Room
               </span>
 
-              {/* Real-Time Ping Badge (Accurate WebRTC RTT) */}
+              {/* Real-Time Ping Badge */}
               <button
                 onClick={onOpenServers}
-                className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-bg-elevated hover:bg-bg-hover border border-border-subtle hover:border-accent text-xs font-mono text-accent transition-all cursor-pointer"
-                title="Active WebRTC RTT Latency to Frankfurt Server"
+                className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#18191c] hover:bg-[#2b2d31] border border-[#232428] hover:border-[#35373c] text-[11px] font-mono text-[#f2f3f5] transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="Active WebRTC RTT Latency"
               >
-                <Zap className="w-3 h-3 text-accent" />
+                <Zap className="w-3 h-3 text-[#52B788]" />
                 <span>{currentPing !== null ? `${currentPing} ms` : 'Testing...'}</span>
               </button>
 
@@ -607,14 +607,14 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
                 <span
                   className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all ${
                     isLocallySpeaking
-                      ? 'bg-accent text-bg-main border-accent font-bold shadow-[0_0_8px_rgba(196,211,106,0.5)]'
-                      : 'bg-bg-elevated border-border-subtle text-text-secondary'
+                      ? 'bg-[#52B788] text-black border-[#52B788] font-bold shadow-sm'
+                      : 'bg-[#18191c] border-[#232428] text-[#949ba4]'
                   }`}
                   title={`Push-to-Talk active. Hold [${pushToTalkKey}] to speak.`}
                 >
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
-                      isLocallySpeaking ? 'bg-bg-main animate-ping' : 'bg-text-muted'
+                      isLocallySpeaking ? 'bg-black animate-ping' : 'bg-[#949ba4]'
                     }`}
                   />
                   {isLocallySpeaking ? 'Transmitting' : `PTT: [${pushToTalkKey}]`}
@@ -627,7 +627,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
               Connecting...
             </span>
           ) : (
-            <span className="text-xs text-text-muted">Disconnected</span>
+            <span className="text-xs text-[#949ba4]">Disconnected</span>
           )}
         </div>
 
@@ -638,7 +638,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
               <button
                 onClick={handleJoinCurrentRoom}
                 disabled={isConnecting}
-                className="px-3.5 py-1.5 rounded-xl bg-highlight hover:bg-white text-highlight-text font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-xl bg-highlight hover:bg-white text-highlight-text font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm hover:scale-105 active:scale-95 cursor-pointer"
               >
                 {isConnecting ? (
                   <>
@@ -655,7 +655,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
               {isConnecting && (
                 <button
                   onClick={() => disconnect()}
-                  className="px-2.5 py-1.5 rounded-xl bg-destructive/15 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-xl bg-destructive/15 hover:bg-destructive text-destructive hover:text-white border border-destructive/30 text-xs font-semibold flex items-center gap-1 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                   title="Cancel Connection / Disconnect"
                 >
                   <PhoneOff className="w-3.5 h-3.5" />
@@ -667,17 +667,17 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
 
           <button
             onClick={handleCopyInviteLink}
-            className="px-3 py-1.5 rounded-lg bg-bg-elevated hover:bg-bg-hover border border-border-subtle hover:border-accent text-xs font-medium text-text-primary flex items-center gap-1.5 transition-all cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#2b2d31] border border-[#232428] hover:border-[#35373c] text-xs font-medium text-[#f2f3f5] flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
             title="Copy Invite Link"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-accent" />
-                <span className="text-accent">Copied!</span>
+                <Check className="w-3.5 h-3.5 text-[#52B788]" />
+                <span className="text-[#52B788]">Copied!</span>
               </>
             ) : (
               <>
-                <Copy className="w-3.5 h-3.5 text-text-secondary" />
+                <Copy className="w-3.5 h-3.5 text-[#949ba4]" />
                 <span>Copy Invite Link</span>
               </>
             )}
