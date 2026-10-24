@@ -18,6 +18,8 @@ import {
   Play,
   Pause,
   PhoneOff,
+  ShieldAlert,
+  RotateCw,
 } from 'lucide-react';
 import { useLiveKitStore, ActiveScreenShare } from '../../stores/livekit.store';
 import { useServerStore } from '../../stores/server.store';
@@ -186,7 +188,28 @@ const StreamTile: React.FC<StreamTileProps> = ({
   };
 
   const toggleFullscreen = () => {
-    setIsFullscreen((prev) => !prev);
+    const nextFullscreen = !isFullscreen;
+    setIsFullscreen(nextFullscreen);
+    if (share.isLocal) {
+      if (nextFullscreen) {
+        // Automatically pause/freeze local preview upon entering fullscreen to prevent the infinite recursive mirror tunnel!
+        setIsLocalPreviewPaused(true);
+        videoRef.current?.pause();
+      }
+    }
+  };
+
+  const updateSnapshot = () => {
+    if (!videoRef.current) return;
+    videoRef.current
+      .play()
+      .then(() => {
+        setTimeout(() => {
+          videoRef.current?.pause();
+          setIsLocalPreviewPaused(true);
+        }, 120);
+      })
+      .catch(() => {});
   };
 
   const togglePiP = async () => {
@@ -319,43 +342,55 @@ const StreamTile: React.FC<StreamTileProps> = ({
             </button>
           )}
 
-          {/* If streaming own screen, add Freeze / Resume Preview button */}
+          {/* If streaming own screen, add Snapshot Refresh & Freeze/Resume Preview buttons */}
           {share.isLocal && (
-            <button
-              onClick={() => {
-                if (videoRef.current) {
-                  if (isLocalPreviewPaused) {
-                    videoRef.current.play().catch(() => {});
-                    setIsLocalPreviewPaused(false);
-                  } else {
-                    videoRef.current.pause();
-                    setIsLocalPreviewPaused(true);
-                  }
-                }
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer mr-1 ${
-                isLocalPreviewPaused
-                  ? 'bg-accent/20 text-accent border border-accent/40'
-                  : 'bg-bg-elevated hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle'
-              }`}
-              title={
-                isLocalPreviewPaused
-                  ? 'Resume live stream preview'
-                  : 'Freeze preview to inspect lossless sharpness without infinite mirror loop'
-              }
-            >
-              {isLocalPreviewPaused ? (
-                <>
-                  <Play className="w-3.5 h-3.5 fill-current text-accent" />
-                  <span className="text-accent hidden sm:inline">Resume</span>
-                </>
-              ) : (
-                <>
-                  <Pause className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Freeze</span>
-                </>
+            <div className="flex items-center gap-1 mr-1">
+              {isLocalPreviewPaused && (
+                <button
+                  onClick={updateSnapshot}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-bg-elevated hover:bg-bg-hover text-text-primary border border-border-subtle text-xs font-semibold transition-colors cursor-pointer"
+                  title="ثبت فریم جدید از صفحه (Snapshot شفاف و بدون لوپ)"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-accent" />
+                  <span className="hidden sm:inline">بروزرسانی</span>
+                </button>
               )}
-            </button>
+              <button
+                onClick={() => {
+                  if (videoRef.current) {
+                    if (isLocalPreviewPaused) {
+                      videoRef.current.play().catch(() => {});
+                      setIsLocalPreviewPaused(false);
+                    } else {
+                      videoRef.current.pause();
+                      setIsLocalPreviewPaused(true);
+                    }
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  isLocalPreviewPaused
+                    ? 'bg-accent/20 text-accent border border-accent/40'
+                    : 'bg-bg-elevated hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle'
+                }`}
+                title={
+                  isLocalPreviewPaused
+                    ? 'پخش زنده استریم'
+                    : 'ثابت کردن تصویر (جلوگیری از لوپ آینه‌ای و تونل سبز)'
+                }
+              >
+                {isLocalPreviewPaused ? (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current text-accent" />
+                    <span className="text-accent hidden sm:inline">پخش زنده</span>
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">ثابت کردن</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           {/* Fullscreen Toggle */}
@@ -393,6 +428,40 @@ const StreamTile: React.FC<StreamTileProps> = ({
           )}
         </div>
       </div>
+
+      {/* Mirror Shield Information Banner when viewing self in Fullscreen */}
+      {share.isLocal && isFullscreen && isLocalPreviewPaused && (
+        <div
+          className={`absolute top-16 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-bg-main/95 backdrop-blur-md border border-accent/40 text-xs shadow-2xl z-30 pointer-events-auto transition-opacity duration-300 max-w-lg ${
+            showControls ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <div className="w-7 h-7 rounded-lg bg-accent/20 border border-accent/40 flex items-center justify-center shrink-0">
+            <ShieldAlert className="w-4 h-4 text-accent" />
+          </div>
+          <div className="text-left flex-1">
+            <div className="font-bold text-text-primary text-xs flex items-center gap-1.5">
+              <span>Mirror Shield Active</span>
+              <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded font-mono font-semibold">1:1 Lossless</span>
+            </div>
+            <p className="text-[11px] text-text-secondary mt-0.5 leading-snug">
+              پیش‌نمایش برای جلوگیری از لوپ بی‌نهایت و سبز شدن تصویر ثابت شد تا کیفیت را دقیق بررسی کنید.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              if (videoRef.current) {
+                videoRef.current.play().catch(() => {});
+                setIsLocalPreviewPaused(false);
+              }
+            }}
+            className="px-2.5 py-1 rounded-lg bg-bg-elevated hover:bg-bg-hover text-text-primary border border-border-subtle text-[11px] font-semibold transition-colors shrink-0 cursor-pointer"
+            title="پخش زنده متحرک"
+          >
+            پخش زنده
+          </button>
+        </div>
+      )}
 
       {/* Bottom ESC exit hint when in Fullscreen */}
       {isFullscreen && (
