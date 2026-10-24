@@ -513,7 +513,11 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
                 <div className="space-y-1">
                   {voiceChannels.map((c) => {
-                    const isConnected = activeVoiceChannelId === c.id && connectionState === ConnectionState.Connected;
+                    const isConnected =
+                      connectionState === ConnectionState.Connected &&
+                      (activeVoiceChannelId === c.id ||
+                        (!activeVoiceChannelId && activeChannelId === c.id) ||
+                        (!activeVoiceChannelId && voiceChannels.length === 1));
                     const isConnecting = joiningVoiceChannelId === c.id;
                     const channelParticipants = c.voiceParticipants || [];
                     const participantCount = isConnected ? 1 + remoteParticipants.length : channelParticipants.length;

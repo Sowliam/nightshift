@@ -490,11 +490,14 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     connectionState === ConnectionState.Connecting ||
     connectionState === ConnectionState.Reconnecting;
 
-  const isRoomActive =
-    (isConnected &&
-      ((activeChannel && activeVoiceChannelId === activeChannel.id) ||
-        (selectedRoom && activeRoomId === selectedRoom.id))) ||
-    false;
+  const isRoomActive = isConnected;
+
+  // Keep activeVoiceChannelId in sync whenever user is connected to voice
+  useEffect(() => {
+    if (isConnected && activeChannel?.type === 'voice' && !activeVoiceChannelId) {
+      setActiveVoiceChannel(activeChannel.id);
+    }
+  }, [isConnected, activeChannel, activeVoiceChannelId, setActiveVoiceChannel]);
 
   // Streams that the user is actively watching
   const watchedShares = availableScreenShares.filter((s) =>
@@ -811,11 +814,13 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
           )
         ) : (
           /* Discord Voice Users Grid */
-          <VoiceGrid
-            onOpenScreenShareModal={onOpenScreenShareModal}
-            onJoinVoice={handleJoinCurrentRoom}
-            isRoomActive={isRoomActive}
-          />
+          <div className="w-full h-full flex-1 flex items-center justify-center overflow-hidden pb-20">
+            <VoiceGrid
+              onOpenScreenShareModal={onOpenScreenShareModal}
+              onJoinVoice={handleJoinCurrentRoom}
+              isRoomActive={isRoomActive}
+            />
+          </div>
         )}
 
         {/* Floating Call Control Bar (Docked at bottom of stage) */}

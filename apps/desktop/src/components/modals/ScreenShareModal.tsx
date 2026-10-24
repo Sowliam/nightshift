@@ -28,7 +28,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
   const [isLoading, setIsLoading] = useState(false);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
-  // Quality & Stream Customization Settings (Faithful to Discord Screenshot 2)
+  // Quality & Stream Customization Settings
   const [streamMode, setStreamMode] = useState<'gaming' | 'screenshare' | 'custom'>('custom');
   const [resolution, setResolution] = useState<ScreenShareResolution>('720p');
   const [frameRate, setFrameRate] = useState<ScreenShareFramerate>(30);
@@ -120,7 +120,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
     }
   };
 
-  // Quick SD / HD Buttons (Discord style)
+  // Quick SD / HD Buttons
   const handleSelectSD = () => {
     setResolution('720p');
     setFrameRate(30);
@@ -157,18 +157,18 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
   const modeSubtitle = `${resolution} · ${frameRate}fps`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="w-[720px] max-w-full max-h-[92vh] bg-[#313338] text-white rounded-2xl border border-[#1e1f22] shadow-2xl flex flex-col overflow-hidden relative">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none">
+      <div className="w-[720px] max-w-full max-h-[92vh] bg-[#0A0908] text-white rounded-2xl border border-[#232428] shadow-[0_20px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden relative">
         {/* Top Header Bar with Close Button */}
-        <div className="px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
+        <div className="px-6 pt-5 pb-2 flex items-center justify-between shrink-0 bg-[#0A0908]">
           {/* Top Tabs (Applications | Entire Screen | Devices) */}
-          <div className="flex items-center gap-6 border-b border-[#3f4147] flex-1 mr-4">
+          <div className="flex items-center gap-6 border-b border-[#232428] flex-1 mr-4">
             <button
               onClick={() => setActiveTab('applications')}
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'applications'
                   ? 'text-white border-b-2 border-[#5865F2]'
-                  : 'text-[#949ba4] hover:text-[#dbdee1]'
+                  : 'text-[#80848e] hover:text-[#dbdee1]'
               }`}
             >
               <AppWindow className="w-4 h-4" />
@@ -179,7 +179,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'screens'
                   ? 'text-white border-b-2 border-[#5865F2]'
-                  : 'text-[#949ba4] hover:text-[#dbdee1]'
+                  : 'text-[#80848e] hover:text-[#dbdee1]'
               }`}
             >
               <Monitor className="w-4 h-4" />
@@ -190,7 +190,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'devices'
                   ? 'text-white border-b-2 border-[#5865F2]'
-                  : 'text-[#949ba4] hover:text-[#dbdee1]'
+                  : 'text-[#80848e] hover:text-[#dbdee1]'
               }`}
             >
               <Video className="w-4 h-4" />
@@ -200,7 +200,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#949ba4] hover:text-white hover:bg-[#35373c] transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#80848e] hover:text-white hover:bg-[#1a1b1f] transition-colors cursor-pointer"
             title="Close"
           >
             <X className="w-5 h-5" />
@@ -208,27 +208,27 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Scrollable Content Container (Thumbnails 2-column Grid) */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4 bg-[#0A0908]">
           {!window.nightshift?.isElectron ? (
-            <div className="p-4 rounded-xl bg-[#2b2d31] border border-[#3f4147] flex items-center gap-3.5 mb-2">
+            <div className="p-4 rounded-xl bg-[#121316] border border-[#232428] flex items-center gap-3.5 mb-2">
               <div className="w-10 h-10 rounded-lg bg-[#5865F2]/20 text-[#5865F2] flex items-center justify-center shrink-0">
                 <Monitor className="w-5 h-5" />
               </div>
               <div className="flex flex-col text-xs">
                 <span className="font-bold text-white">Browser Screen Capture</span>
-                <span className="text-[#949ba4] leading-relaxed">
+                <span className="text-[#80848e] leading-relaxed">
                   Clicking "Go Live" will prompt your browser to let you choose an Entire Screen, Window, or Tab.
                 </span>
               </div>
             </div>
           ) : activeTab === 'devices' ? (
-            <div className="h-48 flex flex-col items-center justify-center text-center p-6 bg-[#2b2d31]/50 rounded-xl border border-[#3f4147]">
-              <Video className="w-8 h-8 text-[#949ba4] mb-2" />
+            <div className="h-48 flex flex-col items-center justify-center text-center p-6 bg-[#121316]/50 rounded-xl border border-[#232428]">
+              <Video className="w-8 h-8 text-[#80848e] mb-2" />
               <span className="text-sm font-semibold text-white">No Capture Devices Found</span>
-              <p className="text-xs text-[#949ba4] mt-1">Connect a capture card or webcam to stream video directly.</p>
+              <p className="text-xs text-[#80848e] mt-1">Connect a capture card or webcam to stream video directly.</p>
             </div>
           ) : isLoading ? (
-            <div className="h-48 flex flex-col items-center justify-center text-[#949ba4]">
+            <div className="h-48 flex flex-col items-center justify-center text-[#80848e]">
               <Loader2 className="w-7 h-7 animate-spin text-[#5865F2] mb-2" />
               <span className="text-xs">Scanning open windows & screens...</span>
             </div>
@@ -242,12 +242,12 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                     onClick={() => setSelectedSourceId(source.id)}
                     className={`group rounded-xl p-2 cursor-pointer transition-all flex flex-col gap-2 ${
                       isSelected
-                        ? 'bg-[#2b2d31] ring-2 ring-[#5865F2]'
-                        : 'bg-[#2b2d31]/60 hover:bg-[#2b2d31] hover:ring-1 hover:ring-[#4e5058]'
+                        ? 'bg-[#18191e] border border-[#5865F2] ring-2 ring-[#5865F2]/40 shadow-lg'
+                        : 'bg-[#121316] border border-[#232428] hover:bg-[#18191d] hover:border-[#383a40]'
                     }`}
                   >
                     {/* Thumbnail Box */}
-                    <div className="w-full h-28 rounded-lg bg-[#111214] overflow-hidden flex items-center justify-center border border-[#1e1f22] relative">
+                    <div className="w-full h-28 rounded-lg bg-[#050506] overflow-hidden flex items-center justify-center border border-[#1c1d21] relative">
                       {source.thumbnailUrl ? (
                         <img
                           src={source.thumbnailUrl}
@@ -255,7 +255,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <Monitor className="w-8 h-8 text-[#949ba4]" />
+                        <Monitor className="w-8 h-8 text-[#80848e]" />
                       )}
                       {isSelected && (
                         <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#5865F2] flex items-center justify-center shadow-md">
@@ -267,11 +267,11 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                     {/* Source Name & Icon */}
                     <div className="flex items-center gap-2 px-1">
                       {source.isWindow ? (
-                        <AppWindow className="w-3.5 h-3.5 text-[#949ba4] shrink-0" />
+                        <AppWindow className="w-3.5 h-3.5 text-[#80848e] shrink-0" />
                       ) : (
-                        <Monitor className="w-3.5 h-3.5 text-[#949ba4] shrink-0" />
+                        <Monitor className="w-3.5 h-3.5 text-[#80848e] shrink-0" />
                       )}
-                      <span className="text-xs font-medium text-[#dbdee1] truncate group-hover:text-white">
+                      <span className="text-xs font-semibold text-[#dbdee1] truncate group-hover:text-white">
                         {source.name}
                       </span>
                     </div>
@@ -280,20 +280,20 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               })}
             </div>
           ) : (
-            <div className="h-44 flex flex-col items-center justify-center text-center p-6 bg-[#2b2d31]/50 rounded-xl border border-[#3f4147]">
-              <AppWindow className="w-8 h-8 text-[#949ba4] mb-2" />
+            <div className="h-44 flex flex-col items-center justify-center text-center p-6 bg-[#121316]/50 rounded-xl border border-[#232428]">
+              <AppWindow className="w-8 h-8 text-[#80848e] mb-2" />
               <span className="text-sm font-semibold text-white">No {activeTab} detected</span>
-              <p className="text-xs text-[#949ba4] mt-1">Make sure the application you want to share is open and not minimized.</p>
+              <p className="text-xs text-[#80848e] mt-1">Make sure the application you want to share is open and not minimized.</p>
             </div>
           )}
         </div>
 
-        {/* Discord Stream Quality Bottom Bar */}
-        <div className="px-6 py-3.5 bg-[#2b2d31] border-t border-[#1e1f22] flex items-center justify-between shrink-0 relative">
+        {/* Stream Quality Bottom Bar */}
+        <div className="px-6 py-3.5 bg-[#0f1013] border-t border-[#232428] flex items-center justify-between shrink-0 relative">
           {/* Left: Selected Mode & Quality Summary */}
           <div className="flex flex-col">
             <span className="text-xs font-bold text-white tracking-wide">{modeTitle}</span>
-            <span className="text-[11px] text-[#949ba4] font-mono">{modeSubtitle}</span>
+            <span className="text-[11px] text-[#80848e] font-mono">{modeSubtitle}</span>
           </div>
 
           {/* Right: SD / HD / Settings Gear */}
@@ -303,7 +303,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 isSDActive
                   ? 'bg-[#5865F2] text-white shadow-md'
-                  : 'bg-[#1e1f22] text-[#949ba4] hover:text-white hover:bg-[#35373c]'
+                  : 'bg-[#18191d] border border-[#2e3036] text-[#949ba4] hover:text-white hover:bg-[#232429]'
               }`}
               title="Standard Definition (720p 30fps)"
             >
@@ -314,7 +314,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 isHDActive
                   ? 'bg-[#5865F2] text-white shadow-md'
-                  : 'bg-[#1e1f22] text-[#949ba4] hover:text-white hover:bg-[#35373c]'
+                  : 'bg-[#18191d] border border-[#2e3036] text-[#949ba4] hover:text-white hover:bg-[#232429]'
               }`}
               title="High Definition (1080p 60fps)"
             >
@@ -327,8 +327,8 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               }}
               className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
                 isSettingsOpen
-                  ? 'bg-[#5865F2] text-white'
-                  : 'bg-[#1e1f22] text-[#949ba4] hover:text-white hover:bg-[#35373c]'
+                  ? 'bg-[#5865F2] text-white shadow-md'
+                  : 'bg-[#18191d] border border-[#2e3036] text-[#949ba4] hover:text-white hover:bg-[#232429]'
               }`}
               title="Stream Settings"
             >
@@ -336,24 +336,24 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
             </button>
           </div>
 
-          {/* Discord Stream Settings Popover Menu (Faithful to Screenshot 2) */}
+          {/* Stream Settings Popover Menu */}
           {isSettingsOpen && (
             <div
               ref={settingsMenuRef}
-              className="absolute bottom-16 right-6 w-64 bg-[#111214] border border-[#2b2d31] rounded-xl shadow-2xl p-2 z-50 text-xs text-[#dbdee1]"
+              className="absolute bottom-16 right-6 w-64 bg-[#0e0f12] border border-[#26282e] rounded-xl shadow-2xl p-2 z-50 text-xs text-[#dbdee1]"
             >
-              <div className="px-2 py-1 text-[11px] font-bold text-[#949ba4] uppercase tracking-wider">
+              <div className="px-2 py-1 text-[11px] font-bold text-[#80848e] uppercase tracking-wider">
                 Stream Mode
               </div>
 
               {/* Gaming Mode Radio */}
               <div
                 onClick={() => handleSelectMode('gaming')}
-                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer"
+                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors"
               >
                 <div className="flex flex-col">
                   <span className="font-semibold text-white">Gaming</span>
-                  <span className="text-[10px] text-[#949ba4]">Smoother video (1080p, 60fps)</span>
+                  <span className="text-[10px] text-[#80848e]">Smoother video (1080p, 60fps)</span>
                 </div>
                 <div
                   className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -369,11 +369,11 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               {/* Screenshare Mode Radio */}
               <div
                 onClick={() => handleSelectMode('screenshare')}
-                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer"
+                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors"
               >
                 <div className="flex flex-col">
                   <span className="font-semibold text-white">Screenshare</span>
-                  <span className="text-[10px] text-[#949ba4]">Clearer text (Source, 15fps)</span>
+                  <span className="text-[10px] text-[#80848e]">Clearer text (Source, 15fps)</span>
                 </div>
                 <div
                   className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -389,11 +389,11 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               {/* Custom Mode Radio */}
               <div
                 onClick={() => handleSelectMode('custom')}
-                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer"
+                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors"
               >
                 <div className="flex flex-col">
                   <span className="font-semibold text-white">Custom</span>
-                  <span className="text-[10px] text-[#949ba4]">Custom resolution & FPS</span>
+                  <span className="text-[10px] text-[#80848e]">Custom resolution & FPS</span>
                 </div>
                 <div
                   className={`w-4 h-4 rounded-full border flex items-center justify-center ${
@@ -406,7 +406,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                 </div>
               </div>
 
-              <div className="h-[1px] bg-[#2b2d31] my-1" />
+              <div className="h-[1px] bg-[#232428] my-1" />
 
               {/* Screen Resolution Submenu */}
               <div className="relative">
@@ -414,10 +414,10 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                   onClick={() =>
                     setOpenSubmenu(openSubmenu === 'resolution' ? 'none' : 'resolution')
                   }
-                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer"
+                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors"
                 >
                   <span className="font-medium text-white">Screen Resolution</span>
-                  <div className="flex items-center gap-1 text-[#949ba4]">
+                  <div className="flex items-center gap-1 text-[#80848e]">
                     <span className="font-mono text-[11px] text-[#5865F2]">{resolution}</span>
                     <ChevronRight className="w-4 h-4" />
                   </div>
@@ -425,7 +425,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
                 {/* Submenu Flyout for Resolution */}
                 {openSubmenu === 'resolution' && (
-                  <div className="absolute left-full bottom-0 ml-1.5 w-36 bg-[#111214] border border-[#2b2d31] rounded-xl shadow-2xl p-1.5 z-50">
+                  <div className="absolute left-full bottom-0 ml-1.5 w-36 bg-[#0e0f12] border border-[#26282e] rounded-xl shadow-2xl p-1.5 z-50">
                     {(['720p', '1080p', '1440p', 'source'] as ScreenShareResolution[]).map(
                       (res) => (
                         <div
@@ -435,7 +435,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                             setStreamMode('custom');
                             setOpenSubmenu('none');
                           }}
-                          className={`flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-[#2b2d31] cursor-pointer ${
+                          className={`flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-[#18191d] cursor-pointer ${
                             resolution === res ? 'text-[#5865F2] font-bold' : 'text-[#dbdee1]'
                           }`}
                         >
@@ -454,10 +454,10 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                   onClick={() =>
                     setOpenSubmenu(openSubmenu === 'framerate' ? 'none' : 'framerate')
                   }
-                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer"
+                  className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors"
                 >
                   <span className="font-medium text-white">Frame Rate</span>
-                  <div className="flex items-center gap-1 text-[#949ba4]">
+                  <div className="flex items-center gap-1 text-[#80848e]">
                     <span className="font-mono text-[11px] text-[#5865F2]">{frameRate}fps</span>
                     <ChevronRight className="w-4 h-4" />
                   </div>
@@ -465,7 +465,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
                 {/* Submenu Flyout for Framerate */}
                 {openSubmenu === 'framerate' && (
-                  <div className="absolute left-full bottom-0 ml-1.5 w-28 bg-[#111214] border border-[#2b2d31] rounded-xl shadow-2xl p-1.5 z-50">
+                  <div className="absolute left-full bottom-0 ml-1.5 w-28 bg-[#0e0f12] border border-[#26282e] rounded-xl shadow-2xl p-1.5 z-50">
                     {([15, 30, 60] as ScreenShareFramerate[]).map((fps) => (
                       <div
                         key={fps}
@@ -474,7 +474,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                           setStreamMode('custom');
                           setOpenSubmenu('none');
                         }}
-                        className={`flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-[#2b2d31] cursor-pointer ${
+                        className={`flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-[#18191d] cursor-pointer ${
                           frameRate === fps ? 'text-[#5865F2] font-bold' : 'text-[#dbdee1]'
                         }`}
                       >
@@ -486,27 +486,27 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                 )}
               </div>
 
-              <div className="h-[1px] bg-[#2b2d31] my-1" />
+              <div className="h-[1px] bg-[#232428] my-1" />
 
               {/* Mute stream audio checkbox */}
-              <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#2b2d31] cursor-pointer">
+              <label className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-[#18191d] cursor-pointer transition-colors">
                 <span className="text-xs text-white">Mute stream audio</span>
                 <input
                   type="checkbox"
                   checked={!includeAudio}
                   onChange={(e) => setIncludeAudio(!e.target.checked)}
-                  className="w-4 h-4 rounded border-[#4e5058] text-[#5865F2] focus:ring-[#5865F2] bg-[#1e1f22] cursor-pointer accent-[#5865F2]"
+                  className="w-4 h-4 rounded border-[#383a40] text-[#5865F2] focus:ring-[#5865F2] bg-[#0A0908] cursor-pointer accent-[#5865F2]"
                 />
               </label>
             </div>
           )}
         </div>
 
-        {/* Modal Action Footer (Cancel & Go Live in Discord Indigo Blue) */}
-        <div className="px-6 py-4 bg-[#2b2d31] border-t border-[#1e1f22] flex items-center justify-between shrink-0">
+        {/* Modal Action Footer */}
+        <div className="px-6 py-4 bg-[#0A0908] border-t border-[#232428] flex items-center justify-between shrink-0">
           <button
             onClick={onClose}
-            className="text-xs font-semibold text-[#949ba4] hover:text-white hover:underline transition-all cursor-pointer"
+            className="text-xs font-semibold text-[#80848e] hover:text-white hover:underline transition-all cursor-pointer"
           >
             Cancel
           </button>
@@ -514,7 +514,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
           <button
             onClick={handleShare}
             disabled={!selectedSourceId && sources.length > 0 && !!window.nightshift?.isElectron}
-            className="px-6 py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] active:scale-95 text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-all shadow-md cursor-pointer"
+            className="px-6 py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] active:scale-95 text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-all shadow-lg cursor-pointer"
           >
             Go Live
           </button>
