@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { SoundboardItem, Playlist, soundboardStorage } from '../services/soundboard.storage';
 import { soundboardAudioEngine, ActiveSoundInfo } from '../services/soundboard-audio-engine';
 import { seedDefaultSoundsIfEmpty } from '../services/soundboard-presets';
+import { extractAudioMetadata } from '../services/audio-metadata';
 import { useLiveKitStore } from './livekit.store';
 import { api, CloudSoundItem, CloudStorageStatus } from '../lib/api';
 
@@ -332,9 +333,14 @@ export const useSoundboardStore = create<SoundboardState>()(
             const audioBuffer = await soundboardAudioEngine.loadAudioBuffer(soundId, arrayBuffer);
             const duration = Math.round(audioBuffer.duration * 10) / 10;
 
+            // Extract ID3 album artwork and metadata
+            const metadata = await extractAudioMetadata(file);
+
             const item: SoundboardItem = {
               id: soundId,
-              name: finalName,
+              name: metadata.title || finalName,
+              artist: metadata.artist,
+              artworkUrl: metadata.artworkUrl,
               category,
               volume: 80,
               hotkey: null,

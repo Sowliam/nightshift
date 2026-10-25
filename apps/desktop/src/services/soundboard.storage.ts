@@ -8,6 +8,8 @@ export interface SoundboardItem {
   createdAt: number;
   isFavorite?: boolean;
   audioUrl?: string;
+  artworkUrl?: string;
+  artist?: string;
   source?: 'local' | 'cloud';
 }
 

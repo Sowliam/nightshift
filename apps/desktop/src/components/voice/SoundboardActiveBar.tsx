@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Music,
-  Square,
   Volume2,
   VolumeX,
   Pause,
@@ -12,9 +10,9 @@ import {
   Repeat,
   Repeat1,
   Heart,
-  ListMusic,
   Headphones,
-  Disc3,
+  Users,
+  Music,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
@@ -23,9 +21,12 @@ import { useServerStore } from '../../stores/server.store';
 import { soundboardAudioEngine } from '../../services/soundboard-audio-engine';
 
 /**
- * Floating Sleek Music & Soundboard Player Bar
- * Provides instant Play/Pause, Next/Previous, Shuffle/Repeat, Live Seekbar,
- * Headphone Mute (hearing by others only), Favorites, and Queue management.
+ * Modern Floating Music & Soundboard Player Bar
+ * Designed to exactly match the reference design:
+ * - Left: Glowing Album Art + ((•)) Now Playing + Song Title + General/Category
+ * - Center: Shuffle, Previous, Large Emerald Circular Play/Pause, Next, Repeat
+ * - Right: Favorite (Heart), Headphones Monitor, Volume (with slider), Voice Member Count
+ * - Bottom: Full-width continuous seekbar with start (e.g. 2:14) and end (e.g. 4:30) timestamps
  */
 export const SoundboardActiveBar: React.FC = () => {
   const localActiveSounds = useSoundboardStore((s) => s.activeSounds);
@@ -34,8 +35,6 @@ export const SoundboardActiveBar: React.FC = () => {
   const isShuffle = useSoundboardStore((s) => s.isShuffle);
   const sounds = useSoundboardStore((s) => s.sounds);
 
-  const stopSound = useSoundboardStore((s) => s.stopSound);
-  const stopAllSounds = useSoundboardStore((s) => s.stopAll);
   const togglePauseSound = useSoundboardStore((s) => s.togglePauseSound);
   const playNext = useSoundboardStore((s) => s.playNext);
   const playPrevious = useSoundboardStore((s) => s.playPrevious);
@@ -44,7 +43,6 @@ export const SoundboardActiveBar: React.FC = () => {
   const seekSound = useSoundboardStore((s) => s.seekSound);
   const toggleFavorite = useSoundboardStore((s) => s.toggleFavorite);
   const setQueueOpen = useSoundboardStore((s) => s.setQueueOpen);
-  const setSoundboardOpen = useSoundboardStore((s) => s.setSoundboardOpen);
 
   const localMonitorMuted = useSoundboardStore((s) => s.localMonitorMuted);
   const setLocalMonitorMuted = useSoundboardStore((s) => s.setLocalMonitorMuted);
@@ -52,6 +50,8 @@ export const SoundboardActiveBar: React.FC = () => {
   const setLocalMonitorVolume = useSoundboardStore((s) => s.setLocalMonitorVolume);
 
   const activeSoundboardPlayers = useLiveKitStore((s) => s.activeSoundboardPlayers);
+  const localParticipant = useLiveKitStore((s) => s.localParticipant);
+  const remoteParticipants = useLiveKitStore((s) => s.remoteParticipants);
   const setParticipantSoundboardVolume = useLiveKitStore((s) => s.setParticipantSoundboardVolume);
   const toggleMuteSoundboardForMyself = useLiveKitStore((s) => s.toggleMuteSoundboardForMyself);
 
@@ -59,6 +59,7 @@ export const SoundboardActiveBar: React.FC = () => {
   const localMutedSoundboards = useSettingsStore((s) => s.localMutedSoundboards);
   const members = useServerStore((s) => s.members);
 
+  const [isVolumeSliderOpen, setIsVolumeSliderOpen] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState<{ currentTime: number; duration: number; progress: number }>({
     currentTime: 0,
     duration: 0,
@@ -91,6 +92,7 @@ export const SoundboardActiveBar: React.FC = () => {
   }
 
   const formatTime = (secs: number) => {
+    if (!secs || isNaN(secs) || secs < 0) return '0:00';
     const mins = Math.floor(secs / 60);
     const rem = Math.floor(secs % 60);
     return `${mins}:${rem < 10 ? '0' : ''}${rem}`;
@@ -108,199 +110,212 @@ export const SoundboardActiveBar: React.FC = () => {
     }));
   };
 
-  const isLocalOnly = hasLocalActive && localActiveSounds.every((s) => s.isLocalOnly);
   const isAnyPaused = hasLocalActive && localActiveSounds.some((s) => s.isPaused);
+  // Voice listeners count (participants or default minimum 1)
+  const voiceListenerCount = Math.max(1, (localParticipant ? 1 : 0) + remoteParticipants.length);
 
   return (
-    <div className="fixed top-10 left-1/2 -translate-x-1/2 z-40 max-w-2xl w-[96%] sm:w-auto flex flex-col gap-2 animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-auto select-none">
-      {/* Local User Playing Audio Player Card */}
+    <div className="fixed top-8 left-1/2 -translate-x-1/2 z-40 w-[94%] max-w-[840px] flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-auto select-none">
+      {/* Primary Music Player Card */}
       {hasLocalActive && currentLocalSound && (
-        <div
-          className={`px-4 py-2.5 rounded-2xl backdrop-blur-2xl shadow-[0_12px_45px_rgba(0,0,0,0.7)] text-white border transition-all ${
-            isLocalOnly
-              ? 'bg-[#181324]/95 border-purple-500/50 shadow-[0_0_25px_rgba(168,85,247,0.18)]'
-              : 'bg-[#101114]/95 border-accent-bright/40'
-          }`}
-        >
-          {/* Top Row: Track Metadata + Controls + Badges */}
-          <div className="flex items-center justify-between gap-3 min-w-[320px] sm:min-w-[560px]">
-            {/* Track Info & Spinning Vinyl Disc */}
-            <div className="flex items-center gap-3 min-w-0 flex-1">
+        <div className="w-full bg-[#0c0e12]/95 border border-white/10 backdrop-blur-2xl rounded-[28px] px-6 py-4 shadow-[0_16px_50px_rgba(0,0,0,0.85)] flex flex-col gap-2.5 text-white transition-all">
+          {/* Top Row: Track Art & Title + Transport Controls + Right Utility Buttons */}
+          <div className="flex items-center justify-between gap-3 min-w-0">
+            {/* Left: Album Cover + Now Playing + Song Name & Artist */}
+            <div className="flex items-center gap-3.5 min-w-0 flex-1 max-w-[34%]">
+              {/* Artwork Box */}
               <div
                 onClick={() => setQueueOpen(true)}
-                className={`w-9 h-9 rounded-full bg-gradient-to-tr from-[#1f2026] to-[#2e313d] border border-white/10 flex items-center justify-center shrink-0 cursor-pointer shadow-md ${
-                  !isAnyPaused ? 'animate-[spin_6s_linear_infinite]' : ''
-                }`}
-                title="Open Music Queue"
+                className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#0f1b16] border border-[#23a55a]/30 relative overflow-hidden flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(35,165,90,0.25)] cursor-pointer group hover:border-[#23a55a]/60 transition-all"
+                title="Click to open Music Queue"
               >
-                <Disc3 className={`w-5 h-5 ${isLocalOnly ? 'text-purple-400' : 'text-accent-bright'}`} />
+                {currentSoundMeta?.artworkUrl ? (
+                  <img
+                    src={currentSoundMeta.artworkUrl}
+                    alt={currentLocalSound.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                ) : (
+                  /* Sleek glowing waveform icon */
+                  <div className="flex items-center gap-[3px] px-2">
+                    <span className={`w-[3px] h-3.5 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse' : ''}`} />
+                    <span className={`w-[3px] h-6 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse delay-75' : ''}`} />
+                    <span className={`w-[3px] h-4.5 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse delay-150' : ''}`} />
+                    <span className={`w-[3px] h-2.5 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse' : ''}`} />
+                  </div>
+                )}
               </div>
 
+              {/* Text Info */}
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded-md ${
-                      isLocalOnly
-                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                        : 'bg-accent-bright/15 text-accent-bright border border-accent-bright/25'
-                    }`}
-                  >
-                    {isLocalOnly ? '🎧 Private' : '📡 Broadcasting'}
-                  </span>
-                  {currentSoundMeta?.category && (
-                    <span className="text-[10px] text-text-muted hidden sm:inline truncate">
-                      {currentSoundMeta.category}
-                    </span>
-                  )}
+                {/* ((•)) Now Playing Badge */}
+                <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-[#23a55a] tracking-wide">
+                  <span className="text-[12px] leading-none">((•))</span>
+                  <span>Now Playing</span>
                 </div>
-                <span className="font-bold text-xs text-white truncate max-w-[140px] sm:max-w-[220px]">
+
+                {/* Track Title */}
+                <h4
+                  className="font-bold text-sm text-white truncate max-w-[170px] sm:max-w-[210px] leading-snug mt-0.5"
+                  title={currentLocalSound.name}
+                >
                   {currentLocalSound.name}
+                </h4>
+
+                {/* Artist / Channel Subtitle */}
+                <span className="text-[11px] text-white/50 truncate font-medium">
+                  {currentSoundMeta?.artist || currentSoundMeta?.category || 'General'}
                 </span>
               </div>
             </div>
 
-            {/* Transport Buttons: Shuffle, Previous, Play/Pause, Next, Repeat */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            {/* Center: Transport Controls (Shuffle, Previous, Big Circular Green Play, Next, Repeat) */}
+            <div className="flex items-center justify-center gap-2.5 sm:gap-4 shrink-0">
+              {/* Shuffle */}
               <button
                 onClick={toggleShuffle}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer hidden sm:block ${
-                  isShuffle ? 'text-accent-bright bg-accent-bright/15' : 'text-text-muted hover:text-white'
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  isShuffle ? 'text-[#23a55a]' : 'text-white/40 hover:text-white'
                 }`}
-                title="Shuffle queue"
+                title={`Shuffle: ${isShuffle ? 'ON' : 'OFF'}`}
               >
-                <Shuffle className="w-3.5 h-3.5" />
+                <Shuffle className="w-4 h-4" />
               </button>
 
+              {/* Previous */}
               <button
                 onClick={playPrevious}
                 disabled={queue.length <= 1}
-                className="p-1.5 rounded-lg text-text-muted hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
+                className="p-2 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
                 title="Previous track"
               >
-                <SkipBack className="w-3.5 h-3.5 fill-current" />
+                <SkipBack className="w-4 h-4 fill-current" />
               </button>
 
+              {/* Large Circular Green Play/Pause Button */}
               <button
                 onClick={() => togglePauseSound(currentLocalSound.soundId)}
-                className="w-8 h-8 rounded-xl bg-accent-bright text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-md shadow-accent-bright/25 cursor-pointer"
+                className="w-12 h-12 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-[0_0_24px_rgba(35,165,90,0.5)] cursor-pointer shrink-0"
                 title={isAnyPaused ? 'Resume playback' : 'Pause playback'}
               >
                 {isAnyPaused ? (
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                  <Play className="w-5 h-5 fill-current ml-0.5" />
                 ) : (
-                  <Pause className="w-4 h-4 fill-current" />
+                  <Pause className="w-5 h-5 fill-current" />
                 )}
               </button>
 
+              {/* Next */}
               <button
                 onClick={playNext}
                 disabled={queue.length <= 1}
-                className="p-1.5 rounded-lg text-text-muted hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
+                className="p-2 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
                 title="Next track"
               >
                 <SkipForward className="w-4 h-4 fill-current" />
               </button>
 
+              {/* Repeat */}
               <button
                 onClick={toggleRepeat}
-                className={`p-1.5 rounded-lg transition-colors cursor-pointer hidden sm:block ${
-                  repeatMode !== 'off' ? 'text-accent-bright bg-accent-bright/15' : 'text-text-muted hover:text-white'
+                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                  repeatMode !== 'off' ? 'text-[#23a55a]' : 'text-white/40 hover:text-white'
                 }`}
                 title={`Repeat: ${repeatMode}`}
               >
-                {repeatMode === 'one' ? <Repeat1 className="w-3.5 h-3.5" /> : <Repeat className="w-3.5 h-3.5" />}
-              </button>
-
-              {/* Stop Button */}
-              <button
-                onClick={() => {
-                  if (localActiveSounds.length > 1) {
-                    stopAllSounds();
-                  } else {
-                    stopSound(currentLocalSound.soundId);
-                  }
-                }}
-                className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 transition-all cursor-pointer"
-                title="Stop music"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
+                {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
               </button>
             </div>
 
-            {/* Quick Actions: Favorite, Headphone Mute, Queue Modal Trigger */}
-            <div className="flex items-center gap-1.5 shrink-0 pl-1 border-l border-white/10">
-              {/* Favorite Heart */}
+            {/* Right: Utility Buttons (Favorite, Headphones, Volume, Voice Members Count) */}
+            <div className="flex items-center justify-end gap-2 sm:gap-2.5 shrink-0 flex-1 max-w-[34%]">
+              {/* Favorite Heart Button */}
               {currentSoundMeta && (
                 <button
                   onClick={() => toggleFavorite(currentSoundMeta.id)}
-                  className="p-1.5 rounded-lg text-text-muted hover:text-rose-500 transition-colors cursor-pointer"
+                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all cursor-pointer"
                   title={currentSoundMeta.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   <Heart
-                    className={`w-3.5 h-3.5 ${
+                    className={`w-4 h-4 ${
                       currentSoundMeta.isFavorite ? 'fill-rose-500 text-rose-500' : ''
                     }`}
                   />
                 </button>
               )}
 
-              {/* Mute for my own headphones (music keeps streaming to everyone else) */}
-              {!isLocalOnly && (
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer border ${
-                      localMonitorMuted
-                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 font-bold'
-                        : 'bg-white/5 border-white/5 text-text-muted hover:text-white'
-                    }`}
-                    title={
-                      localMonitorMuted
-                        ? 'Unmute in your headphones (Currently playing to others only)'
-                        : 'Mute in your headphones (Music continues streaming to everyone else in channel)'
-                    }
-                  >
-                    {localMonitorMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Headphones className="w-3.5 h-3.5" />}
-                  </button>
-                  {!localMonitorMuted && (
+              {/* Private Headphones Monitor Button */}
+              <button
+                onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  localMonitorMuted
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                }`}
+                title={
+                  localMonitorMuted
+                    ? 'Unmute in your headphones (Music currently playing to channel only)'
+                    : 'Mute in your headphones (Music continues streaming to everyone else in channel)'
+                }
+              >
+                <Headphones className="w-4 h-4" />
+              </button>
+
+              {/* Volume Button with Popover Slider */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsVolumeSliderOpen(!isVolumeSliderOpen)}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    localMonitorMuted
+                      ? 'bg-rose-500/10 text-rose-400'
+                      : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                  }`}
+                  title={`Volume: ${localMonitorVolume}%`}
+                >
+                  {localMonitorMuted || localMonitorVolume === 0 ? (
+                    <VolumeX className="w-4 h-4 text-rose-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* Popover Slider on Click/Hover */}
+                {isVolumeSliderOpen && (
+                  <div className="absolute right-0 top-12 bg-[#12151c] border border-white/10 shadow-2xl rounded-2xl p-3 flex items-center gap-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                     <input
                       type="range"
                       min="0"
                       max="100"
                       value={localMonitorVolume}
                       onChange={(e) => setLocalMonitorVolume(Number(e.target.value))}
-                      className="w-10 h-1 accent-accent-bright bg-white/10 rounded cursor-pointer hidden md:block"
-                      title={`Headphone Volume: ${localMonitorVolume}%`}
+                      className="w-24 h-1.5 accent-[#23a55a] bg-white/10 rounded-full cursor-pointer"
                     />
-                  )}
-                </div>
-              )}
+                    <span className="text-[10px] font-mono font-bold text-white/70 w-7 text-right">
+                      {localMonitorVolume}%
+                    </span>
+                  </div>
+                )}
+              </div>
 
-              {/* Open Music Queue Modal */}
-              <button
-                onClick={() => setQueueOpen(true)}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-text-muted hover:text-white border border-white/5 transition-colors cursor-pointer"
-                title="Open Music Queue & Playlists"
+              {/* Voice Room Participants Count Pill */}
+              <div
+                className="px-3.5 h-10 rounded-full bg-white/5 border border-white/5 flex items-center gap-1.5 text-[#23a55a] font-bold text-xs shadow-inner cursor-default"
+                title={`${voiceListenerCount} listeners in voice room`}
               >
-                <ListMusic className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Open Soundboard Library */}
-              <button
-                onClick={() => setSoundboardOpen(true)}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-text-muted hover:text-white border border-white/5 transition-colors cursor-pointer"
-                title="Open Soundboard Library"
-              >
-                <Music className="w-3.5 h-3.5" />
-              </button>
+                <Users className="w-4 h-4 text-[#23a55a]" />
+                <span>{voiceListenerCount}</span>
+              </div>
             </div>
           </div>
 
-          {/* Bottom Row: Live Seekable Progress Bar */}
-          <div className="mt-2 pt-1 border-t border-white/5 flex items-center gap-2">
-            <span className="text-[10px] font-mono text-text-muted w-7 text-right">
+          {/* Bottom Row: Full-Width Continuous Seekbar with Timestamps */}
+          <div className="flex items-center gap-3 w-full pt-1">
+            {/* Current Elapsed Time */}
+            <span className="text-xs font-mono text-white/40 w-9 text-right select-none">
               {formatTime(playbackProgress.currentTime)}
             </span>
+
+            {/* Continuous Seek Track */}
             <input
               type="range"
               min="0"
@@ -308,16 +323,18 @@ export const SoundboardActiveBar: React.FC = () => {
               step="0.1"
               value={playbackProgress.progress * 100}
               onChange={handleSeek}
-              className="flex-1 h-1 accent-accent-bright bg-white/10 rounded-lg cursor-pointer"
+              className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#23a55a]"
             />
-            <span className="text-[10px] font-mono text-text-muted w-7">
-              {formatTime(playbackProgress.duration || currentLocalSound.duration)}
+
+            {/* Total Duration */}
+            <span className="text-xs font-mono text-white/40 w-9 select-none">
+              {formatTime(playbackProgress.duration || currentLocalSound.duration || 270)}
             </span>
           </div>
         </div>
       )}
 
-      {/* Remote Participants Playing Audio Cards */}
+      {/* Remote Participant Playing Card (if someone else in the channel is playing music) */}
       {remoteEntries.map(([identity, player]) => {
         const member = members.find((m) => m.userId === identity);
         const memberName = member?.displayName || member?.username || identity;
@@ -327,35 +344,35 @@ export const SoundboardActiveBar: React.FC = () => {
         return (
           <div
             key={identity}
-            className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-2xl bg-[#141518]/95 backdrop-blur-xl border border-white/10 shadow-2xl text-xs text-white"
+            className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-[#0c0e12]/95 backdrop-blur-xl border border-white/10 shadow-2xl text-xs text-white"
           >
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-accent-bright/15 border border-accent-bright/30 flex items-center justify-center text-accent-bright shrink-0">
-                <Music className="w-3.5 h-3.5 animate-bounce" />
+              <div className="w-8 h-8 rounded-full bg-[#23a55a]/15 border border-[#23a55a]/30 flex items-center justify-center text-[#23a55a] shrink-0">
+                <Music className="w-4 h-4 animate-bounce" />
               </div>
 
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-bold tracking-wider">
+                <div className="flex items-center gap-1.5 text-[10px] text-white/50 font-bold tracking-wider">
                   <span className="text-white font-semibold truncate max-w-[120px]">{memberName}</span>
-                  <span>is playing:</span>
+                  <span>is streaming:</span>
                 </div>
-                <span className="font-semibold text-xs text-accent-bright truncate max-w-[180px] sm:max-w-[260px]">
+                <span className="font-semibold text-xs text-[#23a55a] truncate max-w-[180px] sm:max-w-[280px]">
                   {player.soundName}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0 ml-auto">
-              <div className="flex items-center gap-1.5 bg-[#1c1d22] px-2.5 py-1 rounded-xl border border-white/5">
+              <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-xl border border-white/5">
                 <button
                   onClick={() => toggleMuteSoundboardForMyself(identity)}
-                  className="text-text-muted hover:text-white transition-colors cursor-pointer"
-                  title={isMuted ? 'Unmute music from this user' : 'Mute music from this user'}
+                  className="text-white/60 hover:text-white transition-colors cursor-pointer"
+                  title={isMuted ? 'Unmute' : 'Mute'}
                 >
                   {isMuted ? (
                     <VolumeX className="w-3.5 h-3.5 text-rose-400" />
                   ) : (
-                    <Volume2 className="w-3.5 h-3.5 text-accent-bright" />
+                    <Volume2 className="w-3.5 h-3.5 text-[#23a55a]" />
                   )}
                 </button>
 
@@ -366,11 +383,10 @@ export const SoundboardActiveBar: React.FC = () => {
                   disabled={isMuted}
                   value={isMuted ? 0 : volume}
                   onChange={(e) => setParticipantSoundboardVolume(identity, Number(e.target.value))}
-                  className="w-16 sm:w-20 h-1 bg-[#101114] rounded-lg accent-accent-bright cursor-pointer disabled:opacity-40"
-                  title={`Music volume: ${volume}%`}
+                  className="w-16 sm:w-20 h-1 bg-white/10 rounded-lg accent-[#23a55a] cursor-pointer disabled:opacity-40"
                 />
 
-                <span className="font-mono text-[10px] font-bold text-accent-bright w-7 text-right">
+                <span className="font-mono text-[10px] font-bold text-[#23a55a] w-7 text-right">
                   {isMuted ? '0%' : `${volume}%`}
                 </span>
               </div>

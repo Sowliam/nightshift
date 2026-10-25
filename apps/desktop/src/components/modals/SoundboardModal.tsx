@@ -20,14 +20,16 @@ import {
   Repeat1,
   MoreVertical,
   Radio,
-  Bell,
   ChevronDown,
+  Square,
+  Download,
+  Trash2,
+  Loader2,
   GripVertical,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { SoundboardItem } from '../../services/soundboard.storage';
-import { getFullAvatarUrl } from '../../lib/api';
 import { soundboardAudioEngine } from '../../services/soundboard-audio-engine';
 
 const WaveformBars: React.FC<{ isPlaying?: boolean }> = ({ isPlaying }) => (
@@ -57,14 +59,21 @@ export const SoundboardModal: React.FC = () => {
     masterVolume,
     searchQuery,
     isSoundboardOpen,
+    isCloudLoading,
+    isCloudUploading,
+    cloudStorageStatus,
     loadSounds,
     loadCloudSounds,
     loadPlaylists,
     loadCloudStorageStatus,
     importSound,
     uploadToCloud,
+    deleteFromCloud,
+    saveCloudToLocal,
+    playCloudSound,
     playSound,
     togglePauseSound,
+    stopAll,
     deleteSound,
     toggleFavorite,
     setMasterVolume,
@@ -260,46 +269,23 @@ export const SoundboardModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Search, Bell, User Capsule, Close */}
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => {
-                const searchEl = document.getElementById('studio-search-input');
-                searchEl?.focus();
-              }}
-              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all cursor-pointer"
-              title="Search"
-            >
-              <Search className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all cursor-pointer relative"
-              title="Notifications"
-            >
-              <Bell className="w-3.5 h-3.5" />
-              <span className="w-1.5 h-1.5 rounded-full bg-[#1db954] absolute top-2 right-2" />
-            </button>
-
-            {/* User Capsule */}
-            <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-white/5 border border-white/5 hover:border-white/10 transition-all cursor-pointer">
-              <div className="w-6 h-6 rounded-full bg-[#1e2029] border border-white/10 flex items-center justify-center text-[10px] font-bold text-white overflow-hidden">
-                {user?.avatarUrl ? (
-                  <img src={getFullAvatarUrl(user.avatarUrl)!} alt={user.displayName} className="w-full h-full object-cover" />
-                ) : (
-                  (user?.displayName || 'U')[0].toUpperCase()
-                )}
-              </div>
-              <span className="text-xs font-semibold text-white/90 max-w-[80px] truncate">
-                {user?.displayName || 'User'}
-              </span>
-              <ChevronDown className="w-3 h-3 text-white/50" />
-            </div>
+          {/* Right: Functional Stop All & Close */}
+          <div className="flex items-center gap-2">
+            {activeSounds.length > 0 && (
+              <button
+                onClick={stopAll}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                title="Stop all currently playing audio"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span>Stop All</span>
+              </button>
+            )}
 
             {/* Close Modal */}
             <button
               onClick={() => setSoundboardOpen(false)}
-              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white flex items-center justify-center transition-all cursor-pointer ml-1"
+              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white flex items-center justify-center transition-all cursor-pointer"
               title="Close"
             >
               <X className="w-4 h-4" />
@@ -482,190 +468,319 @@ export const SoundboardModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Filter Pills & Sort Row */}
-            <div className="flex items-center justify-between gap-3 mb-2 shrink-0">
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setFilterType('all')}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    filterType === 'all'
-                      ? 'bg-[#23a55a] text-black shadow-sm'
-                      : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  All ({sounds.length})
-                </button>
-                <button
-                  onClick={() => setFilterType('music')}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    filterType === 'music'
-                      ? 'bg-[#23a55a] text-black shadow-sm'
-                      : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  Music ({musicSounds.length})
-                </button>
-                <button
-                  onClick={() => setFilterType('sfx')}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    filterType === 'sfx'
-                      ? 'bg-[#23a55a] text-black shadow-sm'
-                      : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  Sound Effects ({sfxSounds.length})
-                </button>
-              </div>
-
-              {/* Sort By Dropdown */}
-              <div className="flex items-center gap-1 text-[11px] font-semibold text-white/60 bg-[#14161d] border border-white/5 px-2.5 py-1 rounded-xl">
-                <span>Sort by: Recently added</span>
-                <ChevronDown className="w-3 h-3 text-white/40" />
-              </div>
-            </div>
-
-            {/* Track Table Header */}
-            <div className="grid grid-cols-12 px-3 py-1.5 text-[10px] font-bold text-white/40 uppercase tracking-wider border-b border-white/5 shrink-0">
-              <span className="col-span-1 text-center">#</span>
-              <span className="col-span-5">Track</span>
-              <span className="col-span-2 text-center">Duration</span>
-              <span className="col-span-1 text-center">Size</span>
-              <span className="col-span-1 text-center">Added by</span>
-              <span className="col-span-2 text-right pr-2">Actions</span>
-            </div>
-
-            {/* Track Table List (Scrollable) */}
-            <div className="flex-1 min-h-0 overflow-y-auto space-y-1 mt-1 pr-1 custom-scrollbar">
-              {displayedSounds.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center text-white/40">
-                  <Music className="w-10 h-10 mb-2 opacity-30 text-[#1db954]" />
-                  <p className="text-xs font-bold text-white/70">No tracks found</p>
-                  <p className="text-[11px] text-white/40 mt-0.5">Click '+ Add Music' above to import audio tracks</p>
-                </div>
-              ) : (
-                displayedSounds.map((sound, idx) => {
-                  const isPlayingThis = activeSounds.some((a) => a.soundId === sound.id && !a.isPaused);
-                  const isCurrentThis = currentSoundId === sound.id;
-
-                  return (
-                    <div
-                      key={sound.id}
-                      className={`grid grid-cols-12 items-center px-3 py-2 rounded-xl text-xs transition-all group ${
-                        isCurrentThis
-                          ? 'bg-[#13271d]/60 border-l-2 border-[#1db954]'
-                          : 'hover:bg-white/[0.03] border-l-2 border-transparent'
-                      }`}
-                    >
-                      {/* # Index */}
-                      <span className="col-span-1 text-center text-white/40 font-mono text-[11px] group-hover:text-white">
-                        {idx + 1}
-                      </span>
-
-                      {/* Track info + Waveform */}
-                      <div className="col-span-5 flex items-center gap-2.5 min-w-0 pr-2">
-                        {/* Artwork / Icon */}
-                        <div className="w-8 h-8 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-sm">
-                          {sound.category === 'sfx' ? (
-                            <Radio className="w-3.5 h-3.5 text-[#1db954]" />
-                          ) : (
-                            <Disc3 className={`w-4 h-4 text-[#1db954] ${isPlayingThis ? 'animate-spin' : ''}`} />
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
-                            {sound.name}
-                          </h4>
-                          <p className="text-[10px] text-white/50 truncate">
-                            {sound.category || 'Nightshift Audio'}
-                          </p>
-                        </div>
-
-                        {/* Waveform preview */}
-                        <WaveformBars isPlaying={isPlayingThis} />
-                      </div>
-
-                      {/* Duration */}
-                      <span className="col-span-2 text-center text-white/60 font-mono text-[11px]">
-                        {formatTime(sound.duration || 180 + ((idx * 37) % 120))}
-                      </span>
-
-                      {/* Size */}
-                      <span className="col-span-1 text-center text-white/50 text-[11px] font-mono">
-                        {formatBytes(sound.duration ? sound.duration * 24 * 1024 : 5.4 * 1024 * 1024)}
-                      </span>
-
-                      {/* Added by */}
-                      <div className="col-span-1 flex items-center justify-center gap-1 min-w-0">
-                        <div className="w-5 h-5 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
-                          {user?.displayName ? user.displayName[0].toUpperCase() : 'S'}
-                        </div>
-                        <span className="text-[10px] text-white/70 truncate hidden md:inline">
-                          {user?.displayName || 'Sool'}
+            {navSection === 'uploads' ? (
+              /* Dedicated Cloud Uploads Section */
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                {/* Cloud Header & Upload Button */}
+                <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-[#121620] to-[#0c0e14] border border-white/10 mb-3 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#23a55a]/15 border border-[#23a55a]/30 flex items-center justify-center text-[#23a55a] shrink-0">
+                      <CloudUpload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-white">Cloud Storage Library</h3>
+                        <span className="px-2 py-0.5 rounded-full bg-[#23a55a]/20 border border-[#23a55a]/30 text-[#23a55a] text-[10px] font-bold">
+                          {cloudStorageStatus?.bucket ? `Bucket: ${cloudStorageStatus.bucket}` : 'Filebase / R2'}
                         </span>
                       </div>
-
-                      {/* Actions */}
-                      <div className="col-span-2 flex items-center justify-end gap-1.5 pr-1">
-                        {/* Play/Pause Button */}
-                        <button
-                          onClick={() => {
-                            if (isPlayingThis) {
-                              togglePauseSound(sound.id);
-                            } else {
-                              handlePlaySound(sound);
-                            }
-                          }}
-                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                            isPlayingThis
-                              ? 'bg-[#23a55a] text-black shadow-md shadow-[#23a55a]/30'
-                              : 'bg-white/5 hover:bg-[#23a55a] hover:text-black text-white/70'
-                          }`}
-                          title={isPlayingThis ? 'Pause' : 'Play'}
-                        >
-                          {isPlayingThis ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
-                        </button>
-
-                        {/* Add to Playlist button */}
-                        <button
-                          onClick={() => setPlaylistPopoverSoundId(playlistPopoverSoundId === sound.id ? null : sound.id)}
-                          className="w-6 h-6 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-                          title="Add to Playlist"
-                        >
-                          <ListPlus className="w-3 h-3" />
-                        </button>
-
-                        {/* Favorite button */}
-                        <button
-                          onClick={() => toggleFavorite(sound.id)}
-                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
-                            sound.isFavorite
-                              ? 'text-[#23a55a] bg-[#23a55a]/10'
-                              : 'text-white/40 hover:text-white bg-white/5 hover:bg-white/10'
-                          }`}
-                          title={sound.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
-                        >
-                          <Heart className={`w-3 h-3 ${sound.isFavorite ? 'fill-current' : ''}`} />
-                        </button>
-
-                        {/* Delete / Options button */}
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete "${sound.name}"?`)) {
-                              deleteSound(sound.id);
-                            }
-                          }}
-                          className="w-6 h-6 rounded-full bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors cursor-pointer"
-                          title="Delete Sound"
-                        >
-                          <MoreVertical className="w-3 h-3" />
-                        </button>
-                      </div>
+                      <p className="text-[11px] text-white/50 mt-0.5">
+                        {cloudSounds.length} audio tracks synced • Stream to room or save locally
+                      </p>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  </div>
+
+                  <button
+                    onClick={() => cloudFileInputRef.current?.click()}
+                    disabled={isCloudUploading}
+                    className="px-4 py-2 rounded-xl bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-xs flex items-center gap-2 transition-all shadow-md shadow-[#23a55a]/20 cursor-pointer active:scale-95 disabled:opacity-50 shrink-0"
+                  >
+                    {isCloudUploading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                    )}
+                    <span>Upload to Cloud</span>
+                  </button>
+                </div>
+
+                {/* Cloud Audio Items List */}
+                <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                  {isCloudLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-white/40">
+                      <Loader2 className="w-8 h-8 animate-spin text-[#23a55a] mb-2" />
+                      <p className="text-xs">Loading cloud audio files...</p>
+                    </div>
+                  ) : cloudSounds.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center text-white/40 border border-dashed border-white/10 rounded-2xl p-6">
+                      <CloudUpload className="w-12 h-12 mb-3 opacity-30 text-[#23a55a]" />
+                      <p className="text-xs font-bold text-white/70">No files in cloud storage yet</p>
+                      <p className="text-[11px] text-white/40 mt-1 max-w-xs">
+                        Upload your favorite tracks to stream them to your voice channel from anywhere.
+                      </p>
+                      <button
+                        onClick={() => cloudFileInputRef.current?.click()}
+                        className="mt-4 px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Select Audio File</span>
+                      </button>
+                    </div>
+                  ) : (
+                    cloudSounds.map((cloudItem) => (
+                      <div
+                        key={cloudItem.id}
+                        className="flex items-center justify-between p-3 rounded-2xl bg-[#12141a] border border-white/5 hover:border-white/10 transition-all gap-3"
+                      >
+                        {/* Left: Artwork / Disc Icon + Title */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <div className="w-10 h-10 rounded-xl bg-[#181b24] border border-white/10 flex items-center justify-center text-[#23a55a] shrink-0">
+                            <Disc3 className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold text-white truncate">{cloudItem.name}</h4>
+                            <p className="text-[10px] text-white/50 truncate flex items-center gap-2 mt-0.5">
+                              <span className="text-[#23a55a] font-semibold">{cloudItem.category || 'General'}</span>
+                              <span>•</span>
+                              <span>{formatTime(cloudItem.duration || 180)}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Right: Contained, cleanly aligned action buttons */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {/* Play in Voice Room */}
+                          <button
+                            onClick={() => playCloudSound(cloudItem)}
+                            className="px-3 py-1.5 rounded-xl bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95"
+                            title="Play in voice room"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            <span>Play</span>
+                          </button>
+
+                          {/* Save to Local Offline Library */}
+                          <button
+                            onClick={async () => {
+                              const success = await saveCloudToLocal(cloudItem);
+                              if (success) alert(`Saved "${cloudItem.name}" to your local library!`);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/5 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                            title="Download and save to local library"
+                          >
+                            <Download className="w-3.5 h-3.5 text-[#23a55a]" />
+                            <span>Save to Local</span>
+                          </button>
+
+                          {/* Delete from Cloud */}
+                          <button
+                            onClick={() => {
+                              if (confirm(`Delete "${cloudItem.name}" from cloud storage?`)) {
+                                deleteFromCloud(cloudItem.id);
+                              }
+                            }}
+                            className="w-8 h-8 rounded-xl bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 border border-white/5 flex items-center justify-center transition-all cursor-pointer"
+                            title="Delete from cloud"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Regular Library Track Table */
+              <>
+                {/* Filter Pills & Sort Row */}
+                <div className="flex items-center justify-between gap-3 mb-2 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setFilterType('all')}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        filterType === 'all'
+                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      All ({sounds.length})
+                    </button>
+                    <button
+                      onClick={() => setFilterType('music')}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        filterType === 'music'
+                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      Music ({musicSounds.length})
+                    </button>
+                    <button
+                      onClick={() => setFilterType('sfx')}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        filterType === 'sfx'
+                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      Sound Effects ({sfxSounds.length})
+                    </button>
+                  </div>
+
+                  {/* Sort By Dropdown */}
+                  <div className="flex items-center gap-1 text-[11px] font-semibold text-white/60 bg-[#14161d] border border-white/5 px-2.5 py-1 rounded-xl">
+                    <span>Sort by: Recently added</span>
+                    <ChevronDown className="w-3 h-3 text-white/40" />
+                  </div>
+                </div>
+
+                {/* Track Table Header */}
+                <div className="grid grid-cols-12 px-3 py-1.5 text-[10px] font-bold text-white/40 uppercase tracking-wider border-b border-white/5 shrink-0">
+                  <span className="col-span-1 text-center">#</span>
+                  <span className="col-span-5">Track</span>
+                  <span className="col-span-2 text-center">Duration</span>
+                  <span className="col-span-1 text-center">Size</span>
+                  <span className="col-span-1 text-center">Added by</span>
+                  <span className="col-span-2 text-right pr-2">Actions</span>
+                </div>
+
+                {/* Track Table List (Scrollable) */}
+                <div className="flex-1 min-h-0 overflow-y-auto space-y-1 mt-1 pr-1 custom-scrollbar">
+                  {displayedSounds.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center text-white/40">
+                      <Music className="w-10 h-10 mb-2 opacity-30 text-[#1db954]" />
+                      <p className="text-xs font-bold text-white/70">No tracks found</p>
+                      <p className="text-[11px] text-white/40 mt-0.5">Click '+ Add Music' above to import audio tracks</p>
+                    </div>
+                  ) : (
+                    displayedSounds.map((sound, idx) => {
+                      const isPlayingThis = activeSounds.some((a) => a.soundId === sound.id && !a.isPaused);
+                      const isCurrentThis = currentSoundId === sound.id;
+
+                      return (
+                        <div
+                          key={sound.id}
+                          className={`grid grid-cols-12 items-center px-3 py-2 rounded-xl text-xs transition-all group ${
+                            isCurrentThis
+                              ? 'bg-[#13271d]/60 border-l-2 border-[#1db954]'
+                              : 'hover:bg-white/[0.03] border-l-2 border-transparent'
+                          }`}
+                        >
+                          {/* # Index */}
+                          <span className="col-span-1 text-center text-white/40 font-mono text-[11px] group-hover:text-white">
+                            {idx + 1}
+                          </span>
+
+                          {/* Track info + Artwork / Waveform */}
+                          <div className="col-span-5 flex items-center gap-2.5 min-w-0 pr-2">
+                            {/* Artwork / Icon */}
+                            <div className="w-8 h-8 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-sm">
+                              {sound.artworkUrl ? (
+                                <img src={sound.artworkUrl} alt={sound.name} className="w-full h-full object-cover" />
+                              ) : sound.category === 'sfx' ? (
+                                <Radio className="w-3.5 h-3.5 text-[#1db954]" />
+                              ) : (
+                                <Disc3 className={`w-4 h-4 text-[#1db954] ${isPlayingThis ? 'animate-spin' : ''}`} />
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
+                                {sound.name}
+                              </h4>
+                              <p className="text-[10px] text-white/50 truncate">
+                                {sound.artist || sound.category || 'Nightshift Audio'}
+                              </p>
+                            </div>
+
+                            {/* Waveform preview */}
+                            <WaveformBars isPlaying={isPlayingThis} />
+                          </div>
+
+                          {/* Duration */}
+                          <span className="col-span-2 text-center text-white/60 font-mono text-[11px]">
+                            {formatTime(sound.duration || 180 + ((idx * 37) % 120))}
+                          </span>
+
+                          {/* Size */}
+                          <span className="col-span-1 text-center text-white/50 text-[11px] font-mono">
+                            {formatBytes(sound.duration ? sound.duration * 24 * 1024 : 5.4 * 1024 * 1024)}
+                          </span>
+
+                          {/* Added by */}
+                          <div className="col-span-1 flex items-center justify-center gap-1 min-w-0">
+                            <div className="w-5 h-5 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
+                              {user?.displayName ? user.displayName[0].toUpperCase() : 'U'}
+                            </div>
+                            <span className="text-[10px] text-white/70 truncate hidden md:inline">
+                              {user?.displayName || 'User'}
+                            </span>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="col-span-2 flex items-center justify-end gap-1.5 pr-1">
+                            {/* Play/Pause Button */}
+                            <button
+                              onClick={() => {
+                                if (isPlayingThis) {
+                                  togglePauseSound(sound.id);
+                                } else {
+                                  handlePlaySound(sound);
+                                }
+                              }}
+                              className={`w-6 h-6 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                isPlayingThis
+                                  ? 'bg-[#23a55a] text-black shadow-md shadow-[#23a55a]/30'
+                                  : 'bg-white/5 hover:bg-[#23a55a] hover:text-black text-white/70'
+                              }`}
+                              title={isPlayingThis ? 'Pause' : 'Play'}
+                            >
+                              {isPlayingThis ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
+                            </button>
+
+                            {/* Add to Playlist button */}
+                            <button
+                              onClick={() => setPlaylistPopoverSoundId(playlistPopoverSoundId === sound.id ? null : sound.id)}
+                              className="w-6 h-6 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                              title="Add to Playlist"
+                            >
+                              <ListPlus className="w-3 h-3" />
+                            </button>
+
+                            {/* Favorite button */}
+                            <button
+                              onClick={() => toggleFavorite(sound.id)}
+                              className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                                sound.isFavorite
+                                  ? 'text-[#23a55a] bg-[#23a55a]/10'
+                                  : 'text-white/40 hover:text-white bg-white/5 hover:bg-white/10'
+                              }`}
+                              title={sound.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
+                            >
+                              <Heart className={`w-3 h-3 ${sound.isFavorite ? 'fill-current' : ''}`} />
+                            </button>
+
+                            {/* Delete / Options button */}
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete "${sound.name}"?`)) {
+                                  deleteSound(sound.id);
+                                }
+                              }}
+                              className="w-6 h-6 rounded-full bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors cursor-pointer"
+                              title="Delete Sound"
+                            >
+                              <MoreVertical className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* =======================================================
@@ -683,7 +798,15 @@ export const SoundboardModal: React.FC = () => {
 
               {/* Album Art Card */}
               <div className="w-full aspect-video rounded-xl bg-gradient-to-br from-[#161821] to-[#0c0d12] border border-white/10 relative overflow-hidden flex items-center justify-center shadow-lg group">
-                <Disc3 className={`w-16 h-16 text-white/20 ${isCurrentPlaying ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
+                {currentTrack?.artworkUrl ? (
+                  <img
+                    src={currentTrack.artworkUrl}
+                    alt={currentTrack.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <Disc3 className={`w-16 h-16 text-white/20 ${isCurrentPlaying ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
+                )}
 
                 {/* Animated wave tag on top-left */}
                 <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md border border-white/10">

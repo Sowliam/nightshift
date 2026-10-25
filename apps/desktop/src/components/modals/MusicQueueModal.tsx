@@ -196,24 +196,33 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
           {/* =======================================================
               1. LEFT COLUMN: HERO MUSIC PLAYER CARD
              ======================================================= */}
-          <div className="w-[310px] shrink-0 bg-[#12141a] border border-white/5 rounded-2xl p-5 flex flex-col justify-between shadow-xl">
+          <div className="w-[280px] shrink-0 bg-[#12141a] border border-white/5 rounded-2xl p-4 flex flex-col justify-between shadow-xl overflow-hidden">
             {/* Album Artwork with Sound Wave Icon */}
             <div>
               <div className="w-full aspect-square rounded-2xl bg-gradient-to-br from-[#1b1e28] to-[#0d0e14] border border-white/10 relative overflow-hidden flex items-center justify-center shadow-lg group">
-                {/* Fallback Artwork: Moon in Dark Forest Graphic */}
-                <div className="absolute inset-0 bg-cover bg-center opacity-80"
-                  style={{
-                    backgroundImage: `radial-gradient(circle at 50% 35%, rgba(255,255,255,0.15) 0%, transparent 60%), linear-gradient(180deg, #181b24 0%, #08090d 100%)`,
-                  }}
-                >
-                  {/* Subtle Moon Graphic */}
-                  <div className="w-28 h-28 rounded-full bg-white/10 blur-xs absolute top-8 left-1/2 -translate-x-1/2 border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.2)] flex items-center justify-center">
-                    <Disc3 className={`w-14 h-14 text-white/40 ${isPlaying ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
+                {currentTrack?.artworkUrl ? (
+                  <img
+                    src={currentTrack.artworkUrl}
+                    alt={currentTrack.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  /* Fallback Artwork: Moon in Dark Forest Graphic */
+                  <div
+                    className="absolute inset-0 bg-cover bg-center opacity-80"
+                    style={{
+                      backgroundImage: `radial-gradient(circle at 50% 35%, rgba(255,255,255,0.15) 0%, transparent 60%), linear-gradient(180deg, #181b24 0%, #08090d 100%)`,
+                    }}
+                  >
+                    {/* Subtle Moon Graphic */}
+                    <div className="w-24 h-24 rounded-full bg-white/10 blur-xs absolute top-8 left-1/2 -translate-x-1/2 border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.2)] flex items-center justify-center">
+                      <Disc3 className={`w-12 h-12 text-white/40 ${isPlaying ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Animated sound wave bars on top-left of artwork */}
-                <div className="absolute top-3 left-3 flex items-center gap-1 bg-black/50 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10">
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10">
                   <span className={`w-1 h-3 rounded-full bg-[#1db954] ${isPlaying ? 'animate-pulse' : ''}`} />
                   <span className={`w-1 h-4 rounded-full bg-[#1db954] ${isPlaying ? 'animate-pulse delay-75' : ''}`} />
                   <span className={`w-1 h-2 rounded-full bg-[#1db954] ${isPlaying ? 'animate-pulse delay-150' : ''}`} />
@@ -221,11 +230,11 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
               </div>
 
               {/* Title & Artist */}
-              <div className="text-center mt-4">
-                <h3 className="text-sm font-black text-white truncate px-2">
+              <div className="text-center mt-3">
+                <h3 className="text-sm font-black text-white truncate px-1">
                   {currentTrack ? currentTrack.name : 'No Track Playing'}
                 </h3>
-                <p className="text-xs text-white/50 truncate mt-1 px-2">
+                <p className="text-xs text-white/50 truncate mt-0.5 px-1">
                   {currentTrack
                     ? currentTrack.category || 'Nightshift Audio'
                     : 'Select a song from the queue to start listening'}
@@ -252,7 +261,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
               </div>
 
               {/* Playback Controls Row */}
-              <div className="flex items-center justify-between px-3 mt-3">
+              <div className="flex items-center justify-between px-2 mt-2.5">
                 <button
                   onClick={toggleShuffle}
                   className={`transition-colors cursor-pointer ${isShuffle ? 'text-[#23a55a]' : 'text-white/40 hover:text-white'}`}
@@ -282,7 +291,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                       playSound(queue[0]);
                     }
                   }}
-                  className="w-12 h-12 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-lg shadow-[#23a55a]/30 cursor-pointer"
+                  className="w-11 h-11 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-lg shadow-[#23a55a]/30 cursor-pointer"
                   title={isPlaying ? 'Pause' : 'Play'}
                 >
                   {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
@@ -305,9 +314,9 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                 </button>
               </div>
 
-              {/* Volume Slider Row */}
-              <div className="flex items-center gap-2 mt-4 px-2">
-                <Volume1 className="w-4 h-4 text-white/40 shrink-0" />
+              {/* Volume Slider Row (Constrained, No Overflow) */}
+              <div className="flex items-center gap-2 mt-3 px-1 w-full max-w-full overflow-hidden">
+                <Volume1 className="w-3.5 h-3.5 text-white/40 shrink-0" />
                 <input
                   type="range"
                   min="0"
@@ -315,9 +324,9 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                   step="0.01"
                   value={masterVolume}
                   onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#23a55a]"
+                  className="flex-1 min-w-0 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#23a55a]"
                 />
-                <Volume2 className="w-4 h-4 text-white/40 shrink-0" />
+                <Volume2 className="w-3.5 h-3.5 text-white/40 shrink-0" />
               </div>
             </div>
           </div>
@@ -404,8 +413,10 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <GripVertical className="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 cursor-grab shrink-0" />
-                          <div className="w-9 h-9 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-white shrink-0">
-                            {isItemPlaying ? (
+                          <div className="w-9 h-9 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-sm">
+                            {item.artworkUrl ? (
+                              <img src={item.artworkUrl} alt={item.name} className="w-full h-full object-cover" />
+                            ) : isItemPlaying ? (
                               <Disc3 className="w-4 h-4 text-[#23a55a] animate-spin" />
                             ) : (
                               <Music className="w-4 h-4 text-[#23a55a]" />

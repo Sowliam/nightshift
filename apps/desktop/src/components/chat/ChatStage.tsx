@@ -6,11 +6,13 @@ import {
   Smile,
   Image as ImageIcon,
   Send,
-  Sparkles,
   Loader2,
   X,
   Maximize2,
   AlertCircle,
+  Reply,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -27,6 +29,40 @@ interface ChatStageProps {
   onOpenInvite: () => void;
   onOpenServers: () => void;
 }
+
+const APPLE_EMOJIS = {
+  smileys: [
+    '😀', '😃', '😄', '😁', '😆', '🥹', '😅', '😂', '🤣', '🥲', '☺️', '😊', '😇',
+    '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😚', '😋', '😛', '😜', '🤪', '🤨',
+    '🧐', '🤓', '😎', '🥸', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁',
+    '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳',
+    '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🫣', '🤭', '🫢', '🤫',
+    '🫡', '🤥', '😶', '😐', '😑', '😬', '🫨', '🫠', '🙄', '😯', '😦', '😮', '😲',
+    '🥱', '😴', '🤤', '😪', '😵', '😵‍💫', '🤐', '🥴', '🤢', '🤮', '🤧', '😷', '🤒',
+  ],
+  gestures: [
+    '👋', '🤚', '🖐️', '✋', '🖖', '🫱', '🫲', '🫳', '🫴', '👌', '🤌', '🤏', '✌️',
+    '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '🫵', '👍',
+    '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '🫶', '👐', '🤲', '🤝', '🙏', '✍️',
+    '💅', '🤳', '💪', '🦾', '🦵', '🦶', '👂', '👃', '👀', '👁️', '👅', '👄', '🫦',
+  ],
+  hearts: [
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '❣️',
+    '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '✨', '⭐️', '🌟', '💫', '🔥',
+    '⚡️', '💥', '🫧', '🎉', '🎊', '🎈', '🎁', '🏆', '🥇', '🥈', '🥉', '👑', '💎',
+  ],
+  vibes: [
+    '🎧', '🎮', '🕹️', '🎤', '🎬', '🍿', '🎨', '🎯', '🎲', '🎰', '🎳', '🎼', '🎹',
+    '🥁', '🎸', '🎺', '🎷', '🪗', '🪕', '🎻', '⚽️', '🏀', '🏈', '⚾️', '🎾', '🏐',
+    '🏓', '🏸', '🥊', '🛹', '🚴', '🚀', '🛸', '🛰️', '🪐', '🌙', '☀️', '⛅️', '⚡️',
+  ],
+  food: [
+    '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑',
+    '🥭', '🍍', '🥥', '🥝', '🍅', '🥑', '🍔', '🍟', '🍕', '🌭', '🥪', '🌮', '🌯',
+    '🫔', '🥙', '🧆', '🍜', '🍝', '🍣', '🍱', '🍦', '🍧', '🍨', '🍩', '🍪', '🎂',
+    '🍰', '🧁', '🥧', '🍫', '🍬', '🍭', '☕️', '🧋', '🥤', '🧃', '🍺', '🍻', '🥂',
+  ],
+};
 
 export const ChatStage: React.FC<ChatStageProps> = ({
   onToggleMembers,
@@ -55,6 +91,14 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // Reply & Copy State
+  const [replyingTo, setReplyingTo] = useState<{ id: string; displayName: string; username: string; content: string } | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+
+  // Apple Emoji Picker State
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [emojiCategory, setEmojiCategory] = useState<'smileys' | 'gestures' | 'hearts' | 'vibes' | 'food'>('smileys');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -86,6 +130,15 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Handle copy text to clipboard
+  const handleCopyMessage = (id: string, content: string) => {
+    navigator.clipboard.writeText(content);
+    setCopiedMessageId(id);
+    setTimeout(() => {
+      setCopiedMessageId(null);
+    }, 1500);
+  };
 
   // Handle image upload selection
   const handleImageSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,8 +198,14 @@ export const ChatStage: React.FC<ChatStageProps> = ({
     if (e) e.preventDefault();
     if (!messageText.trim() || !user || !channelId) return;
 
-    const content = messageText.trim();
+    let content = messageText.trim();
+    if (replyingTo) {
+      content = `> 💬 Replying to @${replyingTo.displayName}: "${replyingTo.content.slice(0, 60)}${replyingTo.content.length > 60 ? '...' : ''}"\n\n${content}`;
+      setReplyingTo(null);
+    }
+
     setMessageText('');
+    setIsEmojiPickerOpen(false);
 
     // Check for mentions: @username
     const mentionMatches = content.match(/@([a-zA-Z0-9_-]+)/g);
@@ -184,9 +243,29 @@ export const ChatStage: React.FC<ChatStageProps> = ({
     return `${getApiBase()}${url}`;
   };
 
-  // Render message content with highlighted @mentions
+  // Render message content with highlighted @mentions and quote replies
   const renderMessageContent = (content: string) => {
-    const parts = content.split(/(@[a-zA-Z0-9_-]+)/g);
+    // Check for reply quote block
+    const quoteMatch = content.match(/^> 💬 Replying to @([^:]+): "([^"]+)"\n\n([\s\S]*)$/);
+    if (quoteMatch) {
+      const [, quotedUser, quotedText, mainMessage] = quoteMatch;
+      return (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 border-l-2 border-highlight text-[11px] text-white/70 italic max-w-lg">
+            <Reply className="w-3 h-3 text-highlight shrink-0" />
+            <span className="font-bold text-highlight">@{quotedUser}:</span>
+            <span className="truncate">{quotedText}</span>
+          </div>
+          <div>{renderFormattedText(mainMessage)}</div>
+        </div>
+      );
+    }
+
+    return renderFormattedText(content);
+  };
+
+  const renderFormattedText = (text: string) => {
+    const parts = text.split(/(@[a-zA-Z0-9_-]+)/g);
     return parts.map((part, index) => {
       if (part.startsWith('@')) {
         const username = part.substring(1);
@@ -210,7 +289,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
   return (
     <div className="flex-1 h-full bg-bg-main flex flex-col relative overflow-hidden select-none">
-      {/* Top Bar Header - completely hidden on Voice Stage to remove the redundant double-stacked header */}
+      {/* Top Bar Header */}
       {(!isVoiceChannel || viewMode !== 'stream') && (
         <div className="h-12 px-5 border-b border-[#232428] flex items-center justify-between shrink-0 bg-[#0e0f11]/85 backdrop-blur-md z-10 select-none">
           {/* Left: Channel Name */}
@@ -226,7 +305,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
             )}
           </div>
 
-          {/* Right Action: Toggle Member List with micro-animation */}
+          {/* Right Action: Toggle Member List */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={onToggleMembers}
@@ -253,48 +332,28 @@ export const ChatStage: React.FC<ChatStageProps> = ({
         />
       ) : (
         <div className="flex-1 flex flex-col min-h-0 relative">
-          {/* Error Banner for file upload failures */}
-          {uploadError && (
-            <div className="mx-6 mt-3 px-4 py-2.5 rounded-xl bg-destructive/90 text-white text-xs font-semibold flex items-center gap-2 shadow-card z-20 animate-fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{uploadError}</span>
-            </div>
-          )}
-
-          {/* Messages Scroll Area */}
+          {/* Scrollable Messages Container */}
           <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
             {!activeChannel ? (
               <div className="h-full flex flex-col items-center justify-center text-center select-none pb-12">
                 <p className="text-xs text-text-secondary">Select a channel from the left sidebar to view messages.</p>
               </div>
             ) : filteredMessages.length === 0 ? (
-              /* Empty state */
-              <div className="h-full flex flex-col items-center justify-center text-center select-none pb-12">
-                <div className="relative mb-5">
-                  <div className="w-20 h-20 rounded-3xl bg-bg-elevated border border-border flex items-center justify-center shadow-lg relative">
-                    <svg
-                      className="w-10 h-10 text-highlight"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-                      <path d="M8 12h.01" />
-                      <path d="M12 12h.01" />
-                      <path d="M16 12h.01" />
-                    </svg>
-                    <Sparkles className="w-5 h-5 text-highlight absolute -top-1.5 -right-1.5 animate-pulse" />
+              /* Sleek Discord-Native Empty State (No AI Sparkles) */
+              <div className="h-full flex flex-col items-center justify-center text-center select-none pb-12 animate-in fade-in duration-200">
+                <div className="relative mb-4">
+                  <div className="w-20 h-20 rounded-3xl bg-[#14161f] border border-white/10 flex items-center justify-center shadow-xl relative group">
+                    <div className="w-13 h-13 rounded-2xl bg-highlight/15 border border-highlight/30 flex items-center justify-center text-highlight shadow-[0_0_24px_rgba(35,165,90,0.3)]">
+                      <Hash className="w-8 h-8 stroke-[2.5]" />
+                    </div>
                   </div>
                 </div>
 
-                <h3 className="text-base font-bold text-text-primary tracking-wide mb-1.5">
-                  No messages yet
+                <h3 className="text-lg font-black text-white tracking-wide mb-1">
+                  Welcome to #{activeChannel.name}!
                 </h3>
                 <p className="text-xs text-text-secondary max-w-xs leading-relaxed">
-                  Be the first to start the conversation in #{activeChannel.name}.
+                  This is the start of the #{activeChannel.name} channel. Send a message to start chatting!
                 </p>
               </div>
             ) : (
@@ -307,7 +366,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                   return (
                     <div
                       key={msg.id}
-                      className="group flex items-start gap-3.5 py-1.5 px-2 -mx-2 rounded-xl hover:bg-bg-elevated/40 transition-colors"
+                      className="group flex items-start gap-3.5 py-1.5 px-2 -mx-2 rounded-xl hover:bg-bg-elevated/40 transition-colors relative"
                     >
                       {/* Avatar */}
                       <div className="w-9 h-9 rounded-full bg-highlight text-highlight-text border border-border flex items-center justify-center text-xs font-black shadow-sm shrink-0 mt-0.5 overflow-hidden">
@@ -341,9 +400,9 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
                         {/* Content text */}
                         {msg.content && (
-                          <p className="text-xs text-text-primary leading-relaxed break-words whitespace-pre-wrap select-text">
+                          <div className="text-xs text-text-primary leading-relaxed break-words whitespace-pre-wrap select-text">
                             {renderMessageContent(msg.content)}
-                          </p>
+                          </div>
                         )}
 
                         {/* Attachment Image */}
@@ -365,6 +424,30 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                           </div>
                         )}
                       </div>
+
+                      {/* Quick Action Toolbar on Hover: Reply & Copy */}
+                      <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center bg-[#151720] border border-white/10 rounded-lg p-0.5 shadow-lg z-10">
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo({ id: msg.id, displayName: msg.displayName, username: msg.username, content: msg.content })}
+                          className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-highlight transition-colors cursor-pointer"
+                          title="Reply to message"
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMessage(msg.id, msg.content)}
+                          className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
+                          title="Copy text"
+                        >
+                          {copiedMessageId === msg.id ? (
+                            <Check className="w-3.5 h-3.5 text-[#23a55a]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -373,9 +456,36 @@ export const ChatStage: React.FC<ChatStageProps> = ({
             )}
           </div>
 
-          {/* Floating Rounded Pill Chat Input */}
-          <div className="px-6 pb-6 pt-2 shrink-0">
-            {/* Hidden File Input for strict Image Upload */}
+          {/* Upload Error Banner */}
+          {uploadError && (
+            <div className="mx-6 mb-2 px-3 py-2 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2 text-rose-400 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{uploadError}</span>
+            </div>
+          )}
+
+          {/* Bottom Chat Input Form Area */}
+          <div className="p-4 bg-bg-main relative">
+            {/* Replying Banner Preview */}
+            {replyingTo && (
+              <div className="flex items-center justify-between px-4 py-2 mb-2 bg-[#141822] border border-highlight/30 rounded-2xl text-xs shadow-md animate-in fade-in duration-150">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Reply className="w-3.5 h-3.5 text-highlight shrink-0" />
+                  <span className="text-white/80 font-semibold">Replying to <span className="text-highlight">@{replyingTo.displayName}</span>:</span>
+                  <span className="truncate text-white/40 italic text-[11px] max-w-[220px] sm:max-w-md">"{replyingTo.content}"</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  className="w-5 h-5 rounded-full hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="Cancel reply"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            {/* Hidden File Input */}
             <input
               type="file"
               ref={fileInputRef}
@@ -384,16 +494,68 @@ export const ChatStage: React.FC<ChatStageProps> = ({
               className="hidden"
             />
 
+            {/* Apple iOS Emoji Picker Popup */}
+            {isEmojiPickerOpen && (
+              <div className="absolute right-6 bottom-18 w-80 bg-[#12151e]/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150">
+                {/* Categories Tab Bar */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <div className="flex items-center gap-1">
+                    {(['smileys', 'gestures', 'hearts', 'vibes', 'food'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setEmojiCategory(cat)}
+                        className={`px-2 py-0.5 rounded-lg text-xs font-semibold capitalize transition-all cursor-pointer ${
+                          emojiCategory === cat
+                            ? 'bg-highlight/20 text-highlight'
+                            : 'text-white/50 hover:text-white'
+                        }`}
+                      >
+                        {cat === 'smileys' ? '😀' : cat === 'gestures' ? '👋' : cat === 'hearts' ? '❤️' : cat === 'vibes' ? '🎧' : '🍔'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEmojiPickerOpen(false)}
+                    className="w-5 h-5 rounded-full hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Emojis Grid (Apple typography) */}
+                <div
+                  className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto custom-scrollbar p-1 text-xl select-none"
+                  style={{ fontFamily: '-apple-system, "Apple Color Emoji", "SF Pro", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}
+                >
+                  {APPLE_EMOJIS[emojiCategory].map((emoji, idx) => (
+                    <button
+                      key={`${emoji}-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        setMessageText((prev) => prev + emoji);
+                      }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 hover:scale-125 transition-all cursor-pointer"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Input Form */}
             <form
               onSubmit={handleSend}
               className="relative flex items-center bg-bg-elevated border border-border-subtle focus-within:border-highlight rounded-full px-4 py-2.5 shadow-card transition-all"
             >
-              {/* Left Plus Button -> Strictly triggers Image file picker */}
+              {/* Left Plus Button -> Triggers Image file picker */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading || !channelId}
-                className="w-8 h-8 rounded-full bg-bg-main hover:bg-highlight hover:text-highlight-text border border-border-subtle flex items-center justify-center text-highlight transition-colors shrink-0 mr-3 shadow-sm disabled:opacity-50"
+                className="w-8 h-8 rounded-full bg-bg-main hover:bg-highlight hover:text-highlight-text border border-border-subtle flex items-center justify-center text-highlight transition-colors shrink-0 mr-3 shadow-sm disabled:opacity-50 cursor-pointer"
                 title="Upload Image (PNG, JPG, JPEG)"
               >
                 {isUploading ? (
@@ -417,13 +579,13 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                 className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none min-w-0"
               />
 
-              {/* Right Action Icons: Smile, Image file button, Send Button */}
+              {/* Right Action Icons: Emoji, Image file button, Send Button */}
               <div className="flex items-center gap-2.5 shrink-0 ml-3">
                 <button
                   type="button"
-                  className="text-highlight hover:text-white transition-colors p-1"
-                  title="Emoji"
-                  onClick={() => setMessageText((prev) => prev + ' 😊')}
+                  className={`transition-colors p-1 cursor-pointer ${isEmojiPickerOpen ? 'text-highlight' : 'text-highlight hover:text-white'}`}
+                  title="Apple Emojis"
+                  onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
                 >
                   <Smile className="w-4 h-4" />
                 </button>
@@ -432,7 +594,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading || !channelId}
-                  className="text-highlight hover:text-white transition-colors p-1 disabled:opacity-50"
+                  className="text-highlight hover:text-white transition-colors p-1 disabled:opacity-50 cursor-pointer"
                   title="Upload Image (PNG, JPG, JPEG)"
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -442,7 +604,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                 <button
                   type="submit"
                   disabled={!messageText.trim() || isUploading || !channelId}
-                  className="w-8 h-8 rounded-full bg-highlight hover:bg-white text-highlight-text disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md shrink-0"
+                  className="w-8 h-8 rounded-full bg-highlight hover:bg-white text-highlight-text disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md shrink-0 cursor-pointer"
                   title="Send Message"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -453,37 +615,31 @@ export const ChatStage: React.FC<ChatStageProps> = ({
         </div>
       )}
 
-      {/* Lightbox Image Preview Modal */}
+      {/* Lightbox Modal for full size attachments */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 select-none animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 animate-in fade-in duration-200"
           onClick={() => setLightboxUrl(null)}
         >
           <div
-            className="relative max-w-4xl max-h-[90vh] flex flex-col items-center"
+            className="relative max-w-4xl max-h-[85vh] bg-bg-elevated border border-border rounded-2xl overflow-hidden shadow-2xl flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => setLightboxUrl(null)}
-              className="absolute -top-10 right-0 text-text-secondary hover:text-white transition-colors p-1"
-              title="Close Preview"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <img
-              src={lightboxUrl}
-              alt="Full size attachment"
-              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-border-subtle"
-            />
-            <div className="mt-3 flex items-center gap-3">
-              <a
-                href={lightboxUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-highlight hover:underline font-semibold"
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border-subtle bg-bg-main/60">
+              <span className="text-xs font-semibold text-text-secondary">Image Preview</span>
+              <button
+                onClick={() => setLightboxUrl(null)}
+                className="w-7 h-7 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-text-primary flex items-center justify-center transition-colors cursor-pointer"
               >
-                Open Original in Browser
-              </a>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-2 flex items-center justify-center overflow-auto max-h-[calc(85vh-50px)]">
+              <img
+                src={lightboxUrl}
+                alt="Enlarged"
+                className="max-h-[75vh] w-auto object-contain rounded-lg shadow-inner"
+              />
             </div>
           </div>
         </div>
