@@ -211,8 +211,12 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
         let participantCount = 0;
         let voiceParticipants: VoiceParticipantDto[] = [];
         if (c.type === 'voice') {
-          const roomKey = `${serverId}_${c.id}`;
-          const parts = await getLiveKitRoomParticipants(roomKey);
+          const roomKey = `ns_${serverId}_${c.id}`;
+          let parts = await getLiveKitRoomParticipants(roomKey);
+          if (parts.length === 0) {
+            const legacyParts = await getLiveKitRoomParticipants(`${serverId}_${c.id}`);
+            if (legacyParts.length > 0) parts = legacyParts;
+          }
           participantCount = parts.length;
           voiceParticipants = parts;
         }

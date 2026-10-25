@@ -651,27 +651,46 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                           /* Non-connected participant list: shows users in that voice channel to anyone browsing */
                           channelParticipants.length > 0 && (
                             <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
-                              {channelParticipants.map((vp) => (
-                                <div
-                                  key={vp.identity}
-                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/50 group transition-all text-xs"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div className="w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0 shadow-sm">
-                                      {getInitials(vp.name)}
+                              {channelParticipants.map((vp) => {
+                                const member = members.find(
+                                  (m) => m.userId === vp.identity || m.username === vp.identity || m.displayName === vp.name
+                                );
+                                const displayName = member?.displayName || vp.name;
+                                const avatarSrc = member?.avatarUrl ? getFullAvatarUrl(member.avatarUrl) : null;
+
+                                return (
+                                  <div
+                                    key={vp.identity}
+                                    className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/60 group transition-all text-xs"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="relative w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0 shadow-sm overflow-hidden">
+                                        {avatarSrc ? (
+                                          <img
+                                            src={avatarSrc}
+                                            alt={displayName}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        ) : (
+                                          getInitials(displayName)
+                                        )}
+                                      </div>
+                                      <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                        {displayName}
+                                      </span>
                                     </div>
-                                    <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
-                                      {vp.name}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-online animate-pulse" title="In Voice" />
+                                      {vp.isScreenSharing && (
+                                        <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
+                                          <Monitor className="w-2.5 h-2.5" />
+                                          LIVE
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  {vp.isScreenSharing && (
-                                    <span className="px-1 py-0.5 text-[9px] font-black rounded bg-highlight/20 text-highlight border border-highlight/40 flex items-center gap-0.5 shadow-sm">
-                                      <Monitor className="w-2.5 h-2.5" />
-                                      LIVE
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )
                         )}
