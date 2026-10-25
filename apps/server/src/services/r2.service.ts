@@ -13,22 +13,33 @@ export class CloudflareR2Service {
 
     if (this.isConfigured()) {
       try {
+        const endpoint =
+          config.r2.endpoint ||
+          (config.r2.accountId
+            ? `https://${config.r2.accountId}.r2.cloudflarestorage.com`
+            : undefined);
+
         this.client = new S3Client({
-          region: 'auto',
-          endpoint: `https://${config.r2.accountId}.r2.cloudflarestorage.com`,
+          region: config.r2.region || 'auto',
+          endpoint,
           credentials: {
             accessKeyId: config.r2.accessKeyId,
             secretAccessKey: config.r2.secretAccessKey,
           },
+          forcePathStyle: Boolean(config.r2.endpoint),
         });
       } catch (err) {
-        console.warn('[Cloudflare R2] Failed to initialize S3Client:', err);
+        console.warn('[Cloud Storage S3] Failed to initialize S3Client:', err);
       }
     }
   }
 
   public isConfigured(): boolean {
-    return Boolean(config.r2.accountId && config.r2.accessKeyId && config.r2.secretAccessKey);
+    return Boolean(
+      (config.r2.accountId || config.r2.endpoint) &&
+        config.r2.accessKeyId &&
+        config.r2.secretAccessKey
+    );
   }
 
   public getBucketName(): string {

@@ -11,7 +11,7 @@ export const soundsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({
       r2Configured: r2Service.isConfigured(),
       bucket: r2Service.getBucketName(),
-      provider: r2Service.isConfigured() ? 'Cloudflare R2' : 'Local Fallback',
+      provider: r2Service.isConfigured() ? 'Cloud Storage (S3/R2)' : 'Local Fallback',
     });
   });
 

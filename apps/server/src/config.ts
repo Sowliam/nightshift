@@ -17,10 +17,12 @@ export const config = {
   appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:5173',
   r2: {
     accountId: process.env.R2_ACCOUNT_ID || '',
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
-    bucketName: process.env.R2_BUCKET_NAME || 'nightshift-audio',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || '',
+    bucketName: process.env.R2_BUCKET_NAME || process.env.S3_BUCKET_NAME || 'nightshift-audio',
     publicUrl: process.env.R2_PUBLIC_URL || '',
+    endpoint: process.env.S3_ENDPOINT || '',
+    region: process.env.S3_REGION || 'auto',
   },
 };
 
