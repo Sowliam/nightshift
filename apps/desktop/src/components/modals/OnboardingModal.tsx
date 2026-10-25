@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Loader2, Lock, User, AtSign, Server, Check } from 'lucide-react';
+import { Loader2, Server, Check } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 import { getApiBase, setApiBase } from '../../lib/api';
 
@@ -69,8 +69,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
       }
     }
   };
-
-  const isFlipped = mode === 'register';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-200">

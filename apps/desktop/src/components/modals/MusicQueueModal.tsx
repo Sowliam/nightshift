@@ -10,14 +10,10 @@ import {
   Repeat,
   Repeat1,
   Trash2,
-  Heart,
-  ListPlus,
   Disc3,
   ArrowLeft,
-  SlidersHorizontal,
   Volume2,
   Volume1,
-  VolumeX,
   Radio,
   ListMusic,
   ChevronDown,
@@ -26,7 +22,7 @@ import {
   GripVertical,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
-import { SoundboardItem, Playlist } from '../../services/soundboard.storage';
+import { SoundboardItem } from '../../services/soundboard.storage';
 import { soundboardAudioEngine } from '../../services/soundboard-audio-engine';
 
 interface MusicQueueModalProps {
@@ -63,7 +59,6 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   const toggleShuffle = useSoundboardStore((s) => s.toggleShuffle);
   const toggleRepeat = useSoundboardStore((s) => s.toggleRepeat);
   const seekSound = useSoundboardStore((s) => s.seekSound);
-  const toggleFavorite = useSoundboardStore((s) => s.toggleFavorite);
   const setQueue = useSoundboardStore((s) => s.setQueue);
 
   const [activeTab, setActiveTab] = useState<'queue' | 'playlists'>('queue');

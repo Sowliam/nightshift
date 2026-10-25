@@ -2,29 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Plus,
-  Trash2,
-  Headphones,
   Search,
-  Square,
   Play,
   Pause,
-  Sliders,
-  Check,
-  AlertCircle,
-  Loader2,
   Heart,
   ListPlus,
   ListMusic,
   Disc3,
   Music,
-  FolderPlus,
-  Cloud,
   CloudUpload,
-  Download,
-  RefreshCw,
-  CheckCircle2,
   Volume2,
-  VolumeX,
   Volume1,
   SkipForward,
   SkipBack,
@@ -36,12 +23,11 @@ import {
   Bell,
   ChevronDown,
   GripVertical,
-  Sparkles,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { useAuthStore } from '../../stores/auth.store';
-import { Playlist, SoundboardItem } from '../../services/soundboard.storage';
-import { CloudSoundItem, getFullAvatarUrl } from '../../lib/api';
+import { SoundboardItem } from '../../services/soundboard.storage';
+import { getFullAvatarUrl } from '../../lib/api';
 import { soundboardAudioEngine } from '../../services/soundboard-audio-engine';
 
 const WaveformBars: React.FC<{ isPlaying?: boolean }> = ({ isPlaying }) => (
@@ -66,47 +52,22 @@ export const SoundboardModal: React.FC = () => {
   const {
     sounds,
     cloudSounds,
-    isCloudLoading,
-    isCloudUploading,
-    cloudStorageStatus,
     playlists,
-    activePlayingIds,
     activeSounds,
     masterVolume,
-    localMonitorVolume,
-    localMonitorMuted,
-    allowWhileMuted,
-    selectedCategory,
     searchQuery,
     isSoundboardOpen,
-    isImporting,
-    error,
     loadSounds,
     loadCloudSounds,
-    loadCloudStorageStatus,
-    uploadToCloud,
-    deleteFromCloud,
-    playCloudSound,
-    saveCloudToLocal,
     loadPlaylists,
+    loadCloudStorageStatus,
     importSound,
+    uploadToCloud,
     playSound,
-    stopSound,
-    stopAll,
     togglePauseSound,
-    updateSound,
     deleteSound,
     toggleFavorite,
-    createPlaylist,
-    deletePlaylist,
-    addSoundToPlaylist,
-    removeSoundFromPlaylist,
-    playPlaylist,
     setMasterVolume,
-    setLocalMonitorVolume,
-    setLocalMonitorMuted,
-    setAllowWhileMuted,
-    setSelectedCategory,
     setSearchQuery,
     setSoundboardOpen,
     setQueueOpen,
@@ -126,13 +87,7 @@ export const SoundboardModal: React.FC = () => {
 
   const [navSection, setNavSection] = useState<'library' | 'soundboard' | 'playlists' | 'favorites' | 'uploads'>('library');
   const [filterType, setFilterType] = useState<'all' | 'music' | 'sfx'>('all');
-  const [editingSoundId, setEditingSoundId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
-  const [editingCategory, setEditingCategory] = useState('');
   const [playlistPopoverSoundId, setPlaylistPopoverSoundId] = useState<string | null>(null);
-  const [newPlaylistInput, setNewPlaylistInput] = useState('');
-  const [isCreatingNewPlaylist, setIsCreatingNewPlaylist] = useState(false);
-  const [savedLocalMap, setSavedLocalMap] = useState<Record<string, boolean>>({});
 
   const [playbackProgress, setPlaybackProgress] = useState<{ currentTime: number; duration: number; progress: number }>({
     currentTime: 0,
@@ -214,14 +169,6 @@ export const SoundboardModal: React.FC = () => {
     if (cloudFileInputRef.current) cloudFileInputRef.current.value = '';
   };
 
-  const handleSaveToLocal = async (item: CloudSoundItem) => {
-    setSavedLocalMap((prev) => ({ ...prev, [item.id]: true }));
-    const success = await saveCloudToLocal(item);
-    if (!success) {
-      setSavedLocalMap((prev) => ({ ...prev, [item.id]: false }));
-    }
-  };
-
   const formatBytes = (bytes: number) => {
     if (!bytes || bytes === 0) return '0 MB';
     const mb = bytes / (1024 * 1024);
@@ -264,7 +211,7 @@ export const SoundboardModal: React.FC = () => {
   }
 
   // Calculate total size
-  const totalSizeBytes = sounds.reduce((acc, s) => acc + (s.data ? s.data.length * 0.75 : 4 * 1024 * 1024), 0);
+  const totalSizeBytes = sounds.reduce((acc, s) => acc + (s.duration ? s.duration * 24 * 1024 : 4 * 1024 * 1024), 0);
   const totalSizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(0);
 
   // Play sound and update queue
@@ -645,7 +592,7 @@ export const SoundboardModal: React.FC = () => {
 
                       {/* Size */}
                       <span className="col-span-1 text-center text-white/50 text-[11px] font-mono">
-                        {formatBytes(sound.data ? sound.data.length * 0.75 : 5.4 * 1024 * 1024)}
+                        {formatBytes(sound.duration ? sound.duration * 24 * 1024 : 5.4 * 1024 * 1024)}
                       </span>
 
                       {/* Added by */}
