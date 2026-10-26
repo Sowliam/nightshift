@@ -121,3 +121,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   clearError: () => set({ error: null }),
 }));
+
+// Automatically log out and prompt login when any API request receives 401 Unauthorized
+api.onUnauthorized = () => {
+  useAuthStore.getState().logout();
+};

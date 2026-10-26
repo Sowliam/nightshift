@@ -141,11 +141,10 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('queue')}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'queue'
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${activeTab === 'queue'
                   ? 'bg-[#23a55a] text-black shadow-md shadow-[#23a55a]/20'
                   : 'bg-white/5 text-white/60 hover:text-white'
-              }`}
+                }`}
             >
               <ListMusic className="w-3.5 h-3.5" />
               <span>Queue ({queue.length})</span>
@@ -153,11 +152,10 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
             <button
               onClick={() => setActiveTab('playlists')}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'playlists'
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${activeTab === 'playlists'
                   ? 'bg-[#23a55a] text-black shadow-md shadow-[#23a55a]/20'
                   : 'bg-white/5 text-white/60 hover:text-white'
-              }`}
+                }`}
             >
               <Music className="w-3.5 h-3.5" />
               <span>Playlists ({playlists.length})</span>
@@ -388,11 +386,10 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                     return (
                       <div
                         key={`${item.id}-${index}`}
-                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all group ${
-                          isItemCurrent
+                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-all group ${isItemCurrent
                             ? 'bg-[#13271d]/60 border-[#1db954]/40'
                             : 'bg-[#12141a]/60 border-white/5 hover:bg-white/[0.03]'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <GripVertical className="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 cursor-grab shrink-0" />
@@ -429,11 +426,10 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                                 playSound(item.id);
                               }
                             }}
-                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                              isItemPlaying
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${isItemPlaying
                                 ? 'bg-[#23a55a] text-black'
                                 : 'bg-white/5 hover:bg-[#23a55a] hover:text-black text-white/70'
-                            }`}
+                              }`}
                           >
                             {isItemPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
                           </button>

@@ -203,10 +203,18 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
         setIsServerMenuOpen(false);
       } else {
         const lastErr = useServerStore.getState().error;
-        setServerCreateError(lastErr || 'Could not create server. Please check your backend connection.');
+        if (lastErr && (lastErr.includes('token') || lastErr.includes('Unauthorized'))) {
+          setServerCreateError('Please sign in or register to create a server.');
+        } else {
+          setServerCreateError(lastErr || 'Could not create server. Please check your backend connection.');
+        }
       }
     } catch (err: any) {
-      setServerCreateError(err.message || 'Failed to create server');
+      if (err.message && (err.message.includes('token') || err.message.includes('Unauthorized'))) {
+        setServerCreateError('Please sign in or register to create a server.');
+      } else {
+        setServerCreateError(err.message || 'Failed to create server');
+      }
     } finally {
       setIsServerSubmitting(false);
     }

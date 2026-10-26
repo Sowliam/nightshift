@@ -82,6 +82,7 @@ export const getFullAvatarUrl = (url?: string | null): string | null => {
 
 class ApiClient {
   private token: string | null = null;
+  public onUnauthorized?: () => void;
 
   getBaseUrl(): string {
     const base = getApiBase();
@@ -198,6 +199,12 @@ class ApiClient {
     try {
       const err = await res.json();
       if (res.status === 401) {
+        this.setToken(null);
+        if (this.onUnauthorized) {
+          try {
+            this.onUnauthorized();
+          } catch {}
+        }
         return new Error(err.error || 'Unauthorized: Please sign in again.');
       }
       if (err.details && typeof err.details === 'object') {
