@@ -123,7 +123,11 @@ const StreamTile: React.FC<StreamTileProps> = ({
         participant.identity === share.participantIdentity &&
         publication.source === Track.Source.ScreenShareAudio
       ) {
-        if (el) track.detach(el);
+        if (el) {
+          track.detach(el);
+          el.pause();
+          el.srcObject = null;
+        }
         if (currentTrack === track) currentTrack = null;
       }
     };
@@ -136,6 +140,10 @@ const StreamTile: React.FC<StreamTileProps> = ({
       room.off(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
       if (currentTrack && el) {
         currentTrack.detach(el);
+      }
+      if (el) {
+        el.pause();
+        el.srcObject = null;
       }
     };
   }, [share.isLocal, share.participantIdentity, room]);

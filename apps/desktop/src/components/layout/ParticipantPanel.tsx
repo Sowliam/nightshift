@@ -23,11 +23,12 @@ import { useSoundboardStore } from '../../stores/soundboard.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { ServerMemberDto } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
+import { PingIndicator } from '../common/PingIndicator';
 
 export const ParticipantPanel: React.FC = () => {
   const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
-  const { activeSpeakers, isLocallySpeaking, activeSoundboardPlayers } = useLiveKitStore();
+  const { activeSpeakers, isLocallySpeaking, activeSoundboardPlayers, currentPing, participantPings } = useLiveKitStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
   const localActiveSounds = useSoundboardStore((s) => s.activeSounds);
 
@@ -250,6 +251,11 @@ export const ParticipantPanel: React.FC = () => {
               >
                 {member.displayName}
               </span>
+
+              {/* Real voice ping indicator if user is in voice channel */}
+              {(isMe ? typeof currentPing === 'number' : typeof participantPings[member.userId] === 'number') && (
+                <PingIndicator ping={isMe ? currentPing : participantPings[member.userId]} />
+              )}
 
               {/* Bot APP Badge matching Image 1 */}
               {isBot && (

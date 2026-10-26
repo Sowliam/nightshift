@@ -72,6 +72,17 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { name, description } = parseResult.data;
 
+    // Check maximum server ownership limit (max 3 servers per user)
+    const ownedServerCount = await prisma.server.count({
+      where: { ownerId: user.id },
+    });
+
+    if (ownedServerCount >= 3) {
+      return reply.status(403).send({
+        error: 'شما به سقف مجاز (حداکثر ۳ سرور) رسیده‌اید و امکان ایجاد سرور بیشتر وجود ندارد.',
+      });
+    }
+
     // Create server with creator as owner and initial channels
     const server = await prisma.server.create({
       data: {

@@ -9,6 +9,7 @@ import {
   ConnectionState,
   LocalVideoTrack,
   TrackPublication,
+  RemoteTrackPublication,
   LocalAudioTrack,
   RemoteAudioTrack,
 } from 'livekit-client';
@@ -35,6 +36,9 @@ interface LiveKitState {
   isScreenSharing: boolean;
   isLocallySpeaking: boolean;
   currentPing: number | null;
+  participantPings: Record<string, number>;
+  isReconnecting: boolean;
+  reconnectSecondsLeft: number;
   localParticipant: LocalParticipant | null;
   remoteParticipants: RemoteParticipant[];
   activeSpeakers: Set<string>;
@@ -85,6 +89,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeAnalyserStream: MediaStream | null = null;
   let activeAnalyserTrack: MediaStreamTrack | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectCountdownInterval: ReturnType<typeof setInterval> | null = null;
+  let lastPingBroadcastTime = 0;
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
   let localAnalyser: AnalyserNode | null = null;
@@ -140,6 +147,48 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
     activeLocalMicTrack = null;
     set({ isLocallySpeaking: false });
+  };
+
+  const clearReconnectWatchdog = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (reconnectCountdownInterval) {
+      clearInterval(reconnectCountdownInterval);
+      reconnectCountdownInterval = null;
+    }
+    set({ isReconnecting: false, reconnectSecondsLeft: 0 });
+  };
+
+  const startReconnectWatchdog = () => {
+    if (reconnectTimer) return;
+    set({
+      isReconnecting: true,
+      reconnectSecondsLeft: 60,
+      error: 'اتصال اینترنت شما با سرور قطع شده است. در حال تلاش برای اتصال مجدد...',
+    });
+
+    let seconds = 60;
+    if (reconnectCountdownInterval) clearInterval(reconnectCountdownInterval);
+    reconnectCountdownInterval = setInterval(() => {
+      seconds -= 1;
+      if (seconds >= 0) {
+        set({ reconnectSecondsLeft: seconds });
+      }
+    }, 1000);
+
+    reconnectTimer = setTimeout(async () => {
+      console.warn('[LiveKit] Reconnection timed out after 60 seconds. Force disconnecting voice channel.');
+      clearReconnectWatchdog();
+      try {
+        sessionStorage.removeItem('nightshift_active_voice_session');
+      } catch {}
+      await get().disconnect();
+      set({
+        error: 'اتصال شما به ویس چت به دلیل قطعی بیش از ۱ دقیقه اینترنت قطع شد.',
+      });
+    }, 60000);
   };
 
   const setupAudioAnalyser = async (track: MediaStreamTrack) => {
@@ -426,15 +475,34 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } catch {}
       }
 
-      if (bestRtt !== null) {
-        set({ currentPing: bestRtt });
-        return;
-      }
+      const finalPing = bestRtt !== null ? bestRtt : typeof (room.engine as any)?.rtt === 'number' && (room.engine as any).rtt > 0 ? Math.round((room.engine as any).rtt) : null;
 
-      // Check engine's internal RTT calculation if available
-      const engineRtt = (room.engine as any)?.rtt;
-      if (typeof engineRtt === 'number' && engineRtt > 0 && engineRtt < 2000) {
-        set({ currentPing: Math.round(engineRtt) });
+      if (finalPing !== null) {
+        set((state) => ({
+          currentPing: finalPing,
+          participantPings: {
+            ...state.participantPings,
+            [room.localParticipant.identity]: finalPing,
+          },
+        }));
+
+        const now = Date.now();
+        if (now - lastPingBroadcastTime >= 1500) {
+          lastPingBroadcastTime = now;
+          try {
+            const payload = new TextEncoder().encode(
+              JSON.stringify({
+                type: 'ping_stat',
+                identity: room.localParticipant.identity,
+                ping: finalPing,
+              })
+            );
+            room.localParticipant.publishData(payload, {
+              reliable: false,
+              topic: 'pings',
+            });
+          } catch {}
+        }
         return;
       }
     } catch {
@@ -538,6 +606,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     isScreenSharing: false,
     isLocallySpeaking: false,
     currentPing: null,
+    participantPings: {},
+    isReconnecting: false,
+    reconnectSecondsLeft: 0,
     localParticipant: null,
     remoteParticipants: [],
     activeSpeakers: new Set(),
@@ -572,13 +643,36 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
         set({ connectionState: state });
+        if (state === ConnectionState.Connected) {
+          clearReconnectWatchdog();
+        } else if (state === ConnectionState.Reconnecting) {
+          startReconnectWatchdog();
+        }
+      });
+
+      room.on(RoomEvent.Reconnecting, () => {
+        set({ connectionState: ConnectionState.Reconnecting });
+        startReconnectWatchdog();
+      });
+
+      room.on(RoomEvent.Reconnected, () => {
+        clearReconnectWatchdog();
+        set({ connectionState: ConnectionState.Connected, error: null });
+        sounds.playJoin();
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        clearReconnectWatchdog();
+        set({ connectionState: ConnectionState.Disconnected });
       });
 
       room.on(RoomEvent.Connected, () => {
+        clearReconnectWatchdog();
         set({
           connectionState: ConnectionState.Connected,
           localParticipant: room.localParticipant,
           remoteParticipants: Array.from(room.remoteParticipants.values()),
+          error: null,
         });
         useRoomStore.getState().setJoiningRoom(null);
         useServerStore.getState().setJoiningVoiceChannel(null);
@@ -594,8 +688,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         useRoomStore.getState().fetchRooms();
       });
 
-      room.on(RoomEvent.ParticipantDisconnected, () => {
-        set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+      room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        set((state) => {
+          const updatedPings = { ...state.participantPings };
+          if (participant?.identity) {
+            delete updatedPings[participant.identity];
+          }
+          return {
+            remoteParticipants: Array.from(room.remoteParticipants.values()),
+            participantPings: updatedPings,
+          };
+        });
         sounds.playDisconnect();
         updateScreenShareState(room);
         useRoomStore.getState().fetchRooms();
@@ -689,7 +792,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         try {
           const text = new TextDecoder().decode(payload);
           const data = JSON.parse(text);
-          if (data.type === 'chat_message' && data.message && data.roomId) {
+          if (data.type === 'ping_stat' && data.identity && typeof data.ping === 'number') {
+            set((state) => ({
+              participantPings: {
+                ...state.participantPings,
+                [data.identity]: Math.round(data.ping),
+              },
+            }));
+          } else if (data.type === 'chat_message' && data.message && data.roomId) {
             useChatStore.getState().addMessage(data.roomId, data.message);
           } else if (data.type === 'chat_message_deleted' && data.roomId && data.messageId) {
             useChatStore.getState().removeMessage(data.roomId, data.messageId);
@@ -801,6 +911,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     disconnect: async () => {
+      clearReconnectWatchdog();
+      try {
+        sessionStorage.removeItem('nightshift_active_voice_session');
+      } catch {}
+
       const { room } = get();
       if (pingInterval) {
         clearInterval(pingInterval);
@@ -861,6 +976,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         isScreenSharing: false,
         isLocallySpeaking: false,
         currentPing: null,
+        participantPings: {},
+        isReconnecting: false,
+        reconnectSecondsLeft: 0,
         connectionState: ConnectionState.Disconnected,
       });
 
@@ -1125,20 +1243,25 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               ? 'window'
               : sourceId === 'browser-tab'
               ? 'browser'
-              : 'monitor';
+              : sourceId === 'browser-display'
+              ? 'monitor'
+              : undefined;
 
-          await room.localParticipant.setScreenShareEnabled(true, {
+          const screenShareConfig: any = {
             audio: opts.includeAudio ?? true,
-            video: {
-              displaySurface: displaySurface as any,
-            },
             resolution: {
               width,
               height,
               frameRate: targetFps,
             },
             contentHint: opts.preset === 'detail' ? 'detail' : 'motion',
-          });
+          };
+
+          if (displaySurface) {
+            screenShareConfig.video = { displaySurface };
+          }
+
+          await room.localParticipant.setScreenShareEnabled(true, screenShareConfig);
         }
 
         set({ currentScreenOptions: opts });
@@ -1177,6 +1300,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     startWatchingStream: (identity: string) => {
+      const { room } = get();
+      if (room) {
+        const remote = room.getParticipantByIdentity(identity);
+        if (remote) {
+          const videoPub = remote.getTrackPublication(Track.Source.ScreenShare) as RemoteTrackPublication | undefined;
+          if (videoPub) videoPub.setSubscribed(true);
+          const audioPub = remote.getTrackPublication(Track.Source.ScreenShareAudio) as RemoteTrackPublication | undefined;
+          if (audioPub) audioPub.setSubscribed(true);
+        }
+      }
       const watched = new Set(get().watchedScreenShareIds);
       watched.add(identity);
       const shares = get().availableScreenShares;
@@ -1191,6 +1324,50 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     stopWatchingStream: (identity: string) => {
+      const { room } = get();
+      if (room) {
+        const remote = room.getParticipantByIdentity(identity);
+        if (remote) {
+          // 1. Unsubscribe from screen video track
+          const videoPub = remote.getTrackPublication(Track.Source.ScreenShare) as RemoteTrackPublication | undefined;
+          if (videoPub) {
+            try {
+              videoPub.setSubscribed(false);
+              if (videoPub.track) {
+                videoPub.track.detach().forEach((el) => {
+                  if (el instanceof HTMLMediaElement) {
+                    el.pause();
+                    el.srcObject = null;
+                  }
+                  el.remove();
+                });
+              }
+            } catch (e) {
+              console.warn('Error unsubscribing screen video:', e);
+            }
+          }
+
+          // 2. Unsubscribe from screen audio track and completely silence it
+          const audioPub = remote.getTrackPublication(Track.Source.ScreenShareAudio) as RemoteTrackPublication | undefined;
+          if (audioPub) {
+            try {
+              audioPub.setSubscribed(false);
+              if (audioPub.track) {
+                audioPub.track.detach().forEach((el) => {
+                  if (el instanceof HTMLMediaElement) {
+                    el.pause();
+                    el.srcObject = null;
+                  }
+                  el.remove();
+                });
+              }
+            } catch (e) {
+              console.warn('Error unsubscribing screen audio:', e);
+            }
+          }
+        }
+      }
+
       const watched = new Set(get().watchedScreenShareIds);
       watched.delete(identity);
       const remaining = Array.from(watched);

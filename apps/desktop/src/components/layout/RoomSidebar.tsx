@@ -26,6 +26,7 @@ import { ConnectionState } from 'livekit-client';
 import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { useSoundboardStore } from '../../stores/soundboard.store';
+import { PingIndicator } from '../common/PingIndicator';
 
 interface RoomSidebarProps {
   onOpenInvite: () => void;
@@ -73,12 +74,17 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     isScreenSharing,
     activeScreenTrack,
     screenSharerIdentity,
+    currentPing,
+    participantPings,
   } = useLiveKitStore();
 
   const { setSelfMuted, setSelfDeafened } = useSettingsStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const { user } = useAuthStore();
+
+  const ownedServersCount = servers.filter((s) => s.ownerId === user?.id || s.role === 'owner').length;
+  const hasReachedServerLimit = ownedServersCount >= 3;
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean;
@@ -162,7 +168,14 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
       setActiveVoiceChannel(channelId);
       const ok = await connect(joinData.livekitUrl, joinData.token);
       setJoiningVoiceChannel(null);
-      if (!ok) {
+      if (ok) {
+        try {
+          sessionStorage.setItem(
+            'nightshift_active_voice_session',
+            JSON.stringify({ channelId, serverId: activeServerId })
+          );
+        } catch {}
+      } else {
         const lastErr = useLiveKitStore.getState().error;
         console.warn('LiveKit connect returned false:', lastErr);
       }
@@ -177,6 +190,11 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
   const handleCreateServerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (hasReachedServerLimit) {
+      setServerCreateError('شما به سقف مجاز (حداکثر ۳ سرور) رسیده‌اید. برای ایجاد سرور جدید، ابتدا یکی از سرورهای قبلی را حذف کنید.');
+      return;
+    }
+
     const cleanName = newServerName.trim();
     if (!cleanName) {
       setServerCreateError('Please enter a server name');
@@ -571,9 +589,12 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                     getInitials(user?.displayName || 'You')
                                   )}
                                 </div>
-                                <span className="text-sm font-semibold text-text-primary truncate">
-                                  {user?.displayName || 'You'} <span className="text-xs text-text-muted font-normal">(you)</span>
-                                </span>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="text-sm font-semibold text-text-primary truncate">
+                                    {user?.displayName || 'You'} <span className="text-xs text-text-muted font-normal">(you)</span>
+                                  </span>
+                                  <PingIndicator ping={currentPing} />
+                                </div>
                               </div>
 
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -630,9 +651,12 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                     >
                                       {getInitials(displayName)}
                                     </div>
-                                    <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
-                                      {displayName}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                        {displayName}
+                                      </span>
+                                      <PingIndicator ping={participantPings[p.identity]} />
+                                    </div>
                                   </div>
 
                                   <div className="flex items-center gap-1.5 shrink-0">
@@ -836,15 +860,34 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
       {isCreatingServer && (
         <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
           <div className="w-[380px] bg-bg-secondary border border-border rounded-2xl p-5 shadow-card space-y-4">
-            <h3 className="text-sm font-bold text-text-primary">Create Your Server</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-text-primary">Create Your Server</h3>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                hasReachedServerLimit
+                  ? 'bg-destructive/20 text-destructive border border-destructive/30'
+                  : 'bg-bg-elevated text-text-muted border border-border-subtle'
+              }`}>
+                {ownedServersCount} / 3 Servers
+              </span>
+            </div>
+
+            {hasReachedServerLimit && (
+              <div className="p-3 rounded-xl bg-destructive/15 border border-destructive/30 text-destructive text-xs leading-relaxed font-medium flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  شما به حداکثر سقف مجاز (۳ سرور) رسیده‌اید. هر کاربر می‌تواند حداکثر ۳ سرور ایجاد کند. برای ساخت سرور جدید، ابتدا یکی از سرورهای قبلی خود را حذف کنید.
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleCreateServerSubmit} className="space-y-3">
               <div>
                 <label className="block text-[11px] font-bold text-text-muted uppercase mb-1">Server Name</label>
                 <input
                   type="text"
                   autoFocus
-                  disabled={isServerSubmitting}
-                  placeholder="e.g. Nightshift Squad"
+                  disabled={isServerSubmitting || hasReachedServerLimit}
+                  placeholder={hasReachedServerLimit ? 'سقف سرور پر است' : 'e.g. Nightshift Squad'}
                   value={newServerName}
                   onChange={(e) => {
                     setNewServerName(e.target.value);
@@ -875,7 +918,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isServerSubmitting || newServerName.trim().length < 2}
+                  disabled={isServerSubmitting || newServerName.trim().length < 2 || hasReachedServerLimit}
                   className="px-4 py-1.5 rounded-lg bg-highlight hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed text-highlight-text font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
                 >
                   {isServerSubmitting ? (

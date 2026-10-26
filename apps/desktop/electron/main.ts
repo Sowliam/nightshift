@@ -78,60 +78,35 @@ async function createWindow() {
   // Desktop Screen and Window capture sources handler
   ipcMain.handle('get-screen-sources', async () => {
     try {
-      let screens: Electron.DesktopCapturerSource[] = [];
-      let windows: Electron.DesktopCapturerSource[] = [];
+      let allSources: Electron.DesktopCapturerSource[] = [];
 
-      // 1. Fetch screens
+      // Primary: Query both screen and window sources in unified call
       try {
-        screens = await desktopCapturer.getSources({
-          types: ['screen'],
-          thumbnailSize: { width: 320, height: 180 },
-          fetchWindowIcons: false,
-        });
-      } catch (screenErr) {
-        console.warn('Direct screen capture enumeration notice:', screenErr);
-      }
-
-      // 2. Fetch application windows with app icons
-      try {
-        windows = await desktopCapturer.getSources({
-          types: ['window'],
+        allSources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
           thumbnailSize: { width: 320, height: 180 },
           fetchWindowIcons: true,
         });
-      } catch (winErr) {
-        console.warn('Window capture with icons failed, retrying without icons:', winErr);
+      } catch (iconErr) {
+        console.warn('desktopCapturer with icons failed, retrying without icons:', iconErr);
+      }
+
+      // Fallback: If failed or returned no windows, query without window icons for maximum compatibility
+      const hasWindows = allSources.some((s) => s.id.startsWith('window:'));
+      if (allSources.length === 0 || !hasWindows) {
         try {
-          windows = await desktopCapturer.getSources({
-            types: ['window'],
+          const fallback = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
             thumbnailSize: { width: 320, height: 180 },
             fetchWindowIcons: false,
           });
-        } catch (winFallbackErr) {
-          console.warn('Window capture enumeration notice:', winFallbackErr);
+          if (fallback.length > 0) {
+            allSources = fallback;
+          }
+        } catch (fallbackErr) {
+          console.warn('Fallback desktopCapturer enumeration notice:', fallbackErr);
         }
       }
-
-      // 3. If either screens or windows is empty, attempt unified query as fallback
-      if (screens.length === 0 || windows.length === 0) {
-        try {
-          const combined = await desktopCapturer.getSources({
-            types: ['screen', 'window'],
-            thumbnailSize: { width: 320, height: 180 },
-            fetchWindowIcons: true,
-          });
-          if (screens.length === 0) {
-            screens = combined.filter((s) => !s.id.startsWith('window:'));
-          }
-          if (windows.length === 0) {
-            windows = combined.filter((s) => s.id.startsWith('window:'));
-          }
-        } catch (combinedErr) {
-          console.warn('Combined desktop capture fallback notice:', combinedErr);
-        }
-      }
-
-      const allSources = [...screens, ...windows];
 
       return allSources.map((s) => {
         let thumbnailUrl = '';

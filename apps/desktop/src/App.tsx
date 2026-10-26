@@ -31,7 +31,7 @@ import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
 import { useSettingsStore } from './stores/settings.store';
 import { useSoundboardStore } from './stores/soundboard.store';
-import { ShieldAlert, RefreshCw, Server, Check } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Server, Check, Loader2 } from 'lucide-react';
 import { getApiBase, setApiBase, api } from './lib/api';
 import { extractInviteCode } from '@nightshift/shared';
 
@@ -48,8 +48,21 @@ export const App: React.FC = () => {
 
   const { user, isLoading: authLoading, initAuth } = useAuthStore();
   const { fetchServers } = useServerStore();
-  const { toggleMute, toggleDeafen, setPushToTalkActive } = useLiveKitStore();
+  const { toggleMute, toggleDeafen, setPushToTalkActive, isReconnecting, reconnectSecondsLeft } = useLiveKitStore();
   const { inputMode, pushToTalkKey } = useSettingsStore();
+
+  const handleOpenScreenShare = async () => {
+    const livekit = useLiveKitStore.getState();
+    if (livekit.isScreenSharing) {
+      await livekit.stopScreenShare();
+      return;
+    }
+    if (window.nightshift?.isElectron) {
+      setIsScreenShareOpen(true);
+    } else {
+      await livekit.startScreenShare();
+    }
+  };
 
   useEffect(() => {
     const initialize = async () => {
@@ -66,6 +79,31 @@ export const App: React.FC = () => {
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
           await fetchServers();
+
+          // Auto-reconnect to active voice channel if browser was refreshed
+          const savedVoice = sessionStorage.getItem('nightshift_active_voice_session');
+          if (savedVoice) {
+            try {
+              const parsed = JSON.parse(savedVoice);
+              if (parsed?.channelId) {
+                if (parsed.serverId && useServerStore.getState().activeServerId !== parsed.serverId) {
+                  await useServerStore.getState().selectServer(parsed.serverId);
+                }
+                useServerStore.getState().setActiveVoiceChannel(parsed.channelId);
+                useServerStore.getState().setJoiningVoiceChannel(parsed.channelId);
+                const joinData = await api.joinVoiceChannel(parsed.channelId);
+                const ok = await useLiveKitStore.getState().connect(joinData.livekitUrl, joinData.token);
+                useServerStore.getState().setJoiningVoiceChannel(null);
+                if (!ok) {
+                  sessionStorage.removeItem('nightshift_active_voice_session');
+                }
+              }
+            } catch (reconnectErr) {
+              console.warn('Voice auto-reconnect error on page refresh:', reconnectErr);
+              sessionStorage.removeItem('nightshift_active_voice_session');
+              useServerStore.getState().setJoiningVoiceChannel(null);
+            }
+          }
         }
       } catch (err: any) {
         console.error('Auth initialization error:', err);
@@ -213,6 +251,14 @@ export const App: React.FC = () => {
       {/* Floating Soundboard Active / Now Playing Bar */}
       <SoundboardActiveBar />
 
+      {/* Reconnecting countdown notice */}
+      {isReconnecting && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-5 py-2.5 rounded-2xl bg-amber-500 text-black font-bold text-xs shadow-2xl backdrop-blur-md animate-pulse border border-amber-300">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          <span>ارتباط اینترنت با سرور صوتی قطع شده است. در حال تلاش برای اتصال مجدد ({reconnectSecondsLeft} ثانیه)...</span>
+        </div>
+      )}
+
       {/* 2. Main 3-Column Layout: Left Channels/Servers, Center Chat/Voice, Right Members */}
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Column 1: Left Channel & Server Sidebar (260px) */}
@@ -222,14 +268,14 @@ export const App: React.FC = () => {
             setIsInviteOpen(true);
           }}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenScreenShareModal={() => setIsScreenShareOpen(true)}
+          onOpenScreenShareModal={handleOpenScreenShare}
         />
 
         {/* Column 2: Center Main View with Discord Top Bar, Chat Stage, and Floating Input */}
         <ChatStage
           onToggleMembers={() => setIsMembersOpen(!isMembersOpen)}
           isMembersOpen={isMembersOpen}
-          onOpenScreenShareModal={() => setIsScreenShareOpen(true)}
+          onOpenScreenShareModal={handleOpenScreenShare}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenInvite={() => {
             setInviteInitialCode('');

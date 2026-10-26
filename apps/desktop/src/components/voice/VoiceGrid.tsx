@@ -9,6 +9,7 @@ import { useSoundboardStore } from '../../stores/soundboard.store';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { Track } from 'livekit-client';
 import { getFullAvatarUrl } from '../../lib/api';
+import { PingIndicator } from '../common/PingIndicator';
 
 interface VoiceParticipant {
   identity: string;
@@ -48,6 +49,8 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     stopScreenShare,
     disconnect,
     activeSoundboardPlayers,
+    currentPing,
+    participantPings,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
   const members = useServerStore((s) => s.members);
@@ -383,10 +386,11 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
               {/* Bottom Info Bar inside Card */}
               <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
                 {/* User Name Pill */}
-                <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-black/60 backdrop-blur-md border border-border-subtle/80 max-w-[80%]">
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-black/60 backdrop-blur-md border border-border-subtle/80 max-w-[80%] pointer-events-auto">
                   <span className="text-xs font-semibold text-text-primary truncate">
                     {p.name} {p.isLocal && <span className="text-[10px] text-text-muted font-normal">(You)</span>}
                   </span>
+                  <PingIndicator ping={p.isLocal ? currentPing : participantPings[p.identity]} />
                 </div>
 
                 {/* Status Badges: Local Mute, Custom Volume, Screen Share, Deafen, Mic Muted */}
