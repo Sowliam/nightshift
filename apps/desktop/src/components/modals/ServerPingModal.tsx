@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Globe, RefreshCw, Zap, Shield, CheckCircle2 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { getApiBase } from '../../lib/api';
 
 interface ServerPingModalProps {
   isOpen: boolean;
@@ -22,46 +23,37 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   const [servers, setServers] = useState<ServerRegion[]>([
     {
-      id: 'livekit-cloud',
-      name: 'LiveKit Cloud Edge (Primary)',
-      location: 'Global Smart Routing',
-      endpoint: 'https://voiceline-qy3slc6n.livekit.cloud',
+      id: 'cloudflare-gateway',
+      name: 'Cloudflare Edge Proxy (Iran Gateway)',
+      location: 'Global Anycast Edge Network',
+      endpoint: `${getApiBase()}/api/health`,
       isPrimary: true,
+      ping: null,
+      status: 'idle',
+    },
+    {
+      id: 'livekit-cloud',
+      name: 'LiveKit Cloud Voice & Video Edge',
+      location: 'Low-Latency WebRTC Smart Routing',
+      endpoint: 'https://voiceline-qy3slc6n.livekit.cloud',
+      isPrimary: false,
       ping: currentPing,
-      status: 'online',
+      status: currentPing ? 'online' : 'idle',
     },
     {
-      id: 'eu-central',
-      name: 'Europe Central (Frankfurt)',
-      location: 'Frankfurt, Germany',
-      endpoint: 'https://frankfurt.livekit.cloud',
+      id: 'render-backend',
+      name: 'Render Origin Core Backend',
+      location: 'Frankfurt EU (Core API & DB)',
+      endpoint: 'https://nightshift-server-cfch.onrender.com/api/health',
       isPrimary: false,
       ping: null,
       status: 'idle',
     },
     {
-      id: 'me-south',
-      name: 'Middle East (Dubai Edge)',
-      location: 'Dubai, UAE (Optimized for Iran/ME)',
-      endpoint: 'https://dubai.livekit.cloud',
-      isPrimary: false,
-      ping: null,
-      status: 'idle',
-    },
-    {
-      id: 'eu-west',
-      name: 'Europe West (Amsterdam)',
-      location: 'Amsterdam, Netherlands',
-      endpoint: 'https://amsterdam.livekit.cloud',
-      isPrimary: false,
-      ping: null,
-      status: 'idle',
-    },
-    {
-      id: 'local-relay',
-      name: 'Local NIGHTSHIFT Server',
-      location: 'Self-Hosted Fastify API',
-      endpoint: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/health`,
+      id: 'vercel-web',
+      name: 'Vercel Global Frontend CDN',
+      location: 'Global High-Speed Edge CDN',
+      endpoint: 'https://dist-three-gray-67.vercel.app',
       isPrimary: false,
       ping: null,
       status: 'idle',

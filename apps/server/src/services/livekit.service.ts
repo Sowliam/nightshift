@@ -91,9 +91,17 @@ export async function getLiveKitRoomParticipantsCount(roomName: string): Promise
   return participants.length;
 }
 
+let lastHealthCheck: { result: { configured: boolean; reachable: boolean; error?: string }; timestamp: number } | null = null;
+const HEALTH_CACHE_MS = 15000; // 15 seconds cache
+
 export async function checkLiveKitHealth(): Promise<{ configured: boolean; reachable: boolean; error?: string }> {
   if (!config.livekit.apiKey || !config.livekit.apiSecret || !config.livekit.url) {
     return { configured: false, reachable: false, error: 'Credentials missing' };
+  }
+
+  const now = Date.now();
+  if (lastHealthCheck && now - lastHealthCheck.timestamp < HEALTH_CACHE_MS) {
+    return lastHealthCheck.result;
   }
 
   const client = getClient();
@@ -103,12 +111,17 @@ export async function checkLiveKitHealth(): Promise<{ configured: boolean; reach
 
   try {
     await client.listRooms();
-    return { configured: true, reachable: true };
+    const res = { configured: true, reachable: true };
+    lastHealthCheck = { result: res, timestamp: now };
+    return res;
   } catch (err: any) {
-    return {
+    const res = {
       configured: true,
       reachable: false,
       error: err?.message || 'Failed to connect to LiveKit server',
     };
+    lastHealthCheck = { result: res, timestamp: now };
+    return res;
   }
 }
+

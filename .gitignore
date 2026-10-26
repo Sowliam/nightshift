@@ -38,3 +38,5 @@ Thumbs.db
 *.swp
 *.swo
 scratch/
+apps/server/uploads/*
+!apps/server/uploads/.gitkeep

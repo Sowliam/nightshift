@@ -11,6 +11,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -35,15 +36,18 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
       return;
     }
 
-    setIsSubmitting(true);
-
     if (targetMode === 'register') {
       if (!cleanDisplayName) {
         setErrorMsg('Please enter a nickname / display name');
-        setIsSubmitting(false);
         return;
       }
 
+      if (password !== confirmPassword) {
+        setErrorMsg('Passwords do not match / تکرار رمز عبور یکسان نیست');
+        return;
+      }
+
+      setIsSubmitting(true);
       const ok = await register(cleanUsername, cleanDisplayName, password);
       if (!ok) {
         const err = useAuthStore.getState().error || 'Registration failed';
@@ -51,6 +55,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
         setIsSubmitting(false);
       }
     } else {
+      setIsSubmitting(true);
       const ok = await login(cleanUsername, password);
       if (!ok) {
         const err = useAuthStore.getState().error || 'Invalid username or password';
@@ -72,6 +77,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
               onChange={(e) => {
                 setMode(e.target.checked ? 'register' : 'login');
                 setErrorMsg(null);
+                setConfirmPassword('');
               }}
             />
             <span className="slider"></span>
@@ -156,6 +162,18 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     value={password}
                     onChange={(e) => {
                       setPassword(e.target.value);
+                      if (errorMsg) setErrorMsg(null);
+                    }}
+                    className="flip-card__input"
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirm Password"
+                    name="confirmPassword"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
                       if (errorMsg) setErrorMsg(null);
                     }}
                     className="flip-card__input"

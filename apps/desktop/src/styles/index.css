@@ -353,9 +353,10 @@ button, input, select, a {
 /* card */ 
 .flip-card__inner {
   width: 300px;
-  height: 460px;
+  min-height: 500px;
+  height: 520px;
   position: relative;
-  margin-top: 48px;
+  margin-top: 32px;
   background-color: transparent;
   perspective: 1000px;
   text-align: center;
@@ -372,7 +373,7 @@ button, input, select, a {
 }
 
 .flip-card__front, .flip-card__back {
-  padding: 28px 20px;
+  padding: 24px 20px;
   position: absolute;
   top: 0;
   left: 0;
@@ -385,7 +386,7 @@ button, input, select, a {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   background: var(--bg-color);
-  gap: 16px;
+  gap: 12px;
   border-radius: 5px;
   border: 2px solid var(--main-color);
   box-shadow: 4px 4px var(--main-color);
@@ -399,7 +400,7 @@ button, input, select, a {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .title {
