@@ -8,6 +8,10 @@ import {
   ChevronRight,
   Check,
   Video,
+  RefreshCw,
+  Globe,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import {
@@ -42,26 +46,79 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const { startScreenShare } = useLiveKitStore();
 
+  const isElectron = !!window.nightshift?.isElectron;
+
   const loadSources = async () => {
     setIsLoading(true);
     try {
-      if (window.nightshift?.isElectron) {
+      if (isElectron && window.nightshift?.getScreenSources) {
         const desktopSources = await window.nightshift.getScreenSources();
-        setSources(desktopSources);
-        if (desktopSources.length > 0 && !selectedSourceId) {
-          const defaultSrc = desktopSources.find((s) => s.isWindow) || desktopSources[0];
-          setSelectedSourceId(defaultSrc.id);
+        const winSources = desktopSources.filter((s) => s.isWindow);
+        const scrSources = desktopSources.filter((s) => !s.isWindow);
+
+        if (desktopSources.length > 0) {
+          setSources(desktopSources);
+
+          if (activeTab === 'applications') {
+            if (winSources.length > 0) {
+              setSelectedSourceId((prev) =>
+                prev && winSources.some((w) => w.id === prev) ? prev : winSources[0].id
+              );
+            } else if (scrSources.length > 0) {
+              // If no open windows were detected, switch to screens tab
+              setActiveTab('screens');
+              setSelectedSourceId(scrSources[0].id);
+            }
+          } else if (activeTab === 'screens') {
+            if (scrSources.length > 0) {
+              setSelectedSourceId((prev) =>
+                prev && scrSources.some((s) => s.id === prev) ? prev : scrSources[0].id
+              );
+            }
+          }
+        } else {
+          // If desktop capturer returned empty in Electron, provide selectable fallbacks
+          const fallbackSources: DesktopScreenSource[] = [
+            {
+              id: 'browser-display',
+              name: 'Entire Screen (Primary Monitor)',
+              thumbnailUrl: '',
+              isWindow: false,
+            },
+            {
+              id: 'browser-window',
+              name: 'Application Window (Direct Picker)',
+              thumbnailUrl: '',
+              isWindow: true,
+            },
+          ];
+          setSources(fallbackSources);
+          setSelectedSourceId(activeTab === 'applications' ? 'browser-window' : 'browser-display');
         }
       } else {
-        setSources([
+        // Browser / Web mode: provide interactive, selectable cards for both tabs
+        const browserSources: DesktopScreenSource[] = [
           {
             id: 'browser-display',
-            name: 'Standard Display Capture',
+            name: 'Entire Screen (Primary Display)',
             thumbnailUrl: '',
             isWindow: false,
           },
-        ]);
-        setSelectedSourceId('browser-display');
+          {
+            id: 'browser-window',
+            name: 'Application Window (Games, IDE, Apps)',
+            thumbnailUrl: '',
+            isWindow: true,
+          },
+          {
+            id: 'browser-tab',
+            name: 'Browser Tab (with Audio)',
+            thumbnailUrl: '',
+            isWindow: true,
+          },
+        ];
+        setSources(browserSources);
+        setSelectedSourceId(activeTab === 'applications' ? 'browser-window' : 'browser-display');
       }
     } catch (err) {
       console.error('Failed to enumerate screen sources:', err);
@@ -99,15 +156,59 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
   const windows = sources.filter((s) => s.isWindow);
   const screens = sources.filter((s) => !s.isWindow);
 
+  const handleTabChange = (tab: 'applications' | 'screens' | 'devices') => {
+    setActiveTab(tab);
+    if (tab === 'applications') {
+      const firstWin = windows[0];
+      if (firstWin) {
+        setSelectedSourceId(firstWin.id);
+      } else {
+        setSelectedSourceId('browser-window');
+      }
+    } else if (tab === 'screens') {
+      const firstScr = screens[0];
+      if (firstScr) {
+        setSelectedSourceId(firstScr.id);
+      } else {
+        setSelectedSourceId('browser-display');
+      }
+    }
+  };
+
   let displayList: DesktopScreenSource[] = [];
-  if (activeTab === 'applications') displayList = windows;
-  else if (activeTab === 'screens') displayList = screens;
+  if (activeTab === 'applications') {
+    displayList = windows.length > 0
+      ? windows
+      : [
+          {
+            id: 'browser-window',
+            name: 'Application Window (Choose active window)',
+            thumbnailUrl: '',
+            isWindow: true,
+          },
+        ];
+  } else if (activeTab === 'screens') {
+    displayList = screens.length > 0
+      ? screens
+      : [
+          {
+            id: 'browser-display',
+            name: 'Entire Screen (Primary Monitor)',
+            thumbnailUrl: '',
+            isWindow: false,
+          },
+        ];
+  }
 
   const handleShare = async () => {
-    if (!selectedSourceId && window.nightshift?.isElectron) return;
+    const targetSourceId = selectedSourceId;
+    if (!targetSourceId) return;
+
+    const isBrowserTarget =
+      targetSourceId.startsWith('browser-') || !isElectron;
 
     const success = await startScreenShare(
-      selectedSourceId === 'browser-display' ? undefined : selectedSourceId || undefined,
+      isBrowserTarget ? targetSourceId : targetSourceId,
       {
         resolution,
         frameRate,
@@ -158,13 +259,13 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none">
-      <div className="w-[720px] max-w-full max-h-[92vh] bg-[#0A0908] text-white rounded-2xl border border-[#232428] shadow-[0_20px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden relative">
-        {/* Top Header Bar with Close Button */}
+      <div className="w-[740px] max-w-full max-h-[92vh] bg-[#0A0908] text-white rounded-2xl border border-[#232428] shadow-[0_20px_60px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden relative">
+        {/* Top Header Bar with Tabs and Refresh/Close */}
         <div className="px-6 pt-5 pb-2 flex items-center justify-between shrink-0 bg-[#0A0908]">
           {/* Top Tabs (Applications | Entire Screen | Devices) */}
           <div className="flex items-center gap-6 border-b border-[#232428] flex-1 mr-4">
             <button
-              onClick={() => setActiveTab('applications')}
+              onClick={() => handleTabChange('applications')}
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'applications'
                   ? 'text-white border-b-2 border-[#5865F2]'
@@ -173,9 +274,14 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
             >
               <AppWindow className="w-4 h-4" />
               <span>Applications</span>
+              {windows.length > 0 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#1e1f22] text-[#80848e]">
+                  {windows.length}
+                </span>
+              )}
             </button>
             <button
-              onClick={() => setActiveTab('screens')}
+              onClick={() => handleTabChange('screens')}
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'screens'
                   ? 'text-white border-b-2 border-[#5865F2]'
@@ -184,9 +290,14 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
             >
               <Monitor className="w-4 h-4" />
               <span>Entire Screen</span>
+              {screens.length > 0 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-[#1e1f22] text-[#80848e]">
+                  {screens.length}
+                </span>
+              )}
             </button>
             <button
-              onClick={() => setActiveTab('devices')}
+              onClick={() => handleTabChange('devices')}
               className={`flex items-center gap-2 pb-3 font-semibold text-sm transition-all cursor-pointer ${
                 activeTab === 'devices'
                   ? 'text-white border-b-2 border-[#5865F2]'
@@ -198,30 +309,45 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
             </button>
           </div>
 
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-[#80848e] hover:text-white hover:bg-[#1a1b1f] transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {/* Action buttons (Refresh & Close) */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadSources}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#80848e] hover:text-white hover:bg-[#18191d] border border-[#232428] transition-all cursor-pointer"
+              title="Rescan open applications and screens"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#5865F2]' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[#80848e] hover:text-white hover:bg-[#1a1b1f] transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Content Container (Thumbnails 2-column Grid) */}
         <div className="flex-1 overflow-y-auto px-6 py-4 bg-[#0A0908]">
-          {!window.nightshift?.isElectron ? (
-            <div className="p-4 rounded-xl bg-[#121316] border border-[#232428] flex items-center gap-3.5 mb-2">
-              <div className="w-10 h-10 rounded-lg bg-[#5865F2]/20 text-[#5865F2] flex items-center justify-center shrink-0">
-                <Monitor className="w-5 h-5" />
+          {!isElectron && (
+            <div className="p-3.5 rounded-xl bg-[#121316] border border-[#232428] flex items-center gap-3 mb-4">
+              <div className="w-8 h-8 rounded-lg bg-[#5865F2]/20 text-[#5865F2] flex items-center justify-center shrink-0">
+                <Info className="w-4 h-4" />
               </div>
               <div className="flex flex-col text-xs">
-                <span className="font-bold text-white">Browser Screen Capture</span>
-                <span className="text-[#80848e] leading-relaxed">
-                  Clicking "Go Live" will prompt your browser to let you choose an Entire Screen, Window, or Tab.
+                <span className="font-semibold text-white">Browser Screen Capture</span>
+                <span className="text-[#80848e] text-[11px] leading-relaxed">
+                  Select your preferred capture target below. Clicking "Go Live" will prompt the system picker for seamless streaming.
                 </span>
               </div>
             </div>
-          ) : activeTab === 'devices' ? (
+          )}
+
+          {activeTab === 'devices' ? (
             <div className="h-48 flex flex-col items-center justify-center text-center p-6 bg-[#121316]/50 rounded-xl border border-[#232428]">
               <Video className="w-8 h-8 text-[#80848e] mb-2" />
               <span className="text-sm font-semibold text-white">No Capture Devices Found</span>
@@ -240,23 +366,55 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
                   <div
                     key={source.id}
                     onClick={() => setSelectedSourceId(source.id)}
-                    className={`group rounded-xl p-2 cursor-pointer transition-all flex flex-col gap-2 ${
+                    className={`group rounded-xl p-2.5 cursor-pointer transition-all flex flex-col gap-2 ${
                       isSelected
                         ? 'bg-[#18191e] border border-[#5865F2] ring-2 ring-[#5865F2]/40 shadow-lg'
                         : 'bg-[#121316] border border-[#232428] hover:bg-[#18191d] hover:border-[#383a40]'
                     }`}
                   >
                     {/* Thumbnail Box */}
-                    <div className="w-full h-28 rounded-lg bg-[#050506] overflow-hidden flex items-center justify-center border border-[#1c1d21] relative">
+                    <div className="w-full h-32 rounded-lg bg-[#050506] overflow-hidden flex items-center justify-center border border-[#1c1d21] relative">
                       {source.thumbnailUrl ? (
                         <img
                           src={source.thumbnailUrl}
                           alt={source.name}
                           className="w-full h-full object-cover"
                         />
+                      ) : source.isWindow ? (
+                        /* Sleek simulated window wireframe when no thumbnail */
+                        <div className="w-full h-full p-2.5 flex flex-col justify-between bg-gradient-to-br from-[#121316] to-[#0a0a0c]">
+                          <div className="flex items-center justify-between border-b border-[#232428] pb-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-2 h-2 rounded-full bg-[#ed4245]/60" />
+                              <div className="w-2 h-2 rounded-full bg-[#fee75c]/60" />
+                              <div className="w-2 h-2 rounded-full bg-[#57f287]/60" />
+                            </div>
+                            <span className="text-[10px] text-[#80848e] truncate max-w-[120px] font-mono">
+                              {source.name}
+                            </span>
+                          </div>
+                          <div className="flex-1 flex flex-col items-center justify-center gap-1 text-[#80848e]">
+                            <AppWindow className="w-7 h-7 text-[#5865F2]" />
+                            <span className="text-[10px] font-medium text-[#dbdee1]">Application Window</span>
+                          </div>
+                        </div>
                       ) : (
-                        <Monitor className="w-8 h-8 text-[#80848e]" />
+                        /* Sleek simulated monitor display when no thumbnail */
+                        <div className="w-full h-full p-3 flex flex-col items-center justify-center bg-gradient-to-br from-[#101114] to-[#08080a] text-[#80848e]">
+                          <div className="w-24 h-16 rounded-md border-2 border-[#2b2d31] bg-[#0c0d0f] flex flex-col items-center justify-between p-1.5 relative shadow-inner">
+                            <div className="w-full h-2 rounded-xs bg-[#5865F2]/20 flex items-center justify-end px-1">
+                              <div className="w-1 h-1 rounded-full bg-[#5865F2]" />
+                            </div>
+                            <Monitor className="w-5 h-5 text-[#5865F2]" />
+                            <div className="w-8 h-1 rounded-full bg-[#232428]" />
+                          </div>
+                          <div className="w-5 h-1.5 bg-[#2b2d31] rounded-b-xs" />
+                          <div className="w-10 h-0.5 bg-[#3f4147] rounded-full mt-0.5" />
+                          <span className="text-[10px] font-medium text-[#dbdee1] mt-1.5">Primary Display</span>
+                        </div>
                       )}
+
+                      {/* Selected Checkmark Badge */}
                       {isSelected && (
                         <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#5865F2] flex items-center justify-center shadow-md">
                           <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
@@ -266,14 +424,30 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
                     {/* Source Name & Icon */}
                     <div className="flex items-center gap-2 px-1">
-                      {source.isWindow ? (
-                        <AppWindow className="w-3.5 h-3.5 text-[#80848e] shrink-0" />
+                      {source.appIconUrl ? (
+                        <img
+                          src={source.appIconUrl}
+                          alt=""
+                          className="w-4 h-4 rounded shrink-0 object-contain"
+                        />
+                      ) : source.id === 'browser-tab' ? (
+                        <Globe className="w-4 h-4 text-[#5865F2] shrink-0" />
+                      ) : source.isWindow ? (
+                        <AppWindow className="w-4 h-4 text-[#5865F2] shrink-0" />
                       ) : (
-                        <Monitor className="w-3.5 h-3.5 text-[#80848e] shrink-0" />
+                        <Monitor className="w-4 h-4 text-[#5865F2] shrink-0" />
                       )}
-                      <span className="text-xs font-semibold text-[#dbdee1] truncate group-hover:text-white">
-                        {source.name}
-                      </span>
+                      <div className="flex flex-col min-w-0">
+                        <span
+                          className="text-xs font-semibold text-[#dbdee1] truncate group-hover:text-white"
+                          title={source.name}
+                        >
+                          {source.name}
+                        </span>
+                        <span className="text-[10px] text-[#80848e]">
+                          {source.isWindow ? 'Application Window' : 'Screen Display'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -284,6 +458,13 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
               <AppWindow className="w-8 h-8 text-[#80848e] mb-2" />
               <span className="text-sm font-semibold text-white">No {activeTab} detected</span>
               <p className="text-xs text-[#80848e] mt-1">Make sure the application you want to share is open and not minimized.</p>
+              <button
+                onClick={loadSources}
+                className="mt-3 px-3 py-1.5 rounded-lg bg-[#1e1f22] hover:bg-[#2b2d31] text-xs font-semibold text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Rescan Applications</span>
+              </button>
             </div>
           )}
         </div>
@@ -513,10 +694,11 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
           <button
             onClick={handleShare}
-            disabled={!selectedSourceId && sources.length > 0 && !!window.nightshift?.isElectron}
-            className="px-6 py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] active:scale-95 text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-all shadow-lg cursor-pointer"
+            disabled={!selectedSourceId || isLoading}
+            className="px-6 py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] active:scale-95 text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-all shadow-lg cursor-pointer flex items-center gap-2"
           >
-            Go Live
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Go Live</span>
           </button>
         </div>
       </div>

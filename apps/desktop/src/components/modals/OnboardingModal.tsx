@@ -62,7 +62,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-200">
-      <div className="wrapper pt-[210px]">
+      <div className="wrapper">
         <div className="card-switch">
           <label className="switch">
             <input

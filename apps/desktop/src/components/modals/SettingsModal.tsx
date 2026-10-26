@@ -19,7 +19,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { sounds } from '../../services/sound.service';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
-import { getApiBase, setApiBase, getFullAvatarUrl } from '../../lib/api';
+import { getFullAvatarUrl } from '../../lib/api';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,8 +31,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [micLevel, setMicLevel] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [backendUrl, setBackendUrl] = useState(() => getApiBase());
-  const [backendUrlSaved, setBackendUrlSaved] = useState(false);
 
   const {
     inputProfile,
@@ -793,43 +791,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <p className="text-xs text-text-secondary leading-relaxed">
                   NIGHTSHIFT is a high-performance, private desktop voice chat and screen-sharing network designed with Discord-grade audio isolation, clean WebRTC transmission, and strict user privacy.
                 </p>
-                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-muted space-y-1">
-                  <div>Version: {APP_VERSION}</div>
-                  <div>LiveKit WebRTC: Connected</div>
-                  <div>Theme: True Pitch Black (#0A0908) & Ivory Snow (#F1FAEE)</div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle text-xs space-y-2">
-                  <div className="font-bold text-text-primary text-xs flex items-center justify-between">
-                    <span>Backend Server API</span>
-                    {backendUrlSaved && (
-                      <span className="text-accent text-[11px] font-semibold flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Saved!
-                      </span>
-                    )}
+                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-muted space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span>Version</span>
+                    <span className="text-text-primary font-mono font-medium">{APP_VERSION}</span>
                   </div>
-                  <p className="text-[11px] text-text-muted">
-                    Point your client to any self-hosted or cloud-hosted NIGHTSHIFT backend API.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={backendUrl}
-                      onChange={(e) => setBackendUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="flex-1 px-3 py-1.5 rounded-lg bg-bg-main border border-border-subtle text-xs text-text-primary font-mono focus:outline-none focus:border-highlight"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setApiBase(backendUrl);
-                        setBackendUrlSaved(true);
-                        setTimeout(() => setBackendUrlSaved(false), 2500);
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg bg-highlight text-highlight-text font-bold text-xs hover:bg-white transition-colors shadow-sm"
-                    >
-                      Save URL
-                    </button>
+                  <div className="flex items-center justify-between">
+                    <span>LiveKit WebRTC</span>
+                    <span className="text-accent font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent inline-block animate-pulse" />
+                      Connected
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Network Protocol</span>
+                    <span className="text-text-primary font-medium">Encrypted WebRTC & WSS</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Theme</span>
+                    <span className="text-text-primary font-medium">True Pitch Black (#0A0908) & Ivory Snow</span>
                   </div>
                 </div>
               </div>

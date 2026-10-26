@@ -980,7 +980,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       };
 
       try {
-        if (sourceId && (window as any).nightshift?.isElectron) {
+        if (sourceId && !sourceId.startsWith('browser-') && (window as any).nightshift?.isElectron) {
           const targetFps = opts.frameRate || 30;
           const constraints: any = {
             audio: opts.includeAudio
@@ -1120,8 +1120,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               : 1080;
           const targetFps = opts.frameRate || 30;
 
+          const displaySurface =
+            sourceId === 'browser-window'
+              ? 'window'
+              : sourceId === 'browser-tab'
+              ? 'browser'
+              : 'monitor';
+
           await room.localParticipant.setScreenShareEnabled(true, {
             audio: opts.includeAudio ?? true,
+            video: {
+              displaySurface: displaySurface as any,
+            },
             resolution: {
               width,
               height,

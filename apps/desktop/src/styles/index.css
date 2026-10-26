@@ -263,23 +263,22 @@ button, input, select, a {
 
 /* switch card */
 .switch {
-  transform: translateY(-200px);
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  gap: 30px;
-  width: 50px;
-  height: 20px;
+  width: 300px;
+  height: auto;
 }
 
 .card-side::before {
   position: absolute;
   content: 'Log in';
-  left: -70px;
+  left: 50%;
+  margin-left: -155px;
   top: 0;
-  width: 100px;
+  width: 90px;
+  text-align: right;
   text-decoration: underline;
   color: var(--font-color);
   font-weight: 600;
@@ -288,9 +287,11 @@ button, input, select, a {
 .card-side::after {
   position: absolute;
   content: 'Sign up';
-  left: 70px;
+  left: 50%;
+  margin-left: 65px;
   top: 0;
-  width: 100px;
+  width: 90px;
+  text-align: left;
   text-decoration: none;
   color: var(--font-color);
   font-weight: 600;
@@ -310,9 +311,10 @@ button, input, select, a {
   position: absolute;
   cursor: pointer;
   top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 50%;
+  margin-left: -25px;
+  width: 50px;
+  height: 20px;
   background-color: var(--bg-color);
   transition: 0.3s;
 }
@@ -352,10 +354,8 @@ button, input, select, a {
 .flip-card__inner {
   width: 300px;
   height: 460px;
-  position: absolute;
-  top: 40px;
-  left: 50%;
-  margin-left: -150px;
+  position: relative;
+  margin-top: 48px;
   background-color: transparent;
   perspective: 1000px;
   text-align: center;

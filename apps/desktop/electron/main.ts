@@ -78,19 +78,84 @@ async function createWindow() {
   // Desktop Screen and Window capture sources handler
   ipcMain.handle('get-screen-sources', async () => {
     try {
-      const sources = await desktopCapturer.getSources({
-        types: ['window', 'screen'],
-        thumbnailSize: { width: 320, height: 180 },
-        fetchWindowIcons: false,
-      });
+      let screens: Electron.DesktopCapturerSource[] = [];
+      let windows: Electron.DesktopCapturerSource[] = [];
 
-      return sources.map((s) => ({
-        id: s.id,
-        name: s.name,
-        thumbnailUrl: s.thumbnail.toDataURL(),
-        displayId: s.display_id,
-        isWindow: s.id.startsWith('window:'),
-      }));
+      // 1. Fetch screens
+      try {
+        screens = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: { width: 320, height: 180 },
+          fetchWindowIcons: false,
+        });
+      } catch (screenErr) {
+        console.warn('Direct screen capture enumeration notice:', screenErr);
+      }
+
+      // 2. Fetch application windows with app icons
+      try {
+        windows = await desktopCapturer.getSources({
+          types: ['window'],
+          thumbnailSize: { width: 320, height: 180 },
+          fetchWindowIcons: true,
+        });
+      } catch (winErr) {
+        console.warn('Window capture with icons failed, retrying without icons:', winErr);
+        try {
+          windows = await desktopCapturer.getSources({
+            types: ['window'],
+            thumbnailSize: { width: 320, height: 180 },
+            fetchWindowIcons: false,
+          });
+        } catch (winFallbackErr) {
+          console.warn('Window capture enumeration notice:', winFallbackErr);
+        }
+      }
+
+      // 3. If either screens or windows is empty, attempt unified query as fallback
+      if (screens.length === 0 || windows.length === 0) {
+        try {
+          const combined = await desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 320, height: 180 },
+            fetchWindowIcons: true,
+          });
+          if (screens.length === 0) {
+            screens = combined.filter((s) => !s.id.startsWith('window:'));
+          }
+          if (windows.length === 0) {
+            windows = combined.filter((s) => s.id.startsWith('window:'));
+          }
+        } catch (combinedErr) {
+          console.warn('Combined desktop capture fallback notice:', combinedErr);
+        }
+      }
+
+      const allSources = [...screens, ...windows];
+
+      return allSources.map((s) => {
+        let thumbnailUrl = '';
+        try {
+          thumbnailUrl = s.thumbnail ? s.thumbnail.toDataURL() : '';
+        } catch {}
+
+        let appIconUrl = '';
+        try {
+          appIconUrl = s.appIcon ? s.appIcon.toDataURL() : '';
+        } catch {}
+
+        const isWindow = s.id.startsWith('window:');
+        const defaultName = isWindow ? 'Application Window' : 'Entire Screen';
+
+        return {
+          id: s.id,
+          name: s.name && s.name.trim().length > 0 ? s.name.trim() : defaultName,
+          thumbnailUrl,
+          appIconUrl,
+          displayId: s.display_id,
+          isWindow,
+        };
+      });
     } catch (err) {
       console.error('Failed to get desktop capturer sources:', err);
       return [];

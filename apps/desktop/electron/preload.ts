@@ -4,6 +4,7 @@ export interface DesktopScreenSource {
   id: string;
   name: string;
   thumbnailUrl: string;
+  appIconUrl?: string;
   displayId?: string;
   isWindow: boolean;
 }
