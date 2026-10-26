@@ -442,8 +442,9 @@ export const SoundboardActiveBar: React.FC = () => {
 
       {/* Remote Participant Playing Card (if someone else in the channel is playing music) */}
       {remoteEntries.map(([identity, player]) => {
-        const member = members.find((m) => m.userId === identity);
-        const memberName = member?.displayName || member?.username || identity;
+        const member = members.find((m) => m.userId === identity || m.username === identity);
+        const remoteP = remoteParticipants.find((p) => p.identity === identity);
+        const memberName = member?.displayName || member?.username || remoteP?.name || identity;
         const isMuted = !!localMutedSoundboards[identity];
         const volume = soundboardVolumes[identity] ?? 100;
 

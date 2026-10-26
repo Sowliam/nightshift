@@ -825,23 +825,45 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         measurePing(room);
         if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => measurePing(room), 1000);
+
+        // Request active soundboard / music status from room members who are currently playing
+        try {
+          if (room.localParticipant) {
+            const syncReq = new TextEncoder().encode(JSON.stringify({ type: 'soundboard_sync_request' }));
+            room.localParticipant.publishData(syncReq, { reliable: true });
+          }
+        } catch {}
       });
 
-      room.on(RoomEvent.ParticipantConnected, () => {
+      room.on(RoomEvent.ParticipantConnected, (_participant) => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
         sounds.playJoin();
         useRoomStore.getState().fetchRooms();
+
+        // If local user is currently playing music, immediately announce it to the newly joined participant!
+        try {
+          const localActive = soundboardAudioEngine.getActiveSounds().filter((s) => !s.isLocalOnly);
+          if (localActive.length > 0 && room.localParticipant) {
+            const current = localActive[0];
+            get().broadcastSoundboardPlaying(current.soundId, current.name, current.duration);
+          }
+        } catch (e) {
+          console.warn('Failed to announce soundboard to newcomer:', e);
+        }
       });
 
       room.on(RoomEvent.ParticipantDisconnected, (participant) => {
         set((state) => {
           const updatedPings = { ...state.participantPings };
+          const updatedSoundboard = { ...state.activeSoundboardPlayers };
           if (participant?.identity) {
             delete updatedPings[participant.identity];
+            delete updatedSoundboard[participant.identity];
           }
           return {
             remoteParticipants: Array.from(room.remoteParticipants.values()),
             participantPings: updatedPings,
+            activeSoundboardPlayers: updatedSoundboard,
           };
         });
         sounds.playDisconnect();
@@ -893,6 +915,35 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if ((get().isDeafened || isLocallyMuted) && track.mediaStreamTrack) {
             track.mediaStreamTrack.enabled = false;
           }
+
+          // If this is a soundboard track, ensure activeSoundboardPlayers has an entry for this participant
+          // so the streaming bar and volume control immediately appear even if the user joined in the middle of a song!
+          if (isSoundboard && participant && participant.identity) {
+            set((state) => {
+              if (!state.activeSoundboardPlayers[participant.identity]) {
+                const initialName = (track as any).name && (track as any).name !== 'soundboard' ? (track as any).name : 'Music Track';
+                return {
+                  activeSoundboardPlayers: {
+                    ...state.activeSoundboardPlayers,
+                    [participant.identity]: {
+                      soundName: initialName,
+                      soundId: track.sid || 'remote',
+                      startedAt: Date.now(),
+                      duration: 0,
+                    },
+                  },
+                };
+              }
+              return {};
+            });
+            // Request the exact song metadata from the streamer
+            try {
+              if (room.localParticipant) {
+                const req = new TextEncoder().encode(JSON.stringify({ type: 'soundboard_sync_request' }));
+                room.localParticipant.publishData(req, { reliable: true });
+              }
+            } catch {}
+          }
         }
         updateScreenShareState(room);
       });
@@ -900,9 +951,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
         try {
           if (participant && track.kind === Track.Kind.Audio) {
-            const isSoundboard = (pub && pub.trackName === 'soundboard') || (track as any).name === 'soundboard';
+            const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
+            const isSoundboard = trackName === 'soundboard' || (pub && pub.source === Track.Source.Unknown);
             const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
             remoteAudioGainEngine.unrouteTrack(trackKey);
+
+            if (isSoundboard) {
+              set((state) => {
+                const updated = { ...state.activeSoundboardPlayers };
+                delete updated[participant.identity];
+                return { activeSoundboardPlayers: updated };
+              });
+            }
           }
           const detached = track.detach();
           detached.forEach((el) => el.remove());
@@ -959,6 +1019,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               delete updated[data.participantIdentity];
               return { activeSoundboardPlayers: updated };
             });
+          } else if (data.type === 'soundboard_sync_request') {
+            // Someone joined the room and requested active music playback state
+            try {
+              const localActive = soundboardAudioEngine.getActiveSounds().filter((s) => !s.isLocalOnly);
+              if (localActive.length > 0 && room.localParticipant) {
+                const current = localActive[0];
+                get().broadcastSoundboardPlaying(current.soundId, current.name, current.duration);
+              }
+            } catch {}
           }
         } catch (err) {
           console.warn('Error parsing data packet:', err);
