@@ -542,12 +542,12 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
                         {/* Discord-style Participants List: Rendered directly underneath this voice channel */}
                         {isConnected ? (
-                          <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
+                          <div className="ml-3 pl-2.5 border-l-2 border-border-subtle my-1.5 space-y-1">
                             {/* 1. Local Participant (Current User) */}
-                            <div className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs">
-                              <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-bg-elevated/80 group transition-all text-sm">
+                              <div className="flex items-center gap-2.5 min-w-0">
                                 <div
-                                  className={`relative w-5 h-5 rounded-full bg-highlight flex items-center justify-center text-[10px] font-black text-highlight-text shrink-0 shadow-sm transition-all overflow-hidden ${
+                                  className={`relative w-8 h-8 rounded-full bg-highlight flex items-center justify-center text-xs font-black text-highlight-text shrink-0 shadow-sm transition-all overflow-hidden ${
                                     (isLocallySpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)))
                                       ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
                                       : ''
@@ -563,8 +563,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                     getInitials(user?.displayName || 'You')
                                   )}
                                 </div>
-                                <span className="text-xs font-semibold text-text-primary truncate">
-                                  {user?.displayName || 'You'} <span className="text-[10px] text-text-muted font-normal">(you)</span>
+                                <span className="text-sm font-semibold text-text-primary truncate">
+                                  {user?.displayName || 'You'} <span className="text-xs text-text-muted font-normal">(you)</span>
                                 </span>
                               </div>
 
@@ -610,11 +610,11 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                       },
                                     });
                                   }}
-                                  className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/80 group transition-all text-xs cursor-context-menu"
+                                  className="flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-bg-elevated/80 group transition-all text-sm cursor-context-menu"
                                 >
-                                  <div className="flex items-center gap-2 min-w-0">
+                                  <div className="flex items-center gap-2.5 min-w-0">
                                     <div
-                                      className={`relative w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-primary shrink-0 shadow-sm transition-all ${
+                                      className={`relative w-8 h-8 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-xs font-bold text-text-primary shrink-0 shadow-sm transition-all ${
                                         isSpeaking
                                           ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
                                           : ''
@@ -622,7 +622,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                     >
                                       {getInitials(displayName)}
                                     </div>
-                                    <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                    <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
                                       {displayName}
                                     </span>
                                   </div>
@@ -661,10 +661,10 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                 return (
                                   <div
                                     key={vp.identity}
-                                    className="flex items-center justify-between px-2 py-1 rounded-lg hover:bg-bg-elevated/60 group transition-all text-xs"
+                                    className="flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-bg-elevated/60 group transition-all text-sm"
                                   >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <div className="relative w-5 h-5 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-[10px] font-bold text-text-secondary shrink-0 shadow-sm overflow-hidden">
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div className="relative w-8 h-8 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-xs font-bold text-text-secondary shrink-0 shadow-sm overflow-hidden">
                                         {avatarSrc ? (
                                           <img
                                             src={avatarSrc}
@@ -675,7 +675,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                           getInitials(displayName)
                                         )}
                                       </div>
-                                      <span className="text-xs font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                      <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
                                         {displayName}
                                       </span>
                                     </div>

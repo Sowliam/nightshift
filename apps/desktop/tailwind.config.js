@@ -46,7 +46,7 @@ export default {
         online: '#52B788',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Vazirmatn', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       boxShadow: {
         subtle: '0 2px 8px rgba(0, 0, 0, 0.4)',

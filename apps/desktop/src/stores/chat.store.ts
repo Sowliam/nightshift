@@ -13,6 +13,8 @@ interface ChatState {
     attachmentUrl?: string,
     attachmentType?: string
   ) => Promise<MessageDto | null>;
+  deleteMessage: (channelId: string, messageId: string) => Promise<void>;
+  removeMessage: (channelId: string, messageId: string) => void;
   uploadImage: (file: File) => Promise<{ url: string; filename: string } | null>;
 }
 
@@ -63,6 +65,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
       console.error('Failed to send message:', err);
       return null;
     }
+  },
+
+  removeMessage: (channelId: string, messageId: string) => {
+    set((state) => {
+      const currentList = state.messagesByChannel[channelId];
+      if (!currentList) return state;
+      return {
+        messagesByChannel: {
+          ...state.messagesByChannel,
+          [channelId]: currentList.filter((message) => message.id !== messageId),
+        },
+      };
+    });
+  },
+
+  deleteMessage: async (channelId: string, messageId: string) => {
+    await api.deleteMessage(channelId, messageId);
+    get().removeMessage(channelId, messageId);
   },
 
   uploadImage: async (file: File) => {

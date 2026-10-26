@@ -13,6 +13,7 @@ import {
   Reply,
   Copy,
   Check,
+  Trash2,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -83,8 +84,8 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   } = useServerStore();
 
   const { user } = useAuthStore();
-  const { messagesByChannel, loadMessages, sendMessage, uploadImage } = useChatStore();
-  const { broadcastChatMessage } = useLiveKitStore();
+  const { messagesByChannel, loadMessages, sendMessage, uploadImage, deleteMessage } = useChatStore();
+  const { broadcastChatMessage, broadcastChatDeleted } = useLiveKitStore();
 
   const [messageText, setMessageText] = useState('');
   const [viewMode, setViewMode] = useState<'chat' | 'stream'>('chat');
@@ -104,6 +105,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
+  const canDeleteMessages = activeServer?.role === 'owner';
   const activeChannel = channels.find((c) => c.id === activeChannelId) || null;
 
   const channelId = activeChannel?.id || '';
@@ -138,6 +140,18 @@ export const ChatStage: React.FC<ChatStageProps> = ({
     setTimeout(() => {
       setCopiedMessageId(null);
     }, 1500);
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!channelId || !canDeleteMessages || isVoiceChannel) return;
+    if (!confirm('Delete this message?')) return;
+
+    try {
+      await deleteMessage(channelId, messageId);
+      await broadcastChatDeleted(channelId, messageId);
+    } catch (err: any) {
+      alert(err?.message || 'Could not delete this message.');
+    }
   };
 
   // Handle image upload selection
@@ -447,6 +461,16 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                             <Copy className="w-3.5 h-3.5" />
                           )}
                         </button>
+                        {canDeleteMessages && !isVoiceChannel && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMessage(msg.id)}
+                            className="p-1 rounded hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                            title="Delete message"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -496,7 +520,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
 
             {/* Apple iOS Emoji Picker Popup */}
             {isEmojiPickerOpen && (
-              <div className="absolute right-6 bottom-18 w-80 bg-[#12151e]/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute right-4 bottom-full mb-2 w-80 max-w-[calc(100%-2rem)] bg-[#12151e]/98 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150">
                 {/* Categories Tab Bar */}
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
                   <div className="flex items-center gap-1">

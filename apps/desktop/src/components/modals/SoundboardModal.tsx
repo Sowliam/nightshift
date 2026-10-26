@@ -18,7 +18,6 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
-  MoreVertical,
   Radio,
   ChevronDown,
   Square,
@@ -28,27 +27,18 @@ import {
   GripVertical,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
-import { useAuthStore } from '../../stores/auth.store';
 import { SoundboardItem } from '../../services/soundboard.storage';
 import { soundboardAudioEngine } from '../../services/soundboard-audio-engine';
 
-const WaveformBars: React.FC<{ isPlaying?: boolean }> = ({ isPlaying }) => (
-  <div className="flex items-center gap-[2.5px] h-5 px-1 shrink-0">
-    {[4, 10, 16, 8, 14, 20, 12, 6, 15, 18, 9, 5, 12, 17, 7, 14, 10, 4].map((h, i) => (
-      <span
-        key={i}
-        className={`w-[2.5px] rounded-full transition-all duration-300 ${
-          isPlaying ? 'bg-[#1db954]' : 'bg-white/20'
-        }`}
-        style={{
-          height: isPlaying ? `${Math.max(5, (h * ((i % 3) + 1.2)) % 20)}px` : `${h * 0.7}px`,
-          animation: isPlaying ? `bounce 1s infinite ease-in-out` : undefined,
-          animationDelay: `${i * 70}ms`,
-        }}
-      />
-    ))}
-  </div>
-);
+type SoundSort = 'recent' | 'oldest' | 'name' | 'artist' | 'longest';
+
+const SORT_OPTIONS: { id: SoundSort; label: string }[] = [
+  { id: 'recent', label: 'Recently added' },
+  { id: 'oldest', label: 'Oldest' },
+  { id: 'name', label: 'Name' },
+  { id: 'artist', label: 'Artist' },
+  { id: 'longest', label: 'Longest' },
+];
 
 export const SoundboardModal: React.FC = () => {
   const {
@@ -61,11 +51,9 @@ export const SoundboardModal: React.FC = () => {
     isSoundboardOpen,
     isCloudLoading,
     isCloudUploading,
-    cloudStorageStatus,
     loadSounds,
     loadCloudSounds,
     loadPlaylists,
-    loadCloudStorageStatus,
     importSound,
     uploadToCloud,
     deleteFromCloud,
@@ -92,11 +80,12 @@ export const SoundboardModal: React.FC = () => {
     seekSound,
   } = useSoundboardStore();
 
-  const user = useAuthStore((s) => s.user);
-
   const [navSection, setNavSection] = useState<'library' | 'soundboard' | 'playlists' | 'favorites' | 'uploads'>('library');
   const [filterType, setFilterType] = useState<'all' | 'music' | 'sfx'>('all');
+  const [sortBy, setSortBy] = useState<SoundSort>('recent');
+  const [sortOpen, setSortOpen] = useState(false);
   const [playlistPopoverSoundId, setPlaylistPopoverSoundId] = useState<string | null>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
 
   const [playbackProgress, setPlaybackProgress] = useState<{ currentTime: number; duration: number; progress: number }>({
     currentTime: 0,
@@ -112,9 +101,19 @@ export const SoundboardModal: React.FC = () => {
       loadSounds();
       loadPlaylists();
       loadCloudSounds();
-      loadCloudStorageStatus();
     }
   }, [isSoundboardOpen]);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!sortMenuRef.current?.contains(event.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    return () => window.removeEventListener('mousedown', onPointerDown);
+  }, [sortOpen]);
 
   // Current playing track calculation
   const currentSoundId = queue[currentQueueIndex] || (activeSounds.length > 0 ? activeSounds[0].soundId : (sounds.length > 0 ? sounds[0].id : null));
@@ -199,7 +198,7 @@ export const SoundboardModal: React.FC = () => {
 
   let displayedSounds = sounds;
   if (navSection === 'soundboard') {
-    displayedSounds = sfxSounds.length > 0 ? sfxSounds : sounds;
+    displayedSounds = sfxSounds;
   } else if (navSection === 'favorites') {
     displayedSounds = favoriteSounds;
   } else if (navSection === 'uploads') {
@@ -215,13 +214,20 @@ export const SoundboardModal: React.FC = () => {
   if (searchQuery.trim()) {
     const q = searchQuery.toLowerCase();
     displayedSounds = displayedSounds.filter(
-      (s) => s.name.toLowerCase().includes(q) || (s.category && s.category.toLowerCase().includes(q))
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.artist && s.artist.toLowerCase().includes(q)) ||
+        (s.category && s.category.toLowerCase().includes(q))
     );
   }
 
-  // Calculate total size
-  const totalSizeBytes = sounds.reduce((acc, s) => acc + (s.duration ? s.duration * 24 * 1024 : 4 * 1024 * 1024), 0);
-  const totalSizeMB = (totalSizeBytes / (1024 * 1024)).toFixed(0);
+  displayedSounds = [...displayedSounds].sort((a, b) => {
+    if (sortBy === 'oldest') return (a.createdAt || 0) - (b.createdAt || 0);
+    if (sortBy === 'name') return a.name.localeCompare(b.name, 'fa');
+    if (sortBy === 'artist') return (a.artist || '').localeCompare(b.artist || '', 'fa');
+    if (sortBy === 'longest') return (b.duration || 0) - (a.duration || 0);
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
 
   // Play sound and update queue
   const handlePlaySound = (sound: SoundboardItem) => {
@@ -252,19 +258,11 @@ export const SoundboardModal: React.FC = () => {
 
         {/* Top Header Bar */}
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/5 bg-[#0e1015] shrink-0">
-          {/* Left: Brand Icon + Title + LIVE badge + Subtitle */}
+          {/* Left: Brand Icon + Title + Subtitle */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#13271d] border border-[#1db954]/30 flex items-center justify-center text-[#1db954] shadow-[0_0_15px_rgba(29,185,84,0.3)]">
-              <Radio className="w-5 h-5 animate-pulse" />
-            </div>
+            <Radio className="w-5 h-5 text-[#1db954] shrink-0" />
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white tracking-wide">Audio & Soundboard Studio</h2>
-                <span className="px-2 py-0.5 rounded-full bg-[#1db954]/15 border border-[#1db954]/30 text-[#1db954] text-[10px] font-bold flex items-center gap-1 shadow-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#1db954] animate-ping" />
-                  LIVE
-                </span>
-              </div>
+              <h2 className="text-sm font-bold text-white tracking-wide">Audio & Soundboard Studio</h2>
               <p className="text-[11px] text-white/50">Music • Soundboard • Better Together</p>
             </div>
           </div>
@@ -298,7 +296,7 @@ export const SoundboardModal: React.FC = () => {
           {/* =======================================================
               1. LEFT NAVIGATION SIDEBAR
              ======================================================= */}
-          <div className="w-48 shrink-0 bg-[#0e1015] border-r border-white/5 p-3 flex flex-col justify-between">
+          <div className="w-48 shrink-0 bg-[#0e1015] border-r border-white/5 p-3 flex flex-col">
             {/* Nav Pills */}
             <div className="space-y-1">
               <button
@@ -333,7 +331,7 @@ export const SoundboardModal: React.FC = () => {
                   <span>Soundboard</span>
                 </div>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/60">
-                  {sfxSounds.length > 0 ? sfxSounds.length : 12}
+                  {sfxSounds.length}
                 </span>
               </button>
 
@@ -387,23 +385,9 @@ export const SoundboardModal: React.FC = () => {
                   <span>Uploads</span>
                 </div>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/10 text-white/60">
-                  {cloudSounds.length > 0 ? cloudSounds.length : 1}
+                  {cloudSounds.length}
                 </span>
               </button>
-            </div>
-
-            {/* Bottom Card: Good vibes only */}
-            <div className="bg-[#12141a] border border-white/5 rounded-2xl p-2.5 flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center text-[#1db954] shrink-0">
-                  <Disc3 className="w-3.5 h-3.5 animate-[spin_6s_linear_infinite]" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-[11px] font-bold text-white truncate">Good vibes only</h4>
-                  <p className="text-[9px] text-white/50 truncate">Music brings us closer.</p>
-                </div>
-              </div>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#1db954] shrink-0 animate-pulse" />
             </div>
           </div>
 
@@ -412,55 +396,36 @@ export const SoundboardModal: React.FC = () => {
              ======================================================= */}
           <div className="flex-1 min-w-0 flex flex-col bg-[#0c0d12] p-4 overflow-hidden">
             {/* Header Block: Title, Stats, Search, Add Music */}
-            <div className="flex items-start justify-between gap-4 mb-3 shrink-0">
-              <div className="flex items-start gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-[#13271d] border border-[#1db954]/20 flex items-center justify-center text-[#1db954] shadow-[0_0_12px_rgba(29,185,84,0.2)] shrink-0">
-                  <Music className="w-5 h-5" />
-                </div>
-                <div>
-                  <h1 className="text-base font-black text-white tracking-wide">
-                    {navSection === 'library'
-                      ? 'Music Library'
-                      : navSection === 'soundboard'
-                      ? 'Soundboard Effects'
-                      : navSection === 'favorites'
-                      ? 'Favorite Tracks'
-                      : navSection === 'playlists'
-                      ? 'Custom Playlists'
-                      : 'Cloud Uploads'}
-                  </h1>
-                  <p className="text-[11px] text-white/60 font-medium flex items-center gap-1.5 mt-0.5">
-                    <span>{displayedSounds.length} tracks</span>
-                    <span>•</span>
-                    <span>{totalSizeMB} MB / 10 GB</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#1db954] inline-block" />
-                  </p>
-                  <p className="text-[10px] text-white/40 mt-0.5">
-                    Add your favorite music and share the vibe with everyone in the room.
-                  </p>
-                </div>
-              </div>
+            <div className="flex items-center gap-3 mb-3 shrink-0 min-w-0">
+              <Music className="w-5 h-5 text-[#1db954] shrink-0" />
+              <h1 className="text-base font-black text-white tracking-wide truncate min-w-0">
+                {navSection === 'library'
+                  ? 'Music Library'
+                  : navSection === 'soundboard'
+                  ? 'Soundboard Effects'
+                  : navSection === 'favorites'
+                  ? 'Favorite Tracks'
+                  : navSection === 'playlists'
+                  ? 'Custom Playlists'
+                  : 'Cloud Uploads'}
+              </h1>
 
-              {/* Search & Add Music Button */}
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="relative w-48">
-                  <Search className="w-3 h-3 text-white/40 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <div className="flex items-center gap-2 ml-auto shrink-0">
+                <div className="relative w-[132px]">
+                  <Search className="w-3 h-3 text-white/40 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     id="studio-search-input"
                     type="text"
-                    placeholder="Search tracks, artists, or keywords..."
+                    placeholder="Search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-[#13151b] border border-white/5 rounded-xl pl-8 pr-12 py-1.5 text-[11px] text-white placeholder:text-white/40 focus:outline-none focus:border-[#1db954]/50 transition-all"
+                    className="w-full bg-[#13151b] border border-white/5 rounded-md pl-6 pr-2 py-1 text-[11px] leading-none text-white placeholder:text-white/40 focus:outline-none focus:border-[#1db954]/50"
                   />
-                  <span className="text-[9px] font-mono font-bold text-white/40 absolute right-2.5 top-1/2 -translate-y-1/2 px-1 py-0.5 rounded bg-white/5 border border-white/5">
-                    Ctrl + K
-                  </span>
                 </div>
 
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-xl bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-md shadow-[#23a55a]/20 cursor-pointer active:scale-95"
+                  className="h-7 px-2.5 rounded-md bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-[#23a55a]/20 cursor-pointer active:scale-95 whitespace-nowrap"
                 >
                   <Plus className="w-3.5 h-3.5 stroke-[3]" />
                   <span>Add Music</span>
@@ -474,16 +439,9 @@ export const SoundboardModal: React.FC = () => {
                 {/* Cloud Header & Upload Button */}
                 <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-gradient-to-r from-[#121620] to-[#0c0e14] border border-white/10 mb-3 shrink-0">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#23a55a]/15 border border-[#23a55a]/30 flex items-center justify-center text-[#23a55a] shrink-0">
-                      <CloudUpload className="w-5 h-5" />
-                    </div>
+                    <CloudUpload className="w-5 h-5 text-[#23a55a] shrink-0" />
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-white">Cloud Storage Library</h3>
-                        <span className="px-2 py-0.5 rounded-full bg-[#23a55a]/20 border border-[#23a55a]/30 text-[#23a55a] text-[10px] font-bold">
-                          {cloudStorageStatus?.bucket ? `Bucket: ${cloudStorageStatus.bucket}` : 'Filebase / R2'}
-                        </span>
-                      </div>
+                      <h3 className="text-sm font-bold text-white">Cloud Storage Library</h3>
                       <p className="text-[11px] text-white/50 mt-0.5">
                         {cloudSounds.length} audio tracks synced • Stream to room or save locally
                       </p>
@@ -594,13 +552,13 @@ export const SoundboardModal: React.FC = () => {
               /* Regular Library Track Table */
               <>
                 {/* Filter Pills & Sort Row */}
-                <div className="flex items-center justify-between gap-3 mb-2 shrink-0">
-                  <div className="flex items-center gap-1.5">
+                <div className="flex items-center justify-between gap-2 mb-2 shrink-0 min-w-0">
+                  <div className="flex items-center gap-1 min-w-0">
                     <button
                       onClick={() => setFilterType('all')}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      className={`h-6 px-2 rounded-md text-[11px] font-semibold leading-none whitespace-nowrap transition-all cursor-pointer ${
                         filterType === 'all'
-                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          ? 'bg-[#23a55a] text-black'
                           : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
                       }`}
                     >
@@ -608,9 +566,9 @@ export const SoundboardModal: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setFilterType('music')}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      className={`h-6 px-2 rounded-md text-[11px] font-semibold leading-none whitespace-nowrap transition-all cursor-pointer ${
                         filterType === 'music'
-                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          ? 'bg-[#23a55a] text-black'
                           : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
                       }`}
                     >
@@ -618,9 +576,9 @@ export const SoundboardModal: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setFilterType('sfx')}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      className={`h-6 px-2 rounded-md text-[11px] font-semibold leading-none whitespace-nowrap transition-all cursor-pointer ${
                         filterType === 'sfx'
-                          ? 'bg-[#23a55a] text-black shadow-sm'
+                          ? 'bg-[#23a55a] text-black'
                           : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
                       }`}
                     >
@@ -628,21 +586,47 @@ export const SoundboardModal: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Sort By Dropdown */}
-                  <div className="flex items-center gap-1 text-[11px] font-semibold text-white/60 bg-[#14161d] border border-white/5 px-2.5 py-1 rounded-xl">
-                    <span>Sort by: Recently added</span>
-                    <ChevronDown className="w-3 h-3 text-white/40" />
+                  <div className="relative shrink-0" ref={sortMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setSortOpen((open) => !open)}
+                      className="h-6 px-2 rounded-md flex items-center gap-1 text-[10px] font-semibold text-white/60 bg-[#14161d] border border-white/5 whitespace-nowrap cursor-pointer hover:text-white hover:border-white/15"
+                      title="Sort tracks"
+                    >
+                      <span>{SORT_OPTIONS.find((option) => option.id === sortBy)?.label}</span>
+                      <ChevronDown className={`w-3 h-3 text-white/40 transition-transform ${sortOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {sortOpen && (
+                      <div className="absolute right-0 top-full mt-1 z-30 min-w-[132px] rounded-md border border-white/10 bg-[#14161d] shadow-xl py-1">
+                        {SORT_OPTIONS.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => {
+                              setSortBy(option.id);
+                              setSortOpen(false);
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 text-[11px] font-semibold cursor-pointer transition-colors ${
+                              sortBy === option.id
+                                ? 'text-[#1db954] bg-white/5'
+                                : 'text-white/70 hover:text-white hover:bg-white/5'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Track Table Header */}
-                <div className="grid grid-cols-12 px-3 py-1.5 text-[10px] font-bold text-white/40 uppercase tracking-wider border-b border-white/5 shrink-0">
-                  <span className="col-span-1 text-center">#</span>
-                  <span className="col-span-5">Track</span>
-                  <span className="col-span-2 text-center">Duration</span>
-                  <span className="col-span-1 text-center">Size</span>
-                  <span className="col-span-1 text-center">Added by</span>
-                  <span className="col-span-2 text-right pr-2">Actions</span>
+                <div className="flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-white/40 uppercase tracking-wider border-b border-white/5 shrink-0">
+                  <span className="w-5 text-center shrink-0">#</span>
+                  <span className="flex-1 min-w-0">Track</span>
+                  <span className="w-10 text-right shrink-0">Time</span>
+                  <span className="w-14 text-right shrink-0">Size</span>
+                  <span className="w-[104px] text-right shrink-0">Actions</span>
                 </div>
 
                 {/* Track Table List (Scrollable) */}
@@ -661,65 +645,44 @@ export const SoundboardModal: React.FC = () => {
                       return (
                         <div
                           key={sound.id}
-                          className={`grid grid-cols-12 items-center px-3 py-2 rounded-xl text-xs transition-all group ${
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group ${
                             isCurrentThis
                               ? 'bg-[#13271d]/60 border-l-2 border-[#1db954]'
                               : 'hover:bg-white/[0.03] border-l-2 border-transparent'
                           }`}
                         >
-                          {/* # Index */}
-                          <span className="col-span-1 text-center text-white/40 font-mono text-[11px] group-hover:text-white">
+                          <span className="w-5 text-center text-white/40 font-mono text-[11px] shrink-0">
                             {idx + 1}
                           </span>
 
-                          {/* Track info + Artwork / Waveform */}
-                          <div className="col-span-5 flex items-center gap-2.5 min-w-0 pr-2">
-                            {/* Artwork / Icon */}
-                            <div className="w-8 h-8 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-sm">
-                              {sound.artworkUrl ? (
-                                <img src={sound.artworkUrl} alt={sound.name} className="w-full h-full object-cover" />
-                              ) : sound.category === 'sfx' ? (
-                                <Radio className="w-3.5 h-3.5 text-[#1db954]" />
-                              ) : (
-                                <Disc3 className={`w-4 h-4 text-[#1db954] ${isPlayingThis ? 'animate-spin' : ''}`} />
-                              )}
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
-                                {sound.name}
-                              </h4>
-                              <p className="text-[10px] text-white/50 truncate">
-                                {sound.artist || sound.category || 'Nightshift Audio'}
-                              </p>
-                            </div>
-
-                            {/* Waveform preview */}
-                            <WaveformBars isPlaying={isPlayingThis} />
+                          <div className="w-7 h-7 rounded-md bg-[#181a22] flex items-center justify-center shrink-0 overflow-hidden">
+                            {sound.artworkUrl ? (
+                              <img src={sound.artworkUrl} alt={sound.name} className="w-full h-full object-cover" />
+                            ) : sound.category === 'sfx' ? (
+                              <Radio className="w-3.5 h-3.5 text-[#1db954]" />
+                            ) : (
+                              <Disc3 className={`w-3.5 h-3.5 text-[#1db954] ${isPlayingThis ? 'animate-spin' : ''}`} />
+                            )}
                           </div>
 
-                          {/* Duration */}
-                          <span className="col-span-2 text-center text-white/60 font-mono text-[11px]">
+                          <div className="min-w-0 flex-1">
+                            <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
+                              {sound.name}
+                            </h4>
+                            <p className="text-[10px] text-white/50 truncate">
+                              {sound.artist || sound.category || 'Nightshift Audio'}
+                            </p>
+                          </div>
+
+                          <span className="w-10 text-right text-white/60 font-mono text-[11px] shrink-0 tabular-nums">
                             {formatTime(sound.duration || 180 + ((idx * 37) % 120))}
                           </span>
 
-                          {/* Size */}
-                          <span className="col-span-1 text-center text-white/50 text-[11px] font-mono">
+                          <span className="w-14 text-right text-white/50 text-[10px] font-mono shrink-0 tabular-nums">
                             {formatBytes(sound.duration ? sound.duration * 24 * 1024 : 5.4 * 1024 * 1024)}
                           </span>
 
-                          {/* Added by */}
-                          <div className="col-span-1 flex items-center justify-center gap-1 min-w-0">
-                            <div className="w-5 h-5 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
-                              {user?.displayName ? user.displayName[0].toUpperCase() : 'U'}
-                            </div>
-                            <span className="text-[10px] text-white/70 truncate hidden md:inline">
-                              {user?.displayName || 'User'}
-                            </span>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="col-span-2 flex items-center justify-end gap-1.5 pr-1">
+                          <div className="w-[104px] flex items-center justify-end gap-1 shrink-0">
                             {/* Play/Pause Button */}
                             <button
                               onClick={() => {
@@ -761,17 +724,17 @@ export const SoundboardModal: React.FC = () => {
                               <Heart className={`w-3 h-3 ${sound.isFavorite ? 'fill-current' : ''}`} />
                             </button>
 
-                            {/* Delete / Options button */}
+                            {/* Delete button */}
                             <button
                               onClick={() => {
                                 if (confirm(`Delete "${sound.name}"?`)) {
                                   deleteSound(sound.id);
                                 }
                               }}
-                              className="w-6 h-6 rounded-full bg-white/5 hover:bg-rose-500/20 text-white/40 hover:text-rose-400 flex items-center justify-center transition-colors cursor-pointer"
+                              className="w-6 h-6 rounded-full bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 hover:text-rose-300 flex items-center justify-center transition-colors cursor-pointer"
                               title="Delete Sound"
                             >
-                              <MoreVertical className="w-3 h-3" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
@@ -786,7 +749,7 @@ export const SoundboardModal: React.FC = () => {
           {/* =======================================================
               3. RIGHT SIDEBAR (Now Playing + Queue Preview)
              ======================================================= */}
-          <div className="w-64 shrink-0 bg-[#0e1015] border-l border-white/5 p-3.5 flex flex-col justify-between overflow-y-auto custom-scrollbar">
+          <div className="w-44 shrink-0 bg-[#0e1015] border-l border-white/5 p-2.5 flex flex-col justify-between overflow-y-auto custom-scrollbar">
             {/* Top: Now Playing Section */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -797,7 +760,7 @@ export const SoundboardModal: React.FC = () => {
               </div>
 
               {/* Album Art Card */}
-              <div className="w-full aspect-video rounded-xl bg-gradient-to-br from-[#161821] to-[#0c0d12] border border-white/10 relative overflow-hidden flex items-center justify-center shadow-lg group">
+              <div className="w-full aspect-square rounded-xl bg-gradient-to-br from-[#161821] to-[#0c0d12] border border-white/10 relative overflow-hidden flex items-center justify-center shadow-lg group">
                 {currentTrack?.artworkUrl ? (
                   <img
                     src={currentTrack.artworkUrl}
@@ -948,7 +911,7 @@ export const SoundboardModal: React.FC = () => {
                             <Music className="w-3 h-3 text-[#1db954]" />
                           </div>
                           <div className="min-w-0">
-                            <span className="font-semibold text-white truncate block max-w-[110px] text-[10px]">
+                            <span className="font-semibold text-white truncate block max-w-[92px] text-[10px]">
                               {qSound.name}
                             </span>
                             <span className="text-[9px] text-white/40 block">

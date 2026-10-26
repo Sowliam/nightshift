@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Volume2,
   VolumeX,
@@ -13,6 +13,7 @@ import {
   Headphones,
   Users,
   Music,
+  Minimize2,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
@@ -60,6 +61,15 @@ export const SoundboardActiveBar: React.FC = () => {
   const members = useServerStore((s) => s.members);
 
   const [isVolumeSliderOpen, setIsVolumeSliderOpen] = useState(false);
+  const [isMini, setIsMini] = useState(false);
+  const [miniPos, setMiniPos] = useState({ x: 24, y: 96 });
+  const dragRef = useRef<{
+    originX: number;
+    originY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
   const [playbackProgress, setPlaybackProgress] = useState<{ currentTime: number; duration: number; progress: number }>({
     currentTime: 0,
     duration: 0,
@@ -114,19 +124,101 @@ export const SoundboardActiveBar: React.FC = () => {
   // Voice listeners count (participants or default minimum 1)
   const voiceListenerCount = Math.max(1, (localParticipant ? 1 : 0) + remoteParticipants.length);
 
+  const collapseToMini = () => {
+    setMiniPos({
+      x: Math.max(12, window.innerWidth - 64),
+      y: Math.max(96, window.innerHeight - 148),
+    });
+    setIsMini(true);
+  };
+
+  const onMiniPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      originX: rect.left,
+      originY: rect.top,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer capture is optional; dragging still follows the cursor */
+    }
+  };
+
+  const onMiniPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    drag.moved = true;
+    const size = 44;
+    setMiniPos({
+      x: Math.min(window.innerWidth - size - 8, Math.max(8, drag.originX + dx)),
+      y: Math.min(window.innerHeight - size - 8, Math.max(8, drag.originY + dy)),
+    });
+  };
+
+  const onMiniPointerUp = () => {
+    const moved = dragRef.current?.moved;
+    dragRef.current = null;
+    if (!moved) setIsMini(false);
+  };
+
+  const artwork = currentSoundMeta?.artworkUrl ? (
+    <img
+      src={currentSoundMeta.artworkUrl}
+      alt={currentLocalSound?.name || 'Now playing'}
+      className="w-full h-full object-cover"
+      draggable={false}
+    />
+  ) : (
+    <div className="flex items-center gap-[2px]">
+      <span className={`w-[2px] h-2.5 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse' : ''}`} />
+      <span className={`w-[2px] h-4 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse delay-75' : ''}`} />
+      <span className={`w-[2px] h-3 rounded-full bg-[#23a55a] ${!isAnyPaused ? 'animate-pulse delay-150' : ''}`} />
+    </div>
+  );
+
   return (
-    <div className="fixed top-8 left-1/2 -translate-x-1/2 z-40 w-[94%] max-w-[840px] flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-auto select-none">
+    <>
+    {isMini && hasLocalActive && currentLocalSound && (
+      <button
+        type="button"
+        onPointerDown={onMiniPointerDown}
+        onPointerMove={onMiniPointerMove}
+        onPointerUp={onMiniPointerUp}
+        style={{ left: miniPos.x, top: miniPos.y }}
+        className="fixed z-40 w-11 h-11 rounded-xl overflow-hidden border border-[#23a55a]/40 bg-[#0f1b16] shadow-[0_8px_24px_rgba(0,0,0,0.7)] cursor-grab active:cursor-grabbing touch-none"
+        title="Drag to move. Click to restore the player."
+      >
+        {artwork}
+      </button>
+    )}
+    {(!isMini || hasRemoteActive) && (
+    <div className="fixed top-[88px] left-1/2 -translate-x-1/2 z-40 w-[78%] max-w-[560px] flex flex-col gap-2 animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-auto select-none">
       {/* Primary Music Player Card */}
-      {hasLocalActive && currentLocalSound && (
-        <div className="w-full bg-[#0c0e12]/95 border border-white/10 backdrop-blur-2xl rounded-[28px] px-6 py-4 shadow-[0_16px_50px_rgba(0,0,0,0.85)] flex flex-col gap-2.5 text-white transition-all">
+      {!isMini && hasLocalActive && currentLocalSound && (
+        <div className="relative w-full bg-[#0c0e12]/95 border border-white/10 backdrop-blur-2xl rounded-2xl px-3.5 py-2 pr-8 shadow-[0_12px_36px_rgba(0,0,0,0.85)] flex flex-col gap-1.5 text-white transition-all">
+          <button
+            type="button"
+            onClick={collapseToMini}
+            className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center cursor-pointer"
+            title="Shrink to a draggable cover"
+          >
+            <Minimize2 className="w-3 h-3" />
+          </button>
           {/* Top Row: Track Art & Title + Transport Controls + Right Utility Buttons */}
-          <div className="flex items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center justify-between gap-2 min-w-0">
             {/* Left: Album Cover + Now Playing + Song Name & Artist */}
-            <div className="flex items-center gap-3.5 min-w-0 flex-1 max-w-[34%]">
+            <div className="flex items-center gap-2 min-w-0 flex-1 max-w-[34%]">
               {/* Artwork Box */}
               <div
                 onClick={() => setQueueOpen(true)}
-                className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#0f1b16] border border-[#23a55a]/30 relative overflow-hidden flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(35,165,90,0.25)] cursor-pointer group hover:border-[#23a55a]/60 transition-all"
+                className="w-9 h-9 rounded-lg bg-[#0f1b16] border border-[#23a55a]/30 relative overflow-hidden flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(35,165,90,0.25)] cursor-pointer group hover:border-[#23a55a]/60 transition-all"
                 title="Click to open Music Queue"
               >
                 {currentSoundMeta?.artworkUrl ? (
@@ -149,59 +241,59 @@ export const SoundboardActiveBar: React.FC = () => {
               {/* Text Info */}
               <div className="flex flex-col min-w-0">
                 {/* ((•)) Now Playing Badge */}
-                <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-[#23a55a] tracking-wide">
-                  <span className="text-[12px] leading-none">((•))</span>
+                <div className="flex items-center gap-1 text-[9px] font-extrabold text-[#23a55a] tracking-wide leading-none">
+                  <span className="leading-none">((•))</span>
                   <span>Now Playing</span>
                 </div>
 
                 {/* Track Title */}
                 <h4
-                  className="font-bold text-sm text-white truncate max-w-[170px] sm:max-w-[210px] leading-snug mt-0.5"
+                  className="font-bold text-xs text-white truncate max-w-[120px] leading-tight mt-0.5"
                   title={currentLocalSound.name}
                 >
                   {currentLocalSound.name}
                 </h4>
 
                 {/* Artist / Channel Subtitle */}
-                <span className="text-[11px] text-white/50 truncate font-medium">
+                <span className="text-[10px] text-white/50 truncate font-medium leading-tight">
                   {currentSoundMeta?.artist || currentSoundMeta?.category || 'General'}
                 </span>
               </div>
             </div>
 
             {/* Center: Transport Controls (Shuffle, Previous, Big Circular Green Play, Next, Repeat) */}
-            <div className="flex items-center justify-center gap-2.5 sm:gap-4 shrink-0">
+            <div className="flex items-center justify-center gap-1 shrink-0">
               {/* Shuffle */}
               <button
                 onClick={toggleShuffle}
-                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
                   isShuffle ? 'text-[#23a55a]' : 'text-white/40 hover:text-white'
                 }`}
                 title={`Shuffle: ${isShuffle ? 'ON' : 'OFF'}`}
               >
-                <Shuffle className="w-4 h-4" />
+                <Shuffle className="w-3.5 h-3.5" />
               </button>
 
               {/* Previous */}
               <button
                 onClick={playPrevious}
                 disabled={queue.length <= 1}
-                className="p-2 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
+                className="p-1.5 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
                 title="Previous track"
               >
-                <SkipBack className="w-4 h-4 fill-current" />
+                <SkipBack className="w-3.5 h-3.5 fill-current" />
               </button>
 
               {/* Large Circular Green Play/Pause Button */}
               <button
                 onClick={() => togglePauseSound(currentLocalSound.soundId)}
-                className="w-12 h-12 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-[0_0_24px_rgba(35,165,90,0.5)] cursor-pointer shrink-0"
+                className="w-9 h-9 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-[0_0_16px_rgba(35,165,90,0.45)] cursor-pointer shrink-0"
                 title={isAnyPaused ? 'Resume playback' : 'Pause playback'}
               >
                 {isAnyPaused ? (
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
                 ) : (
-                  <Pause className="w-5 h-5 fill-current" />
+                  <Pause className="w-4 h-4 fill-current" />
                 )}
               </button>
 
@@ -209,35 +301,35 @@ export const SoundboardActiveBar: React.FC = () => {
               <button
                 onClick={playNext}
                 disabled={queue.length <= 1}
-                className="p-2 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
+                className="p-1.5 rounded-full text-white/70 hover:text-white transition-colors disabled:opacity-30 cursor-pointer"
                 title="Next track"
               >
-                <SkipForward className="w-4 h-4 fill-current" />
+                <SkipForward className="w-3.5 h-3.5 fill-current" />
               </button>
 
               {/* Repeat */}
               <button
                 onClick={toggleRepeat}
-                className={`p-2 rounded-full transition-colors cursor-pointer ${
+                className={`p-1.5 rounded-full transition-colors cursor-pointer ${
                   repeatMode !== 'off' ? 'text-[#23a55a]' : 'text-white/40 hover:text-white'
                 }`}
                 title={`Repeat: ${repeatMode}`}
               >
-                {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+                {repeatMode === 'one' ? <Repeat1 className="w-3.5 h-3.5" /> : <Repeat className="w-3.5 h-3.5" />}
               </button>
             </div>
 
             {/* Right: Utility Buttons (Favorite, Headphones, Volume, Voice Members Count) */}
-            <div className="flex items-center justify-end gap-2 sm:gap-2.5 shrink-0 flex-1 max-w-[34%]">
+            <div className="flex items-center justify-end gap-1.5 shrink-0 flex-1 max-w-[34%]">
               {/* Favorite Heart Button */}
               {currentSoundMeta && (
                 <button
                   onClick={() => toggleFavorite(currentSoundMeta.id)}
-                  className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all cursor-pointer"
                   title={currentSoundMeta.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 >
                   <Heart
-                    className={`w-4 h-4 ${
+                    className={`w-3.5 h-3.5 ${
                       currentSoundMeta.isFavorite ? 'fill-rose-500 text-rose-500' : ''
                     }`}
                   />
@@ -247,7 +339,7 @@ export const SoundboardActiveBar: React.FC = () => {
               {/* Private Headphones Monitor Button */}
               <button
                 onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   localMonitorMuted
                     ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                     : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
@@ -258,14 +350,14 @@ export const SoundboardActiveBar: React.FC = () => {
                     : 'Mute in your headphones (Music continues streaming to everyone else in channel)'
                 }
               >
-                <Headphones className="w-4 h-4" />
+                <Headphones className="w-3.5 h-3.5" />
               </button>
 
               {/* Volume Button with Popover Slider */}
               <div className="relative">
                 <button
                   onClick={() => setIsVolumeSliderOpen(!isVolumeSliderOpen)}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     localMonitorMuted
                       ? 'bg-rose-500/10 text-rose-400'
                       : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
@@ -273,9 +365,9 @@ export const SoundboardActiveBar: React.FC = () => {
                   title={`Volume: ${localMonitorVolume}%`}
                 >
                   {localMonitorMuted || localMonitorVolume === 0 ? (
-                    <VolumeX className="w-4 h-4 text-rose-400" />
+                    <VolumeX className="w-3.5 h-3.5 text-rose-400" />
                   ) : (
-                    <Volume2 className="w-4 h-4" />
+                    <Volume2 className="w-3.5 h-3.5" />
                   )}
                 </button>
 
@@ -299,19 +391,19 @@ export const SoundboardActiveBar: React.FC = () => {
 
               {/* Voice Room Participants Count Pill */}
               <div
-                className="px-3.5 h-10 rounded-full bg-white/5 border border-white/5 flex items-center gap-1.5 text-[#23a55a] font-bold text-xs shadow-inner cursor-default"
+                className="px-2.5 h-8 rounded-full bg-white/5 border border-white/5 flex items-center gap-1 text-[#23a55a] font-bold text-[11px] shadow-inner cursor-default"
                 title={`${voiceListenerCount} listeners in voice room`}
               >
-                <Users className="w-4 h-4 text-[#23a55a]" />
+                <Users className="w-3.5 h-3.5 text-[#23a55a]" />
                 <span>{voiceListenerCount}</span>
               </div>
             </div>
           </div>
 
           {/* Bottom Row: Full-Width Continuous Seekbar with Timestamps */}
-          <div className="flex items-center gap-3 w-full pt-1">
+          <div className="flex items-center gap-2 w-full">
             {/* Current Elapsed Time */}
-            <span className="text-xs font-mono text-white/40 w-9 text-right select-none">
+            <span className="text-[10px] font-mono text-white/40 w-8 text-right select-none">
               {formatTime(playbackProgress.currentTime)}
             </span>
 
@@ -323,11 +415,11 @@ export const SoundboardActiveBar: React.FC = () => {
               step="0.1"
               value={playbackProgress.progress * 100}
               onChange={handleSeek}
-              className="flex-1 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#23a55a]"
+              className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#23a55a]"
             />
 
             {/* Total Duration */}
-            <span className="text-xs font-mono text-white/40 w-9 select-none">
+            <span className="text-[10px] font-mono text-white/40 w-8 select-none">
               {formatTime(playbackProgress.duration || currentLocalSound.duration || 270)}
             </span>
           </div>
@@ -395,5 +487,7 @@ export const SoundboardActiveBar: React.FC = () => {
         );
       })}
     </div>
+    )}
+    </>
   );
 };

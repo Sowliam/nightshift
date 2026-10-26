@@ -14,7 +14,6 @@ import {
   ArrowLeft,
   Volume2,
   Volume1,
-  Radio,
   ListMusic,
   ChevronDown,
   Filter,
@@ -137,22 +136,6 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
             <ArrowLeft className="w-3.5 h-3.5 text-white/70" />
             <span>Back to Soundboard</span>
           </button>
-
-          {/* Center: Brand Icon + Title + PRO AUDIO badge + Subtitle */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#13271d] border border-[#1db954]/30 flex items-center justify-center text-[#1db954] shadow-[0_0_15px_rgba(29,185,84,0.3)]">
-              <Radio className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-black text-white tracking-wide">NIGHTSHIFT Music Player</h2>
-                <span className="px-2 py-0.5 rounded-full bg-[#1db954]/15 border border-[#1db954]/30 text-[#1db954] text-[10px] font-black uppercase tracking-wider">
-                  PRO AUDIO
-                </span>
-              </div>
-              <p className="text-[11px] text-white/50">High-fidelity voice channel music & queue controller</p>
-            </div>
-          </div>
 
           {/* Right: Queue Pill, Playlists, Close */}
           <div className="flex items-center gap-2">
@@ -478,9 +461,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
         <div className="border-t border-white/5 bg-[#0e1015] px-6 py-3 flex items-center justify-between shrink-0">
           {/* Mini Track Info */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-[#181a24] border border-white/10 flex items-center justify-center text-white shrink-0 overflow-hidden shadow-sm">
-              <Disc3 className={`w-5 h-5 text-[#23a55a] ${isPlaying ? 'animate-spin' : ''}`} />
-            </div>
+            <Disc3 className={`w-5 h-5 text-[#23a55a] shrink-0 ${isPlaying ? 'animate-spin' : ''}`} />
             <div className="min-w-0">
               <h5 className="text-xs font-bold text-white truncate max-w-[200px]">
                 {currentTrack ? currentTrack.name : 'No Track Playing'}

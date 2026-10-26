@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Loader2, Server, Check } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
-import { getApiBase, setApiBase } from '../../lib/api';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -14,9 +13,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [showServerConfig, setShowServerConfig] = useState(false);
-  const [serverUrl, setServerUrl] = useState(() => getApiBase());
-  const [serverSaved, setServerSaved] = useState(false);
 
   const { register, login } = useAuthStore();
 
@@ -52,9 +48,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
       if (!ok) {
         const err = useAuthStore.getState().error || 'Registration failed';
         setErrorMsg(err);
-        if (err.includes('reach backend') || err.includes('Insecure Connection') || err.includes('connection error')) {
-          setShowServerConfig(true);
-        }
         setIsSubmitting(false);
       }
     } else {
@@ -62,9 +55,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
       if (!ok) {
         const err = useAuthStore.getState().error || 'Invalid username or password';
         setErrorMsg(err);
-        if (err.includes('reach backend') || err.includes('Insecure Connection') || err.includes('connection error')) {
-          setShowServerConfig(true);
-        }
         setIsSubmitting(false);
       }
     }
@@ -189,56 +179,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
           </label>
         </div>
       </div>
-
-        {/* Server Connection Config (Minimalist & Unobtrusive) */}
-        <div className="mt-4 flex flex-col items-center text-[11px] text-text-muted">
-          {!showServerConfig ? (
-            <button
-              type="button"
-              onClick={() => setShowServerConfig(true)}
-              className="flex items-center gap-1.5 text-text-muted hover:text-white transition-colors cursor-pointer opacity-75 hover:opacity-100"
-            >
-              <Server className="w-3 h-3 text-text-muted" />
-              <span>
-                Backend:{' '}
-                <span className="font-mono text-accent-bright font-semibold">
-                  {serverUrl.replace('https://', '').replace('http://', '')}
-                </span>
-              </span>
-            </button>
-          ) : (
-            <div className="w-[320px] flex flex-col gap-1.5 bg-[#141518] p-2.5 rounded-xl border border-white/10 text-left shadow-lg animate-in fade-in">
-              <label className="text-[10px] uppercase font-bold text-text-muted tracking-wider">
-                Backend API URL
-              </label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="flex-1 px-2.5 py-1.5 rounded-lg bg-[#18191e] border border-white/10 text-xs text-white focus:outline-none focus:border-accent-bright font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setApiBase(serverUrl);
-                    setServerSaved(true);
-                    setTimeout(() => setServerSaved(false), 2000);
-                    setShowServerConfig(false);
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-accent-bright text-black font-bold text-xs flex items-center gap-1 shadow-sm hover:bg-white cursor-pointer"
-                >
-                  <Check className="w-3 h-3 stroke-[3]" />
-                  Save
-                </button>
-              </div>
-            </div>
-          )}
-          {serverSaved && (
-            <span className="text-[10px] text-accent-bright font-semibold mt-1">Server URL saved!</span>
-          )}
-        </div>
-      </div>
+    </div>
     );
   };

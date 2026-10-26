@@ -1,10 +1,10 @@
-// NIGHTSHIFT High-Fidelity Synthesized Sound Cues
-// Uses Web Audio API for zero-latency, artifact-free, polished audio feedback
+// Soft CC0 UI cues (SFXMint). Played quietly through a lowpass so they stay warm, not sharp.
 
 class SoundService {
   private ctx: AudioContext | null = null;
   private isEnabled: boolean = true;
   private masterGain: number = 0.5;
+  private cues = new Map<string, Promise<AudioBuffer>>();
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -28,158 +28,73 @@ class SoundService {
     this.masterGain = Math.max(0, Math.min(1, volPercent / 100));
   }
 
-  // 1. Mute Sound Cue (Subtle descending tone: 440Hz -> 330Hz)
+  private loadCue(ctx: AudioContext, name: string) {
+    let pending = this.cues.get(name);
+    if (!pending) {
+      pending = fetch(`/sounds/ui/${name}.mp3`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Missing cue ${name}`);
+          return res.arrayBuffer();
+        })
+        .then((data) => ctx.decodeAudioData(data));
+      this.cues.set(name, pending);
+    }
+    return pending;
+  }
+
+  private playCue(name: string) {
+    if (!this.isEnabled) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+    this.loadCue(ctx, name)
+      .then((buffer) => {
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1100;
+        filter.Q.value = 0.4;
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
+        const peak = Math.min(0.4, Math.max(0.04, this.masterGain * 0.32));
+        const audible = Math.min(buffer.duration, 0.9);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(peak, now + 0.04);
+        gain.gain.setValueAtTime(peak, now + Math.max(0.08, audible - 0.14));
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + audible);
+        src.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+        src.start(now);
+        src.stop(now + audible + 0.02);
+      })
+      .catch(() => {
+        this.cues.delete(name);
+      });
+  }
+
   public playMute() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, now);
-    osc.frequency.exponentialRampToValueAtTime(320, now + 0.12);
-
-    gain.gain.setValueAtTime(this.masterGain * 0.35, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.15);
+    this.playCue('mute');
   }
 
-  // 2. Unmute Sound Cue (Crisp ascending tone: 330Hz -> 520Hz)
   public playUnmute() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(340, now);
-    osc.frequency.exponentialRampToValueAtTime(540, now + 0.12);
-
-    gain.gain.setValueAtTime(this.masterGain * 0.35, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.15);
+    this.playCue('unmute');
   }
 
-  // 3. Deafen Sound Cue (Deep hollow notification: 300Hz -> 200Hz)
   public playDeafen() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(320, now);
-    osc.frequency.exponentialRampToValueAtTime(200, now + 0.18);
-
-    gain.gain.setValueAtTime(this.masterGain * 0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.2);
+    this.playCue('deafen');
   }
 
-  // 4. Undeafen Sound Cue (Bright ascending chime: 260Hz -> 480Hz)
   public playUndeafen() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(260, now);
-    osc.frequency.exponentialRampToValueAtTime(480, now + 0.18);
-
-    gain.gain.setValueAtTime(this.masterGain * 0.4, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.2);
+    this.playCue('undeafen');
   }
 
-  // 5. Join Room Sound Cue (Uplifting harmonic chime: 440Hz -> 554Hz -> 659Hz)
   public playJoin() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const notes = [440, 554.37, 659.25]; // A4, C#5, E5
-    const now = ctx.currentTime;
-
-    notes.forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const startTime = now + idx * 0.07;
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, startTime);
-
-      gain.gain.setValueAtTime(0.001, startTime);
-      gain.gain.linearRampToValueAtTime(this.masterGain * 0.4, startTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.25);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(startTime);
-      osc.stop(startTime + 0.25);
-    });
+    this.playCue('join');
   }
 
-  // 6. Disconnect / Leave Room Sound Cue (Downward mellow chime: 580Hz -> 380Hz)
   public playDisconnect() {
-    if (!this.isEnabled) return;
-    const ctx = this.getAudioContext();
-    if (!ctx) return;
-
-    const notes = [587.33, 392.0]; // D5, G4
-    const now = ctx.currentTime;
-
-    notes.forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const startTime = now + idx * 0.09;
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, startTime);
-
-      gain.gain.setValueAtTime(0.001, startTime);
-      gain.gain.linearRampToValueAtTime(this.masterGain * 0.35, startTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.28);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(startTime);
-      osc.stop(startTime + 0.28);
-    });
+    this.playCue('leave');
   }
 
   // 7. Push-To-Talk Activate Click (Super subtle 800Hz blip)

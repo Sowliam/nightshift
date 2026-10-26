@@ -567,6 +567,20 @@ class ApiClient {
     return data.message;
   }
 
+  async deleteMessage(channelId: string, messageId: string): Promise<void> {
+    const res = await this.fetchWithHandling(
+      `${this.getBaseUrl()}/api/channels/${channelId}/messages/${messageId}`,
+      {
+        method: 'DELETE',
+        headers: this.getHeaders(),
+      }
+    );
+
+    if (!res.ok) {
+      throw await this.parseError(res, 'Failed to delete message');
+    }
+  }
+
   async uploadImage(file: File): Promise<{ url: string; filename: string; type: string; size: number }> {
     const formData = new FormData();
     formData.append('file', file);

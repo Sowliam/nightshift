@@ -74,6 +74,7 @@ interface LiveKitState {
   setParticipantVolume: (identity: string, volumePercent: number) => void;
   toggleMuteForMyself: (identity: string) => void;
   broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
+  broadcastChatDeleted: (roomId: string, messageId: string) => Promise<void>;
 }
 
 export const useLiveKitStore = create<LiveKitState>((set, get) => {
@@ -690,6 +691,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const data = JSON.parse(text);
           if (data.type === 'chat_message' && data.message && data.roomId) {
             useChatStore.getState().addMessage(data.roomId, data.message);
+          } else if (data.type === 'chat_message_deleted' && data.roomId && data.messageId) {
+            useChatStore.getState().removeMessage(data.roomId, data.messageId);
           } else if (data.type === 'soundboard_playing' && data.participantIdentity) {
             set((state) => ({
               activeSoundboardPlayers: {
@@ -1422,6 +1425,23 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         await room.localParticipant.publishData(bytes, { reliable: true });
       } catch (err) {
         console.warn('Failed to broadcast chat message:', err);
+      }
+    },
+
+    broadcastChatDeleted: async (roomId: string, messageId: string) => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return;
+
+      try {
+        const payload = JSON.stringify({
+          type: 'chat_message_deleted',
+          roomId,
+          messageId,
+        });
+        const bytes = new TextEncoder().encode(payload);
+        await room.localParticipant.publishData(bytes, { reliable: true });
+      } catch (err) {
+        console.warn('Failed to broadcast chat deletion:', err);
       }
     },
   };

@@ -23,7 +23,6 @@ import { useServerStore } from '../../stores/server.store';
 import { useRoomStore } from '../../stores/room.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSettingsStore } from '../../stores/settings.store';
-import { ParticipantStrip } from './ParticipantStrip';
 import { VoiceGrid } from '../voice/VoiceGrid';
 import { CallControlBar } from '../controls/CallControlBar';
 import { ConnectionState, Track, RoomEvent, RemoteAudioTrack } from 'livekit-client';
@@ -852,8 +851,6 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
         />
       </div>
 
-      {/* Bottom Participant Strip */}
-      {isRoomActive && <ParticipantStrip />}
     </div>
   );
 };
