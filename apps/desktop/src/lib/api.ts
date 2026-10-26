@@ -40,8 +40,10 @@ export const getApiBase = (): string => {
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       const cleanCustom = custom.trim().replace(/\/$/, '');
-      // If user had previously stored vercel origin or same-origin, upgrade them to the real backend
-      if (cleanCustom !== window.location.origin && !cleanCustom.includes('vercel.app')) {
+      // If user had previously stored onrender, vercel origin, or same-origin, upgrade them to the real unblocked proxy backend
+      if (cleanCustom.includes('onrender.com') || cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
+        localStorage.removeItem('nightshift_api_url');
+      } else {
         return cleanCustom;
       }
     }

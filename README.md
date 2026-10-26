@@ -225,7 +225,8 @@ npm run build
 
 ### ۵. دیپلوی لایو (Live Deployment)
 * **آدرس وب‌سایت فعال (نسخه پروداکشن):** [https://dist-three-gray-67.vercel.app](https://dist-three-gray-67.vercel.app)
-* **سرور بک‌اند فعال:** `https://nightshift-server-cfch.onrender.com`
+* **سرور بک‌اند (پروکسی کلودفلر - بدون نیاز به فیلترشکن):** `https://nightshift-api.gemesowl.workers.dev`
+* **سرور بک‌اند اصلی (Render):** `https://nightshift-server-cfch.onrender.com`
 * **ریپازیتوری گیت‌هاب:** `https://github.com/Sowliam/nightshift.git`
 
 ---
