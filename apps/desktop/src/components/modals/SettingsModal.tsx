@@ -67,6 +67,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const filteredSourceRef = useRef<AudioNode | null>(null);
+  const micTestGainRef = useRef<GainNode | null>(null);
+
+  const [isMicTesting, setIsMicTesting] = useState(false);
+  const [isSpeakerTesting, setIsSpeakerTesting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -140,6 +145,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       highpass2.connect(lowpass);
       lowpass.connect(analyser);
 
+      filteredSourceRef.current = lowpass;
+
       const timeBuffer = new Uint8Array(analyser.fftSize);
 
       const updateMeter = () => {
@@ -168,6 +175,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    if (micTestGainRef.current) {
+      try {
+        micTestGainRef.current.disconnect();
+      } catch {}
+      micTestGainRef.current = null;
+    }
+    setIsMicTesting(false);
+    filteredSourceRef.current = null;
+
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
@@ -179,8 +195,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setMicLevel(0);
   };
 
+  const handleToggleMicTest = async () => {
+    if (isMicTesting) {
+      if (micTestGainRef.current) {
+        try {
+          micTestGainRef.current.disconnect();
+        } catch {}
+        micTestGainRef.current = null;
+      }
+      setIsMicTesting(false);
+    } else {
+      if (!audioContextRef.current || !filteredSourceRef.current) {
+        await startMicListener();
+      }
+      const ctx = audioContextRef.current;
+      const src = filteredSourceRef.current;
+      if (ctx && src) {
+        if (ctx.state === 'suspended') {
+          await ctx.resume().catch(() => {});
+        }
+        try {
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(0.9, ctx.currentTime);
+          src.connect(gain);
+          gain.connect(ctx.destination);
+          micTestGainRef.current = gain;
+          setIsMicTesting(true);
+        } catch (err) {
+          console.warn('Could not connect loopback mic test:', err);
+        }
+      }
+    }
+  };
+
   const handleTestSpeaker = () => {
-    sounds.playJoin();
+    setIsSpeakerTesting(true);
+    try {
+      sounds.playJoin();
+
+      // Synthesized crystal-clear melodic chime via Web Audio (guaranteed to play in all environments)
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        const notes = [
+          { freq: 523.25, time: 0, dur: 0.14 },    // C5
+          { freq: 659.25, time: 0.12, dur: 0.14 },  // E5
+          { freq: 783.99, time: 0.24, dur: 0.35 },  // G5
+        ];
+        notes.forEach((n) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(n.freq, now + n.time);
+          gain.gain.setValueAtTime(0.001, now + n.time);
+          gain.gain.linearRampToValueAtTime(0.3, now + n.time + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + n.time + n.dur);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + n.time);
+          osc.stop(now + n.time + n.dur + 0.05);
+        });
+        setTimeout(() => {
+          if (ctx.state !== 'closed') ctx.close().catch(() => {});
+        }, 900);
+      }
+    } catch (err) {
+      console.warn('Speaker test sound failed:', err);
+    }
+    setTimeout(() => setIsSpeakerTesting(false), 900);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -376,19 +459,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
 
                 {/* Output Volume & Test Sound */}
-                <div className="p-3.5 rounded-xl bg-bg-elevated border border-border-subtle flex items-center justify-between">
+                <div className={`p-3.5 rounded-xl bg-bg-elevated border transition-colors flex items-center justify-between ${
+                  isSpeakerTesting ? 'border-emerald-500/50 shadow-md shadow-emerald-500/10' : 'border-border-subtle'
+                }`}>
                   <div className="flex items-center gap-3">
-                    <Volume2 className="w-5 h-5 text-highlight" />
+                    <Volume2 className={`w-5 h-5 transition-transform ${isSpeakerTesting ? 'text-emerald-400 scale-110' : 'text-highlight'}`} />
                     <div>
                       <div className="text-xs font-bold text-text-primary">Output Volume & Speaker Test</div>
                       <div className="text-[11px] text-text-muted">Test sound playback on your selected speaker</div>
                     </div>
                   </div>
                   <button
+                    type="button"
                     onClick={handleTestSpeaker}
-                    className="px-3 py-1.5 rounded-lg bg-highlight hover:bg-white text-highlight-text text-xs font-bold transition-all shadow-sm"
+                    disabled={isSpeakerTesting}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
+                      isSpeakerTesting
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-highlight hover:bg-white text-highlight-text'
+                    }`}
                   >
-                    Play Test Sound
+                    {isSpeakerTesting ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                        Playing Chime...
+                      </>
+                    ) : (
+                      'Play Test Sound'
+                    )}
                   </button>
                 </div>
 
@@ -540,6 +638,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       </div>
                     </div>
                   )}
+
+                  {/* Mic Test Card (Real-time Audio Loopback & Hear Yourself) */}
+                  <div className={`p-3.5 rounded-xl border transition-all mt-3 ${
+                    isMicTesting
+                      ? 'bg-emerald-500/10 border-emerald-500/40 shadow-md shadow-emerald-500/10'
+                      : 'bg-bg-elevated/70 border-border-subtle'
+                  }`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Mic className={`w-4 h-4 ${isMicTesting ? 'text-emerald-400 animate-pulse' : 'text-highlight'}`} />
+                          <span className="text-xs font-bold text-text-primary">Mic Test</span>
+                          {isMicTesting && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider animate-pulse">
+                              LIVE LOOPBACK
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-text-secondary mt-1">
+                          {isMicTesting
+                            ? 'Speak now — you can hear your microphone in your headphones live.'
+                            : 'Having mic issues? Click "Let\'s Check" to hear how your voice sounds to other users.'}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleToggleMicTest}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm shrink-0 flex items-center justify-center gap-2 cursor-pointer ${
+                          isMicTesting
+                            ? 'bg-rose-500 hover:bg-rose-600 text-white'
+                            : 'bg-highlight hover:bg-white text-highlight-text'
+                        }`}
+                      >
+                        {isMicTesting ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                            Stop Testing
+                          </>
+                        ) : (
+                          <>
+                            <Volume2 className="w-3.5 h-3.5" />
+                            Let's Check
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 3. Noise Suppression */}
