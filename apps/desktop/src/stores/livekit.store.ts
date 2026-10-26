@@ -827,12 +827,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         pingInterval = setInterval(() => measurePing(room), 1000);
 
         // Request active soundboard / music status from room members who are currently playing
-        try {
-          if (room.localParticipant) {
-            const syncReq = new TextEncoder().encode(JSON.stringify({ type: 'soundboard_sync_request' }));
-            room.localParticipant.publishData(syncReq, { reliable: true });
-          }
-        } catch {}
+        const requestSoundboardSync = () => {
+          try {
+            if (room.localParticipant && room.state === ConnectionState.Connected) {
+              const syncReq = new TextEncoder().encode(JSON.stringify({ type: 'soundboard_sync_request' }));
+              room.localParticipant.publishData(syncReq, { reliable: true });
+            }
+          } catch {}
+        };
+        setTimeout(requestSoundboardSync, 400);
+        setTimeout(requestSoundboardSync, 1200);
       });
 
       room.on(RoomEvent.ParticipantConnected, (_participant) => {
@@ -840,16 +844,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         sounds.playJoin();
         useRoomStore.getState().fetchRooms();
 
-        // If local user is currently playing music, immediately announce it to the newly joined participant!
-        try {
-          const localActive = soundboardAudioEngine.getActiveSounds().filter((s) => !s.isLocalOnly);
-          if (localActive.length > 0 && room.localParticipant) {
-            const current = localActive[0];
-            get().broadcastSoundboardPlaying(current.soundId, current.name, current.duration);
+        // If local user is currently playing music, announce it to the newcomer once their data channel is ready
+        const announceIfPlaying = () => {
+          try {
+            const localActive = soundboardAudioEngine.getActiveSounds().filter((s) => !s.isLocalOnly);
+            if (localActive.length > 0 && room.localParticipant && room.state === ConnectionState.Connected) {
+              const current = localActive[0];
+              get().broadcastSoundboardPlaying(current.soundId, current.name, current.duration);
+            }
+          } catch (e) {
+            console.warn('Failed to announce soundboard to newcomer:', e);
           }
-        } catch (e) {
-          console.warn('Failed to announce soundboard to newcomer:', e);
-        }
+        };
+        setTimeout(announceIfPlaying, 500);
+        setTimeout(announceIfPlaying, 1500);
       });
 
       room.on(RoomEvent.ParticipantDisconnected, (participant) => {
@@ -883,7 +891,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
           const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
-          const isSoundboard = trackName === 'soundboard' || (pub && pub.source === Track.Source.Unknown);
+          const isSoundboard = trackName === 'soundboard';
           const containerId = isSoundboard ? 'nightshift-soundboard-audio-container' : 'nightshift-voice-audio-container';
           let container = document.getElementById(containerId);
           if (!container) {
@@ -916,29 +924,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             track.mediaStreamTrack.enabled = false;
           }
 
-          // If this is a soundboard track, ensure activeSoundboardPlayers has an entry for this participant
-          // so the streaming bar and volume control immediately appear even if the user joined in the middle of a song!
+          // If this is a soundboard track, ask the sender if they have an active song playing
           if (isSoundboard && participant && participant.identity) {
-            set((state) => {
-              if (!state.activeSoundboardPlayers[participant.identity]) {
-                const initialName = (track as any).name && (track as any).name !== 'soundboard' ? (track as any).name : 'Music Track';
-                return {
-                  activeSoundboardPlayers: {
-                    ...state.activeSoundboardPlayers,
-                    [participant.identity]: {
-                      soundName: initialName,
-                      soundId: track.sid || 'remote',
-                      startedAt: Date.now(),
-                      duration: 0,
-                    },
-                  },
-                };
-              }
-              return {};
-            });
-            // Request the exact song metadata from the streamer
             try {
-              if (room.localParticipant) {
+              if (room.localParticipant && room.state === ConnectionState.Connected) {
                 const req = new TextEncoder().encode(JSON.stringify({ type: 'soundboard_sync_request' }));
                 room.localParticipant.publishData(req, { reliable: true });
               }
@@ -952,7 +941,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         try {
           if (participant && track.kind === Track.Kind.Audio) {
             const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
-            const isSoundboard = trackName === 'soundboard' || (pub && pub.source === Track.Source.Unknown);
+            const isSoundboard = trackName === 'soundboard';
             const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
             remoteAudioGainEngine.unrouteTrack(trackKey);
 
