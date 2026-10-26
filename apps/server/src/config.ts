@@ -5,6 +5,12 @@ import path from 'path';
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
+const cleanStr = (val?: string) => (val || '').replace(/[\r\n\t"']/g, '').trim();
+const cleanRegion = (val?: string) => {
+  const cleaned = (val || '').replace(/[^a-zA-Z0-9-]/g, '').trim();
+  return cleaned || 'auto';
+};
+
 export const config = {
   port: parseInt(process.env.PORT || process.env.SERVER_PORT || '3001', 10),
   host: process.env.SERVER_HOST || '0.0.0.0',
@@ -16,13 +22,13 @@ export const config = {
   },
   appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:5173',
   r2: {
-    accountId: process.env.R2_ACCOUNT_ID || '',
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || '',
-    bucketName: process.env.R2_BUCKET_NAME || process.env.S3_BUCKET_NAME || 'nightshift-audio',
-    publicUrl: process.env.R2_PUBLIC_URL || '',
-    endpoint: process.env.S3_ENDPOINT || '',
-    region: process.env.S3_REGION || 'auto',
+    accountId: cleanStr(process.env.R2_ACCOUNT_ID),
+    accessKeyId: cleanStr(process.env.R2_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID),
+    secretAccessKey: cleanStr(process.env.R2_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY),
+    bucketName: cleanStr(process.env.R2_BUCKET_NAME || process.env.S3_BUCKET_NAME || 'nightshift-audio'),
+    publicUrl: cleanStr(process.env.R2_PUBLIC_URL),
+    endpoint: cleanStr(process.env.S3_ENDPOINT),
+    region: cleanRegion(process.env.R2_REGION || process.env.S3_REGION || process.env.AWS_REGION || 'auto'),
   },
 };
 

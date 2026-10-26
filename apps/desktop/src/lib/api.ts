@@ -636,10 +636,10 @@ class ApiClient {
     duration: number = 0
   ): Promise<CloudSoundItem> {
     const formData = new FormData();
-    formData.append('file', file);
     formData.append('name', name);
     formData.append('category', category);
     formData.append('duration', duration.toString());
+    formData.append('file', file);
 
     const headers: Record<string, string> = {};
     const t = this.getToken();
@@ -654,7 +654,7 @@ class ApiClient {
     });
 
     if (!res.ok) {
-      throw await this.parseError(res, 'Failed to upload audio to Cloudflare R2');
+      throw await this.parseError(res, 'Failed to upload audio file');
     }
     return res.json();
   }

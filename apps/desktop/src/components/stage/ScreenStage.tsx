@@ -696,7 +696,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
 
           <button
             onClick={handleCopyInviteLink}
-            className="px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#2b2d31] border border-[#232428] hover:border-[#35373c] text-xs font-medium text-[#f2f3f5] flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            className="hidden sm:flex px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#2b2d31] border border-[#232428] hover:border-[#35373c] text-xs font-medium text-[#f2f3f5] items-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer"
             title="Copy Invite Link"
           >
             {copied ? (

@@ -55,21 +55,24 @@ export const soundsRoutes: FastifyPluginAsync = async (fastify) => {
     const category = (data.fields.category as any)?.value || 'General';
     const duration = parseFloat((data.fields.duration as any)?.value || '0');
 
-    let audioUrl: string;
-    let storageKey: string;
+    let audioUrl = '';
+    let storageKey = '';
+    let uploadedToCloud = false;
 
     if (r2Service.isConfigured()) {
-      // Upload directly to Cloudflare R2
+      // Try upload directly to Cloudflare R2
       try {
         const uploadRes = await r2Service.uploadAudio(data.filename, buffer, data.mimetype);
         storageKey = uploadRes.key;
         audioUrl = uploadRes.url;
+        uploadedToCloud = true;
       } catch (err: any) {
-        request.log.error(err, 'Failed to upload to Cloudflare R2');
-        return reply.status(500).send({ error: `R2 upload failed: ${err.message}` });
+        request.log.warn(err, `[Sounds Upload] Cloudflare R2 upload encountered error, falling back to local disk: ${err.message}`);
       }
-    } else {
-      // Local disk fallback when R2 credentials are not yet added
+    }
+
+    if (!uploadedToCloud) {
+      // Local disk fallback when R2 credentials are not added or temporary cloud error occurs
       const uploadsDir = path.resolve(process.cwd(), 'uploads', 'sounds');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });

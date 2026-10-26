@@ -5,6 +5,8 @@ import { ChatStage } from './components/chat/ChatStage';
 import { ParticipantPanel } from './components/layout/ParticipantPanel';
 import { OnboardingModal } from './components/modals/OnboardingModal';
 import { SoundboardActiveBar } from './components/voice/SoundboardActiveBar';
+import { MobileBottomNav, MobileTab } from './components/layout/MobileBottomNav';
+import { useMobileLayout } from './hooks/useMobileLayout';
 
 // Lazy-load secondary modals to minimize initial bundle size and speed up FCP
 const ScreenShareModal = React.lazy(() =>
@@ -42,6 +44,8 @@ export const App: React.FC = () => {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [inviteInitialCode, setInviteInitialCode] = useState('');
   const [isServerPingOpen, setIsServerPingOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('channels');
+  const { isMobile } = useMobileLayout();
   const [serverError, setServerError] = useState<string | null>(null);
   const [showEditServer, setShowEditServer] = useState(false);
   const [serverUrlInput, setServerUrlInput] = useState(() => getApiBase());
@@ -246,7 +250,7 @@ export const App: React.FC = () => {
   return (
     <div className="w-screen h-screen flex flex-col bg-bg-main overflow-hidden text-text-primary select-none">
       {/* 1. Desktop Window Frame & TitleBar with Minimize, Maximize, Close */}
-      <TitleBar />
+      {!isMobile && <TitleBar />}
 
       {/* Floating Soundboard Active / Now Playing Bar */}
       <SoundboardActiveBar />
@@ -259,34 +263,83 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 2. Main 3-Column Layout: Left Channels/Servers, Center Chat/Voice, Right Members */}
-      <div className="flex-1 flex min-h-0 relative overflow-hidden">
-        {/* Column 1: Left Channel & Server Sidebar (260px) */}
-        <RoomSidebar
-          onOpenInvite={() => {
-            setInviteInitialCode('');
-            setIsInviteOpen(true);
-          }}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenScreenShareModal={handleOpenScreenShare}
-        />
+      {isMobile ? (
+        /* ── Mobile Layout: Single visible panel + bottom nav ── */
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden" style={{ paddingBottom: 60 }}>
+          {/* Channels Sidebar Panel */}
+          <div className={mobileTab === 'channels' ? 'flex flex-col flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+            <RoomSidebar
+              onOpenInvite={() => {
+                setInviteInitialCode('');
+                setIsInviteOpen(true);
+                setMobileTab('chat');
+              }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenScreenShareModal={handleOpenScreenShare}
+              isMobile
+              onMobileChannelSelect={() => setMobileTab('chat')}
+            />
+          </div>
 
-        {/* Column 2: Center Main View with Discord Top Bar, Chat Stage, and Floating Input */}
-        <ChatStage
-          onToggleMembers={() => setIsMembersOpen(!isMembersOpen)}
-          isMembersOpen={isMembersOpen}
-          onOpenScreenShareModal={handleOpenScreenShare}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenInvite={() => {
-            setInviteInitialCode('');
-            setIsInviteOpen(true);
-          }}
-          onOpenServers={() => setIsServerPingOpen(true)}
-        />
+          {/* Chat / Voice Panel */}
+          <div className={mobileTab === 'chat' ? 'flex flex-col flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+            <ChatStage
+              onToggleMembers={() => setMobileTab('members')}
+              isMembersOpen={false}
+              onOpenScreenShareModal={handleOpenScreenShare}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenInvite={() => {
+                setInviteInitialCode('');
+                setIsInviteOpen(true);
+              }}
+              onOpenServers={() => setIsServerPingOpen(true)}
+              isMobile
+              onMobileBack={() => setMobileTab('channels')}
+            />
+          </div>
 
-        {/* Column 3: Right Member Sidebar with Real Presence & Moderation (240px) */}
-        {isMembersOpen && <ParticipantPanel />}
-      </div>
+          {/* Members Panel */}
+          <div className={mobileTab === 'members' ? 'flex flex-col flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+            <ParticipantPanel isMobile />
+          </div>
+
+          {/* Mobile Bottom Navigation */}
+          <MobileBottomNav
+            activeTab={mobileTab}
+            onTabChange={setMobileTab}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        </div>
+      ) : (
+        /* ── Desktop Layout: 3-Column ── */
+        <div className="flex-1 flex min-h-0 relative overflow-hidden">
+          {/* Column 1: Left Channel & Server Sidebar (260px) */}
+          <RoomSidebar
+            onOpenInvite={() => {
+              setInviteInitialCode('');
+              setIsInviteOpen(true);
+            }}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenScreenShareModal={handleOpenScreenShare}
+          />
+
+          {/* Column 2: Center Main View with Discord Top Bar, Chat Stage, and Floating Input */}
+          <ChatStage
+            onToggleMembers={() => setIsMembersOpen(!isMembersOpen)}
+            isMembersOpen={isMembersOpen}
+            onOpenScreenShareModal={handleOpenScreenShare}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenInvite={() => {
+              setInviteInitialCode('');
+              setIsInviteOpen(true);
+            }}
+            onOpenServers={() => setIsServerPingOpen(true)}
+          />
+
+          {/* Column 3: Right Member Sidebar with Real Presence & Moderation (240px) */}
+          {isMembersOpen && <ParticipantPanel />}
+        </div>
+      )}
 
       {/* Global Modals (Lazy Loaded on Demand) */}
       <React.Suspense fallback={null}>

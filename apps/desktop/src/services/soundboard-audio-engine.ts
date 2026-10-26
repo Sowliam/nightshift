@@ -33,9 +33,9 @@ export class SoundboardAudioEngine {
   private soundboardTrack: MediaStreamTrack | null = null;
 
   private isMicMuted: boolean = false;
-  private allowWhileMuted: boolean = false;
-  private masterVolume: number = 0.8;
-  private localMonitorVolume: number = 0.8;
+  private allowWhileMuted: boolean = true;
+  private masterVolume: number = 1.0;
+  private localMonitorVolume: number = 1.0;
   private localMonitorMuted: boolean = false;
   private maxConcurrentSounds: number = 4;
 
@@ -137,7 +137,7 @@ export class SoundboardAudioEngine {
   }
 
   public setMasterVolume(volumePercent: number): void {
-    const clamped = Math.max(0, Math.min(100, volumePercent));
+    const clamped = Math.max(0, Math.min(200, volumePercent));
     this.masterVolume = clamped / 100;
     if (this.soundboardBusGain && this.audioContext) {
       const shouldTransmit = !this.isMicMuted || this.allowWhileMuted;
@@ -154,7 +154,7 @@ export class SoundboardAudioEngine {
    * Adjusts the volume at which the user hears their own played soundboard sounds in their headphones.
    */
   public setLocalMonitorVolume(volumePercent: number): void {
-    const clamped = Math.max(0, Math.min(100, volumePercent));
+    const clamped = Math.max(0, Math.min(200, volumePercent));
     this.localMonitorVolume = clamped / 100;
     this.updateLocalMonitorGain();
   }

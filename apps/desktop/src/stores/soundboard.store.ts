@@ -137,10 +137,10 @@ export const useSoundboardStore = create<SoundboardState>()(
         isShuffle: false,
         activePlayingIds: [],
         activeSounds: [],
-        masterVolume: 80,
-        localMonitorVolume: 80,
+        masterVolume: 100,
+        localMonitorVolume: 100,
         localMonitorMuted: false,
-        allowWhileMuted: false,
+        allowWhileMuted: true,
         selectedCategory: 'All',
         searchQuery: '',
         isSoundboardOpen: false,
@@ -218,19 +218,28 @@ export const useSoundboardStore = create<SoundboardState>()(
 
             let duration = 0;
             try {
-              const arrayBuf = await file.arrayBuffer();
-              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-              const ctx = new AudioCtx();
-              const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
-              duration = Math.round(decoded.duration * 10) / 10;
-              ctx.close();
+              const decodePromise = (async () => {
+                const arrayBuf = await file.arrayBuffer();
+                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                const ctx = new AudioCtx();
+                const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
+                const d = Math.round(decoded.duration * 10) / 10;
+                ctx.close();
+                return d;
+              })();
+              duration = await Promise.race([
+                decodePromise,
+                new Promise<number>((res) => setTimeout(() => res(0), 1200)),
+              ]);
             } catch {}
 
             const newSound = await api.uploadCloudSound(file, finalName, category, duration);
             set((state) => ({
-              cloudSounds: [newSound, ...state.cloudSounds],
+              cloudSounds: [newSound, ...state.cloudSounds.filter((s) => s.id !== newSound.id)],
               isCloudUploading: false,
             }));
+            // Refresh from backend to ensure consistent state
+            get().loadCloudSounds().catch(() => {});
             return true;
           } catch (err: any) {
             console.error('Failed to upload sound to cloud:', err);
@@ -619,13 +628,13 @@ export const useSoundboardStore = create<SoundboardState>()(
         },
 
         setMasterVolume: (vol: number) => {
-          const clamped = Math.max(0, Math.min(100, vol));
+          const clamped = Math.max(0, Math.min(200, vol));
           soundboardAudioEngine.setMasterVolume(clamped);
           set({ masterVolume: clamped });
         },
 
         setLocalMonitorVolume: (vol: number) => {
-          const clamped = Math.max(0, Math.min(100, vol));
+          const clamped = Math.max(0, Math.min(200, vol));
           soundboardAudioEngine.setLocalMonitorVolume(clamped);
           set({ localMonitorVolume: clamped });
         },
@@ -667,6 +676,24 @@ export const useSoundboardStore = create<SoundboardState>()(
         repeatMode: state.repeatMode,
         isShuffle: state.isShuffle,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Auto-heal volume if it was saved as <= 1 due to the previous 0-1 slider bug
+          if (typeof state.masterVolume !== 'number' || state.masterVolume <= 1) {
+            state.masterVolume = 100;
+          }
+          if (typeof state.localMonitorVolume !== 'number' || state.localMonitorVolume <= 1) {
+            state.localMonitorVolume = 100;
+          }
+          if (state.allowWhileMuted === undefined) {
+            state.allowWhileMuted = true;
+          }
+          soundboardAudioEngine.setMasterVolume(state.masterVolume);
+          soundboardAudioEngine.setAllowWhileMuted(state.allowWhileMuted);
+          soundboardAudioEngine.setLocalMonitorVolume(state.localMonitorVolume);
+          soundboardAudioEngine.setLocalMonitorMuted(!!state.localMonitorMuted);
+        }
+      },
     }
   )
 );

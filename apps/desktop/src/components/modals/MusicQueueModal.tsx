@@ -15,10 +15,12 @@ import {
   Volume2,
   Volume1,
   ListMusic,
-  ChevronDown,
-  Filter,
   Plus,
   GripVertical,
+  CloudUpload,
+  Mic,
+  MicOff,
+  Loader2,
 } from 'lucide-react';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { SoundboardItem } from '../../services/soundboard.storage';
@@ -49,6 +51,12 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   const activeSounds = useSoundboardStore((s) => s.activeSounds);
   const masterVolume = useSoundboardStore((s) => s.masterVolume);
   const setMasterVolume = useSoundboardStore((s) => s.setMasterVolume);
+  const allowWhileMuted = useSoundboardStore((s) => s.allowWhileMuted);
+  const setAllowWhileMuted = useSoundboardStore((s) => s.setAllowWhileMuted);
+  const cloudSounds = useSoundboardStore((s) => s.cloudSounds);
+  const isCloudLoading = useSoundboardStore((s) => s.isCloudLoading);
+  const loadCloudSounds = useSoundboardStore((s) => s.loadCloudSounds);
+  const playCloudSound = useSoundboardStore((s) => s.playCloudSound);
 
   const playSound = useSoundboardStore((s) => s.playSound);
   const togglePauseSound = useSoundboardStore((s) => s.togglePauseSound);
@@ -60,7 +68,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   const seekSound = useSoundboardStore((s) => s.seekSound);
   const setQueue = useSoundboardStore((s) => s.setQueue);
 
-  const [activeTab, setActiveTab] = useState<'queue' | 'playlists'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'uploads' | 'playlists'>('queue');
 
   // Live progress tracking
   const [playbackProgress, setPlaybackProgress] = useState<{ currentTime: number; duration: number; progress: number }>({
@@ -295,55 +303,172 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                 </button>
               </div>
 
-              {/* Volume Slider Row (Constrained, No Overflow) */}
+              {/* Volume Slider Row (0-200% Real Gain Boost) */}
               <div className="flex items-center gap-2 mt-3 px-1 w-full max-w-full overflow-hidden">
                 <Volume1 className="w-3.5 h-3.5 text-white/40 shrink-0" />
                 <input
                   type="range"
                   min="0"
-                  max="1"
-                  step="0.01"
+                  max="200"
+                  step="1"
                   value={masterVolume}
-                  onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
+                  onChange={(e) => setMasterVolume(parseInt(e.target.value, 10))}
                   className="flex-1 min-w-0 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#23a55a]"
+                  title={`Master Volume: ${Math.round(masterVolume)}%`}
                 />
+                <span className="text-[10px] font-mono text-[#23a55a] font-bold min-w-[32px] text-right shrink-0">
+                  {Math.round(masterVolume)}%
+                </span>
                 <Volume2 className="w-3.5 h-3.5 text-white/40 shrink-0" />
+              </div>
+
+              {/* Play while muted toggle button */}
+              <div className="mt-3 p-2 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {allowWhileMuted ? (
+                    <Mic className="w-3.5 h-3.5 text-[#23a55a] shrink-0" />
+                  ) : (
+                    <MicOff className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-white truncate">Play while muted</p>
+                    <p className="text-[9px] text-white/40 truncate">
+                      {allowWhileMuted ? 'Music continues when mic is muted' : 'Music stops when mic is muted'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setAllowWhileMuted(!allowWhileMuted)}
+                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                    allowWhileMuted ? 'bg-[#23a55a]' : 'bg-white/20'
+                  }`}
+                  title={allowWhileMuted ? 'Disable music while mic is muted' : 'Enable music while mic is muted'}
+                >
+                  <div
+                    className={`w-3.5 h-3.5 rounded-full bg-white transition-all absolute top-[3px] ${
+                      allowWhileMuted ? 'right-[4px]' : 'left-[4px]'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           </div>
 
           {/* =======================================================
-              2. RIGHT COLUMN: PLAYBACK QUEUE / EMPTY STATE
+              2. RIGHT COLUMN: PLAYBACK QUEUE / CLOUD UPLOADS
              ======================================================= */}
           <div className="flex-1 min-w-0 flex flex-col justify-between overflow-hidden">
-            {/* Header: Playback Queue + Sort & Filter buttons */}
-            <div className="flex items-center justify-between pb-3 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <ListMusic className="w-4 h-4 text-[#23a55a]" />
-                <div>
-                  <h3 className="text-sm font-black text-white">
-                    Playback Queue <span className="text-[#23a55a]">({queue.length} songs)</span>
-                  </h3>
-                  <p className="text-[11px] text-white/50">Add tracks from the library or playlists tab.</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 text-[11px] font-semibold text-white/60 bg-[#14161d] border border-white/5 px-2.5 py-1 rounded-xl">
-                  <span>Sort by: Recently added</span>
-                  <ChevronDown className="w-3 h-3 text-white/40" />
-                </div>
-
-                <button className="flex items-center gap-1 text-[11px] font-semibold text-white/60 bg-[#14161d] border border-white/5 px-2.5 py-1 rounded-xl hover:text-white hover:border-white/10 transition-colors">
-                  <Filter className="w-3 h-3" />
-                  <span>Filter</span>
+            {/* Header: Tabs + Actions */}
+            <div className="flex items-center justify-between pb-3 shrink-0 gap-2">
+              <div className="flex items-center gap-1.5 p-1 bg-[#12141a] rounded-xl border border-white/5">
+                <button
+                  onClick={() => setActiveTab('queue')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'queue' ? 'bg-[#23a55a] text-black shadow-sm' : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  Queue ({queue.length})
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('uploads');
+                    loadCloudSounds();
+                  }}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'uploads' ? 'bg-[#23a55a] text-black shadow-sm' : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  <CloudUpload className="w-3.5 h-3.5" />
+                  <span>Uploads ({cloudSounds.length})</span>
                 </button>
               </div>
+
+              <button
+                onClick={handleBackToSoundboard}
+                className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/5 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+                title="Open Studio to manage library or upload songs"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#23a55a]" />
+                <span>Open Studio</span>
+              </button>
             </div>
 
-            {/* Queue Body: Empty State or Track Items */}
-            <div className="flex-1 min-h-0 flex flex-col justify-center items-center overflow-y-auto custom-scrollbar p-4">
-              {queue.length === 0 ? (
+            {/* Body: Uploads List OR Queue Items */}
+            <div className="flex-1 min-h-0 flex flex-col justify-center items-center overflow-y-auto custom-scrollbar p-3">
+              {activeTab === 'uploads' ? (
+                /* Cloud Uploads Tab */
+                <div className="w-full h-full flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between mb-2 shrink-0">
+                    <p className="text-xs text-white/60">
+                      Cloud Library • Available to all users in voice channel
+                    </p>
+                    <button
+                      onClick={handleBackToSoundboard}
+                      className="text-xs text-[#23a55a] hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Upload New Track</span>
+                    </button>
+                  </div>
+
+                  {isCloudLoading ? (
+                    <div className="flex flex-col items-center justify-center my-auto py-12 text-white/40">
+                      <Loader2 className="w-6 h-6 animate-spin text-[#23a55a] mb-2" />
+                      <p className="text-xs">Loading cloud audio tracks...</p>
+                    </div>
+                  ) : cloudSounds.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center text-center my-auto py-10 border border-dashed border-white/10 rounded-2xl p-6">
+                      <CloudUpload className="w-10 h-10 mb-2 opacity-30 text-[#23a55a]" />
+                      <p className="text-xs font-bold text-white/70">No tracks in cloud uploads yet</p>
+                      <p className="text-[11px] text-white/40 mt-1 max-w-xs">
+                        Open Studio to upload your MP3 tracks to cloud storage.
+                      </p>
+                      <button
+                        onClick={handleBackToSoundboard}
+                        className="mt-3 px-4 py-1.5 rounded-xl bg-[#23a55a] hover:bg-[#209650] text-black text-xs font-bold transition-all cursor-pointer shadow-sm"
+                      >
+                        Upload to Cloud
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-full space-y-1.5 overflow-y-auto custom-scrollbar pr-1">
+                      {cloudSounds.map((cloudItem) => (
+                        <div
+                          key={cloudItem.id}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-[#12141a]/60 border border-white/5 hover:bg-white/[0.03] transition-all"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-lg bg-[#181a22] border border-white/10 flex items-center justify-center text-[#23a55a] shrink-0">
+                              <Disc3 className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="text-xs font-bold text-white truncate">{cloudItem.name}</h4>
+                              <p className="text-[10px] text-white/50 truncate flex items-center gap-2">
+                                <span className="text-[#23a55a] font-semibold">{cloudItem.category || 'Music'}</span>
+                                <span>•</span>
+                                <span>{formatTime(cloudItem.duration || 180)}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => playCloudSound(cloudItem)}
+                              className="px-3 py-1.5 rounded-lg bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95"
+                              title="Play into voice room"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Play</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : queue.length === 0 ? (
                 /* Empty Queue State matching Image 2 */
                 <div className="flex flex-col items-center justify-center text-center my-auto animate-in fade-in duration-200">
                   {/* Tilted Card with Glowing Music Note & Plus badge */}
@@ -364,17 +489,29 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
                   <h3 className="text-base font-black text-white tracking-wide">Queue is currently empty.</h3>
                   <p className="text-xs text-white/50 max-w-xs mt-1">
-                    Add tracks from the Library or Playlists tab to start your queue.
+                    Add tracks from the Library or Uploads tab to start your queue.
                   </p>
 
-                  {/* Browse Music Pill Button */}
-                  <button
-                    onClick={handleBackToSoundboard}
-                    className="mt-5 px-5 py-2 rounded-full border border-[#23a55a]/40 hover:border-[#23a55a] bg-[#23a55a]/5 hover:bg-[#23a55a]/15 text-[#23a55a] text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
-                  >
-                    <Music className="w-3.5 h-3.5" />
-                    <span>Browse Music</span>
-                  </button>
+                  {/* Browse Music Pill Buttons */}
+                  <div className="flex items-center gap-2 mt-5">
+                    <button
+                      onClick={handleBackToSoundboard}
+                      className="px-5 py-2 rounded-full border border-[#23a55a]/40 hover:border-[#23a55a] bg-[#23a55a]/5 hover:bg-[#23a55a]/15 text-[#23a55a] text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                    >
+                      <Music className="w-3.5 h-3.5" />
+                      <span>Browse Library</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab('uploads');
+                        loadCloudSounds();
+                      }}
+                      className="px-5 py-2 rounded-full border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 text-white text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-105 active:scale-95"
+                    >
+                      <CloudUpload className="w-3.5 h-3.5 text-[#23a55a]" />
+                      <span>Cloud Uploads</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 /* Queued Items List */
@@ -468,17 +605,21 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
           {/* Right Volume & List Icon */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32">
+            <div className="flex items-center gap-2 w-36">
               <Volume1 className="w-3.5 h-3.5 text-white/40 shrink-0" />
               <input
                 type="range"
                 min="0"
-                max="1"
-                step="0.01"
+                max="200"
+                step="1"
                 value={masterVolume}
-                onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
+                onChange={(e) => setMasterVolume(parseInt(e.target.value, 10))}
                 className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#23a55a]"
+                title={`Master Volume: ${Math.round(masterVolume)}%`}
               />
+              <span className="text-[10px] font-mono text-[#23a55a] font-bold min-w-[28px] text-right shrink-0">
+                {Math.round(masterVolume)}%
+              </span>
             </div>
 
             <button

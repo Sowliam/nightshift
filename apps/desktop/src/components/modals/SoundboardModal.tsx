@@ -78,6 +78,8 @@ export const SoundboardModal: React.FC = () => {
     playNext,
     playPrevious,
     seekSound,
+    allowWhileMuted,
+    setAllowWhileMuted,
   } = useSoundboardStore();
 
   const [navSection, setNavSection] = useState<'library' | 'soundboard' | 'playlists' | 'favorites' | 'uploads'>('library');
@@ -173,8 +175,13 @@ export const SoundboardModal: React.FC = () => {
       return;
     }
 
-    await uploadToCloud(file);
+    const success = await uploadToCloud(file);
     if (cloudFileInputRef.current) cloudFileInputRef.current.value = '';
+    if (success) {
+      loadCloudSounds();
+    } else {
+      alert(useSoundboardStore.getState().error || 'Failed to upload audio to cloud.');
+    }
   };
 
   const formatBytes = (bytes: number) => {
@@ -868,19 +875,44 @@ export const SoundboardModal: React.FC = () => {
                 </button>
               </div>
 
-              {/* Volume Slider */}
+              {/* Volume Slider (0-200% Real Gain Boost) */}
               <div className="flex items-center gap-2 mt-3 px-1">
-                <Volume1 className="w-3.5 h-3.5 text-white/40" />
+                <Volume1 className="w-3.5 h-3.5 text-white/40 shrink-0" />
                 <input
                   type="range"
                   min="0"
-                  max="1"
-                  step="0.01"
+                  max="200"
+                  step="1"
                   value={masterVolume}
-                  onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#23a55a]"
+                  onChange={(e) => setMasterVolume(parseInt(e.target.value, 10))}
+                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[#23a55a]"
+                  title={`Master Volume: ${Math.round(masterVolume)}%`}
                 />
-                <Volume2 className="w-3.5 h-3.5 text-white/40" />
+                <span className="text-[10px] font-mono text-[#23a55a] font-bold min-w-[28px] text-right shrink-0">
+                  {Math.round(masterVolume)}%
+                </span>
+                <Volume2 className="w-3.5 h-3.5 text-white/40 shrink-0" />
+              </div>
+
+              {/* Play while muted toggle */}
+              <div className="mt-2.5 p-2 rounded-xl bg-white/[0.03] border border-white/5 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-white/90 font-medium truncate" title="Stream music and soundboard audio even when your microphone is muted">
+                  Play while muted
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAllowWhileMuted(!allowWhileMuted)}
+                  className={`w-8 h-4 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                    allowWhileMuted ? 'bg-[#23a55a]' : 'bg-white/20'
+                  }`}
+                  title={allowWhileMuted ? 'Music will continue playing while muted (Enabled)' : 'Music stops when muted (Disabled)'}
+                >
+                  <div
+                    className={`w-3 h-3 rounded-full bg-white transition-all absolute top-[2px] ${
+                      allowWhileMuted ? 'right-[3px]' : 'left-[3px]'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
 

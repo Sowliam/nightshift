@@ -60,7 +60,7 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-full bg-[#1e1f22]/95 backdrop-blur-xl border border-[#313338]/90 shadow-[0_8px_32px_rgba(0,0,0,0.55)] z-30 select-none ${className}`}
+      className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full bg-[#1e1f22]/95 backdrop-blur-xl border border-[#313338]/90 shadow-[0_8px_32px_rgba(0,0,0,0.55)] z-30 select-none max-w-[95vw] ${className}`}
     >
       {/* 1. Mic Mute / Unmute (with layered crossfade and hover bounce) */}
       <button

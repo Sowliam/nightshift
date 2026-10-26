@@ -26,7 +26,7 @@ import { ServerMemberDto } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
 import { PingIndicator } from '../common/PingIndicator';
 
-export const ParticipantPanel: React.FC = () => {
+export const ParticipantPanel: React.FC<{ isMobile?: boolean }> = ({ isMobile }) => {
   const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
   const {
@@ -436,7 +436,7 @@ export const ParticipantPanel: React.FC = () => {
   };
 
   return (
-    <div className="w-[260px] h-full bg-[#111214] border-l border-[#232428] flex flex-col justify-between select-none shrink-0 z-10">
+    <div className={`${isMobile ? 'w-full' : 'w-[260px]'} h-full bg-[#111214] border-l border-[#232428] flex flex-col justify-between select-none shrink-0 z-10`}>
       {/* 1. Discord Top Search Bar (Matching Image 1) */}
       <div className="p-3 border-b border-[#232428] shrink-0">
         <div className="relative flex items-center bg-[#0e0f11] border border-[#232428] focus-within:border-[#5865f2] rounded-xl px-3 py-1.5 transition-all duration-200 shadow-inner group">

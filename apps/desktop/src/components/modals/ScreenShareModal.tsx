@@ -15,6 +15,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { useServerStore } from '../../stores/server.store';
 import {
   DesktopScreenSource,
   ScreenShareResolution,
@@ -226,6 +227,11 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
       );
 
       if (success) {
+        // Automatically focus active voice channel so user immediately sees their live stream
+        const { activeVoiceChannelId, selectChannel } = useServerStore.getState();
+        if (activeVoiceChannelId) {
+          selectChannel(activeVoiceChannelId);
+        }
         onClose();
       } else {
         const lastErr = useLiveKitStore.getState().error;

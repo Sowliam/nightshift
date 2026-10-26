@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
   Trash2,
+  ChevronLeft,
 } from 'lucide-react';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -29,6 +30,8 @@ interface ChatStageProps {
   onOpenSettings: () => void;
   onOpenInvite: () => void;
   onOpenServers: () => void;
+  isMobile?: boolean;
+  onMobileBack?: () => void;
 }
 
 const APPLE_EMOJIS = {
@@ -72,6 +75,8 @@ export const ChatStage: React.FC<ChatStageProps> = ({
   onOpenSettings,
   onOpenInvite,
   onOpenServers,
+  isMobile,
+  onMobileBack,
 }) => {
   const {
     activeServerId,
@@ -305,34 +310,45 @@ export const ChatStage: React.FC<ChatStageProps> = ({
     <div className="flex-1 h-full bg-bg-main flex flex-col relative overflow-hidden select-none">
       {/* Top Bar Header */}
       {(!isVoiceChannel || viewMode !== 'stream') && (
-        <div className="h-12 px-5 border-b border-[#232428] flex items-center justify-between shrink-0 bg-[#0e0f11]/85 backdrop-blur-md z-10 select-none">
-          {/* Left: Channel Name */}
+        <div className="h-12 px-3 border-b border-[#232428] flex items-center justify-between shrink-0 bg-[#0e0f11]/85 backdrop-blur-md z-10 select-none">
+          {/* Left: Back (mobile) or Channel Name */}
           <div className="flex items-center gap-2 min-w-0">
-            <Hash className="w-5 h-5 text-[#949ba4] shrink-0" />
+            {isMobile && onMobileBack && (
+              <button
+                onClick={onMobileBack}
+                className="p-1.5 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-elevated/50 transition-colors cursor-pointer shrink-0"
+                title="Back to channels"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+            <Hash className="w-4 h-4 text-[#949ba4] shrink-0" />
             <span className="text-[14px] font-bold text-[#f2f3f5] tracking-wide truncate">
               {activeChannel ? activeChannel.name : 'select a channel'}
             </span>
-            {activeServer && (
+            {activeServer && !isMobile && (
               <span className="text-[11px] text-[#949ba4] px-2 py-0.5 rounded-md bg-[#18191c] border border-[#232428] font-medium truncate max-w-[140px]">
                 {activeServer.name}
               </span>
             )}
           </div>
 
-          {/* Right Action: Toggle Member List */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onToggleMembers}
-              className={`p-2 rounded-xl transition-all duration-200 active:scale-90 hover:scale-105 cursor-pointer ${
-                isMembersOpen
-                  ? 'text-white bg-[#35373c]/70 shadow-sm border border-[#35373c]'
-                  : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#35373c]/40'
-              }`}
-              title="Toggle Member List"
-            >
-              <Users className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Right Action: Toggle Member List (desktop) */}
+          {!isMobile && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={onToggleMembers}
+                className={`p-2 rounded-xl transition-all duration-200 active:scale-90 hover:scale-105 cursor-pointer ${
+                  isMembersOpen
+                    ? 'text-white bg-[#35373c]/70 shadow-sm border border-[#35373c]'
+                    : 'text-[#949ba4] hover:text-[#f2f3f5] hover:bg-[#35373c]/40'
+                }`}
+                title="Toggle Member List"
+              >
+                <Users className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -347,7 +363,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
       ) : (
         <div className="flex-1 flex flex-col min-h-0 relative">
           {/* Scrollable Messages Container */}
-          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4">
+          <div className={`flex-1 overflow-y-auto ${isMobile ? 'px-3 py-3' : 'px-8 py-6'} space-y-4`}>
             {!activeChannel ? (
               <div className="h-full flex flex-col items-center justify-center text-center select-none pb-12">
                 <p className="text-xs text-text-secondary">Select a channel from the left sidebar to view messages.</p>
@@ -489,7 +505,7 @@ export const ChatStage: React.FC<ChatStageProps> = ({
           )}
 
           {/* Bottom Chat Input Form Area */}
-          <div className="p-4 bg-bg-main relative">
+          <div className={`${isMobile ? 'p-2 pb-2' : 'p-4'} bg-bg-main relative`}>
             {/* Replying Banner Preview */}
             {replyingTo && (
               <div className="flex items-center justify-between px-4 py-2 mb-2 bg-[#141822] border border-highlight/30 rounded-2xl text-xs shadow-md animate-in fade-in duration-150">
@@ -572,14 +588,18 @@ export const ChatStage: React.FC<ChatStageProps> = ({
             {/* Input Form */}
             <form
               onSubmit={handleSend}
-              className="relative flex items-center bg-bg-elevated border border-border-subtle focus-within:border-highlight rounded-full px-4 py-2.5 shadow-card transition-all"
+              className={`relative flex items-center bg-bg-elevated border border-border-subtle focus-within:border-highlight rounded-full ${
+                isMobile ? 'px-2.5 py-1.5' : 'px-4 py-2.5'
+              } shadow-card transition-all`}
             >
               {/* Left Plus Button -> Triggers Image file picker */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading || !channelId}
-                className="w-8 h-8 rounded-full bg-bg-main hover:bg-highlight hover:text-highlight-text border border-border-subtle flex items-center justify-center text-highlight transition-colors shrink-0 mr-3 shadow-sm disabled:opacity-50 cursor-pointer"
+                className={`${
+                  isMobile ? 'w-7 h-7 mr-2' : 'w-8 h-8 mr-3'
+                } rounded-full bg-bg-main hover:bg-highlight hover:text-highlight-text border border-border-subtle flex items-center justify-center text-highlight transition-colors shrink-0 shadow-sm disabled:opacity-50 cursor-pointer`}
                 title="Upload Image (PNG, JPG, JPEG)"
               >
                 {isUploading ? (
@@ -597,14 +617,14 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                 disabled={!channelId}
                 placeholder={
                   activeChannel
-                    ? `Message #${activeChannel.name}... (type @username to mention)`
+                    ? `Message #${activeChannel.name}...`
                     : 'Select a channel...'
                 }
                 className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-muted focus:outline-none min-w-0"
               />
 
               {/* Right Action Icons: Emoji, Image file button, Send Button */}
-              <div className="flex items-center gap-2.5 shrink-0 ml-3">
+              <div className={`flex items-center ${isMobile ? 'gap-1.5 ml-1.5' : 'gap-2.5 ml-3'} shrink-0`}>
                 <button
                   type="button"
                   className={`transition-colors p-1 cursor-pointer ${isEmojiPickerOpen ? 'text-highlight' : 'text-highlight hover:text-white'}`}
@@ -628,7 +648,9 @@ export const ChatStage: React.FC<ChatStageProps> = ({
                 <button
                   type="submit"
                   disabled={!messageText.trim() || isUploading || !channelId}
-                  className="w-8 h-8 rounded-full bg-highlight hover:bg-white text-highlight-text disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md shrink-0 cursor-pointer"
+                  className={`${
+                    isMobile ? 'w-7 h-7' : 'w-8 h-8'
+                  } rounded-full bg-highlight hover:bg-white text-highlight-text disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md shrink-0 cursor-pointer`}
                   title="Send Message"
                 >
                   <Send className="w-3.5 h-3.5" />

@@ -32,12 +32,16 @@ interface RoomSidebarProps {
   onOpenInvite: () => void;
   onOpenSettings: () => void;
   onOpenScreenShareModal: () => void;
+  isMobile?: boolean;
+  onMobileChannelSelect?: () => void;
 }
 
 export const RoomSidebar: React.FC<RoomSidebarProps> = ({
   onOpenInvite,
   onOpenSettings,
   onOpenScreenShareModal,
+  isMobile,
+  onMobileChannelSelect,
 }) => {
   const {
     servers,
@@ -320,7 +324,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
   };
 
   return (
-    <div className="w-[260px] h-full bg-bg-secondary border-r border-border-subtle flex flex-col justify-between select-none shrink-0 z-20">
+    <div className={`${isMobile ? 'w-full' : 'w-[260px]'} h-full bg-bg-secondary border-r border-border-subtle flex flex-col justify-between select-none shrink-0 z-20`}>
       {/* Top Header & Channels */}
       <div className="flex flex-col h-full overflow-hidden">
         {/* Server Brand Header */}
@@ -480,7 +484,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                     return (
                       <div
                         key={c.id}
-                        onClick={() => selectChannel(c.id)}
+                        onClick={() => { selectChannel(c.id); onMobileChannelSelect?.(); }}
                         className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl cursor-pointer group transition-all ${
                           isSelected
                             ? 'bg-highlight text-highlight-text font-bold shadow-sm'
@@ -532,7 +536,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                     return (
                       <div key={c.id} className="space-y-0.5">
                         <div
-                          onClick={(e) => handleJoinVoiceChannel(c.id, e)}
+                          onClick={(e) => { handleJoinVoiceChannel(c.id, e); onMobileChannelSelect?.(); }}
                           className={`flex items-center justify-between px-2.5 py-2 rounded-xl cursor-pointer group transition-all active:scale-[0.98] ${
                             isConnected
                               ? 'bg-highlight text-highlight-text font-bold shadow-sm'

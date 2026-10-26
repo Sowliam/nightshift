@@ -13,18 +13,20 @@ export class CloudflareR2Service {
 
     if (this.isConfigured()) {
       try {
-        const endpoint =
+        const rawEndpoint =
           config.r2.endpoint ||
           (config.r2.accountId
-            ? `https://${config.r2.accountId}.r2.cloudflarestorage.com`
+            ? `https://${config.r2.accountId.replace(/[^a-zA-Z0-9]/g, '')}.r2.cloudflarestorage.com`
             : undefined);
+        const endpoint = rawEndpoint ? rawEndpoint.replace(/[\r\n\t"']/g, '').trim() : undefined;
+        const region = (config.r2.region || 'auto').replace(/[^a-zA-Z0-9-]/g, '').trim() || 'auto';
 
         this.client = new S3Client({
-          region: config.r2.region || 'auto',
+          region,
           endpoint,
           credentials: {
-            accessKeyId: config.r2.accessKeyId,
-            secretAccessKey: config.r2.secretAccessKey,
+            accessKeyId: config.r2.accessKeyId.replace(/[\r\n\t"']/g, '').trim(),
+            secretAccessKey: config.r2.secretAccessKey.replace(/[\r\n\t"']/g, '').trim(),
           },
           forcePathStyle: Boolean(config.r2.endpoint),
         });

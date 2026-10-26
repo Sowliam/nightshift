@@ -13,10 +13,12 @@ import {
   Upload,
   Trash2,
   AlertCircle,
+  Music,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { useSoundboardStore } from '../../stores/soundboard.store';
 import { sounds } from '../../services/sound.service';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
@@ -58,6 +60,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
   const { setAudioInputDevice, setAudioOutputDevice } = useLiveKitStore();
+  const { allowWhileMuted, setAllowWhileMuted } = useSoundboardStore();
 
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -780,6 +783,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       />
                     </div>
                   )}
+                </div>
+
+                {/* 6. Music & Soundboard Transmission When Muted */}
+                <div className="flex items-center justify-between pt-3 border-t border-border-subtle">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-highlight/10 text-highlight mt-0.5">
+                      <Music className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Play while muted</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          allowWhileMuted ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-elevated text-text-muted'
+                        }`}>
+                          {allowWhileMuted ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-text-secondary leading-relaxed max-w-md mt-0.5">
+                        Keep transmitting music and soundboard audio to room listeners even when your microphone is muted.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllowWhileMuted(!allowWhileMuted)}
+                    className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                      allowWhileMuted ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                    }`}
+                  >
+                    <span
+                      className={`block w-5 h-5 rounded-full transition-transform ${
+                        allowWhileMuted
+                          ? 'bg-highlight-text translate-x-5'
+                          : 'bg-text-muted translate-x-0'
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
             )}
