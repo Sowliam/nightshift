@@ -1,0 +1,23 @@
+name: Keep-Alive Server Ping
+
+on:
+  schedule:
+    # Run every 10 minutes (UTC)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: Ping Nightshift Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive HTTP GET request
+        run: |
+          echo "Pinging Cloudflare Worker / Render backend..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "https://nightshift-api.gemesowl.workers.dev/api/health")
+          echo "HTTP Status: $STATUS"
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "Backend is active and healthy!"
+          else
+            echo "Warning: Response status was $STATUS"
+          fi

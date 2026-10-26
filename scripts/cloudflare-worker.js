@@ -64,4 +64,14 @@ export default {
       });
     }
   },
+
+  // Runs automatically via Cloudflare Cron Trigger (e.g. every 10 mins) to prevent Render Sleep
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(
+      fetch('https://nightshift-server-cfch.onrender.com/api/health')
+        .then((res) => console.log(`[KeepAlive] Pinged Render. Status: ${res.status}`))
+        .catch((err) => console.error('[KeepAlive] Ping error:', err))
+    );
+  },
 };
+
