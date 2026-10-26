@@ -631,21 +631,55 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     }
 
+    public updateSoundboardVolume(identity: string, volumePercent: number, isMuted: boolean): void {
+      const ctx = this.getAudioContext();
+      const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
+      const prefix = `${identity}_soundboard`;
+      const now = ctx.currentTime;
+      let matched = false;
+
+      this.nodes.forEach((node, key) => {
+        if (key.startsWith(prefix) || key.includes(prefix)) {
+          matched = true;
+          try {
+            node.gain.gain.cancelScheduledValues(now);
+            node.gain.gain.setValueAtTime(gainVal, now);
+          } catch (e) {
+            console.warn('Failed to set soundboard gain:', e);
+          }
+        }
+      });
+
+      if (!matched) {
+        // Fallback: match any node belonging to identity that is not mic
+        this.nodes.forEach((node, key) => {
+          if (key.startsWith(identity) && !key.includes('_mic_')) {
+            try {
+              node.gain.gain.cancelScheduledValues(now);
+              node.gain.gain.setValueAtTime(gainVal, now);
+            } catch {}
+          }
+        });
+      }
+    }
+
     public updateVolume(trackKey: string, volumePercent: number, isMuted: boolean): void {
+      const ctx = this.getAudioContext();
       const entry = this.nodes.get(trackKey);
       const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
-      if (entry && this.ctx) {
+      const now = ctx.currentTime;
+      if (entry) {
         try {
-          const now = this.ctx.currentTime;
           entry.gain.gain.cancelScheduledValues(now);
           entry.gain.gain.setValueAtTime(gainVal, now);
         } catch {}
-      } else if (this.ctx) {
-        // Fallback: match any node starting with the participant prefix
+      } else {
+        // Robust prefix fallback: match participant and track type (e.g. "identity_soundboard" or "identity_mic")
+        const parts = trackKey.split('_');
+        const prefix = parts.length >= 2 ? `${parts[0]}_${parts[1]}` : trackKey;
         this.nodes.forEach((node, key) => {
-          if (key.startsWith(trackKey) || trackKey.startsWith(key)) {
+          if (key === trackKey || key.startsWith(prefix) || trackKey.startsWith(prefix)) {
             try {
-              const now = this.ctx!.currentTime;
               node.gain.gain.cancelScheduledValues(now);
               node.gain.gain.setValueAtTime(gainVal, now);
             } catch {}
@@ -826,7 +860,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
-          const isSoundboard = (pub && pub.trackName === 'soundboard') || (track as any).name === 'soundboard';
+          const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
+          const isSoundboard = trackName === 'soundboard' || (pub && pub.source === Track.Source.Unknown);
           const containerId = isSoundboard ? 'nightshift-soundboard-audio-container' : 'nightshift-voice-audio-container';
           let container = document.getElementById(containerId);
           if (!container) {
@@ -1635,14 +1670,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     setParticipantSoundboardVolume: (identity: string, volumePercent: number) => {
       useSettingsStore.getState().setSoundboardVolume(identity, volumePercent);
-      const { room, isDeafened } = get();
-      if (!room) return;
-
       const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
+      const { room, isDeafened } = get();
+
+      // Directly update WebAudio gain node for immediate real 0-200% volume change
+      remoteAudioGainEngine.updateSoundboardVolume(identity, volumePercent, isMuted || isDeafened);
+
+      if (!room) return;
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
-          if (pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard') {
+          const trackName = (pub.trackName || (pub as any)?.name || (pub.track as any)?.name || '').toLowerCase();
+          if (trackName === 'soundboard' || pub.source === Track.Source.Unknown) {
             const trackKey = `${identity}_soundboard_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, volumePercent, isMuted || isDeafened);
             if (pub.track && pub.track.mediaStreamTrack) {
@@ -1666,11 +1705,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (pub.source === Track.Source.Microphone) {
             const trackKey = `${identity}_mic_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, currentVol, isLocallyMuted || isDeafened);
-            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-              try {
-                (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : Math.max(0, Math.min(1, currentVol / 100)));
-              } catch {}
-            }
             if (pub.track && pub.track.mediaStreamTrack) {
               pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
             }
@@ -1684,19 +1718,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
       const currentVol = useSettingsStore.getState().soundboardVolumes[identity] ?? 100;
       const { room, isDeafened } = get();
-      if (!room) return;
 
+      // Directly mute/unmute WebAudio gain node
+      remoteAudioGainEngine.updateSoundboardVolume(identity, currentVol, isMuted || isDeafened);
+
+      if (!room) return;
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
-          if (pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard') {
+          const trackName = (pub.trackName || (pub as any)?.name || (pub.track as any)?.name || '').toLowerCase();
+          if (trackName === 'soundboard' || pub.source === Track.Source.Unknown) {
             const trackKey = `${identity}_soundboard_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, currentVol, isMuted || isDeafened);
-            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-              try {
-                (pub.track as RemoteAudioTrack).setVolume(isMuted || isDeafened ? 0 : Math.max(0, Math.min(1, currentVol / 100)));
-              } catch {}
-            }
             if (pub.track && pub.track.mediaStreamTrack) {
               pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
             }

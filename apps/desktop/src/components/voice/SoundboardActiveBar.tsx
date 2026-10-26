@@ -15,6 +15,7 @@ import {
   Music,
   Minimize2,
 } from 'lucide-react';
+import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useSoundboardStore } from '../../stores/soundboard.store';
@@ -50,6 +51,7 @@ export const SoundboardActiveBar: React.FC = () => {
   const setMasterVolume = useSoundboardStore((s) => s.setMasterVolume);
   const togglePlayPause = useSoundboardStore((s) => s.togglePlayPause);
 
+  const currentUser = useAuthStore((s) => s.user);
   const activeSoundboardPlayers = useLiveKitStore((s) => s.activeSoundboardPlayers);
   const localParticipant = useLiveKitStore((s) => s.localParticipant);
   const remoteParticipants = useLiveKitStore((s) => s.remoteParticipants);
@@ -76,8 +78,18 @@ export const SoundboardActiveBar: React.FC = () => {
     progress: 0,
   });
 
+  const myIdentity = localParticipant?.identity;
+  const myUserId = currentUser?.id;
+  const myUsername = currentUser?.username;
+
   const hasLocalActive = localActiveSounds.length > 0;
-  const remoteEntries = Object.entries(activeSoundboardPlayers);
+  // Strictly filter out the local user so they NEVER see the remote streaming card for their own music!
+  const remoteEntries = Object.entries(activeSoundboardPlayers).filter(([identity]) => {
+    if (myIdentity && identity === myIdentity) return false;
+    if (myUserId && identity === myUserId) return false;
+    if (myUsername && identity.toLowerCase() === myUsername.toLowerCase()) return false;
+    return true;
+  });
   const hasRemoteActive = remoteEntries.length > 0;
 
   const currentLocalSound = hasLocalActive ? localActiveSounds[0] : null;
