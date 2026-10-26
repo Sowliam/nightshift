@@ -36,7 +36,6 @@ export const SoundboardActiveBar: React.FC = () => {
   const isShuffle = useSoundboardStore((s) => s.isShuffle);
   const sounds = useSoundboardStore((s) => s.sounds);
 
-  const togglePauseSound = useSoundboardStore((s) => s.togglePauseSound);
   const playNext = useSoundboardStore((s) => s.playNext);
   const playPrevious = useSoundboardStore((s) => s.playPrevious);
   const toggleShuffle = useSoundboardStore((s) => s.toggleShuffle);
@@ -47,8 +46,9 @@ export const SoundboardActiveBar: React.FC = () => {
 
   const localMonitorMuted = useSoundboardStore((s) => s.localMonitorMuted);
   const setLocalMonitorMuted = useSoundboardStore((s) => s.setLocalMonitorMuted);
-  const localMonitorVolume = useSoundboardStore((s) => s.localMonitorVolume);
-  const setLocalMonitorVolume = useSoundboardStore((s) => s.setLocalMonitorVolume);
+  const masterVolume = useSoundboardStore((s) => s.masterVolume);
+  const setMasterVolume = useSoundboardStore((s) => s.setMasterVolume);
+  const togglePlayPause = useSoundboardStore((s) => s.togglePlayPause);
 
   const activeSoundboardPlayers = useLiveKitStore((s) => s.activeSoundboardPlayers);
   const localParticipant = useLiveKitStore((s) => s.localParticipant);
@@ -286,7 +286,7 @@ export const SoundboardActiveBar: React.FC = () => {
 
               {/* Large Circular Green Play/Pause Button */}
               <button
-                onClick={() => togglePauseSound(currentLocalSound.soundId)}
+                onClick={() => togglePlayPause(currentLocalSound?.soundId)}
                 className="w-9 h-9 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-[0_0_16px_rgba(35,165,90,0.45)] cursor-pointer shrink-0"
                 title={isAnyPaused ? 'Resume playback' : 'Pause playback'}
               >
@@ -353,7 +353,7 @@ export const SoundboardActiveBar: React.FC = () => {
                 <Headphones className="w-3.5 h-3.5" />
               </button>
 
-              {/* Volume Button with Popover Slider */}
+              {/* Volume Button with Popover Slider (0-200% Real Gain) */}
               <div className="relative">
                 <button
                   onClick={() => setIsVolumeSliderOpen(!isVolumeSliderOpen)}
@@ -362,9 +362,9 @@ export const SoundboardActiveBar: React.FC = () => {
                       ? 'bg-rose-500/10 text-rose-400'
                       : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
                   }`}
-                  title={`Volume: ${localMonitorVolume}%`}
+                  title={`Master Volume: ${Math.round(masterVolume)}%`}
                 >
-                  {localMonitorMuted || localMonitorVolume === 0 ? (
+                  {localMonitorMuted || masterVolume === 0 ? (
                     <VolumeX className="w-3.5 h-3.5 text-rose-400" />
                   ) : (
                     <Volume2 className="w-3.5 h-3.5" />
@@ -377,13 +377,15 @@ export const SoundboardActiveBar: React.FC = () => {
                     <input
                       type="range"
                       min="0"
-                      max="100"
-                      value={localMonitorVolume}
-                      onChange={(e) => setLocalMonitorVolume(Number(e.target.value))}
+                      max="200"
+                      step="1"
+                      value={masterVolume}
+                      onChange={(e) => setMasterVolume(parseInt(e.target.value, 10))}
                       className="w-24 h-1.5 accent-[#23a55a] bg-white/10 rounded-full cursor-pointer"
+                      title={`Master Volume: ${Math.round(masterVolume)}%`}
                     />
-                    <span className="text-[10px] font-mono font-bold text-white/70 w-7 text-right">
-                      {localMonitorVolume}%
+                    <span className="text-[10px] font-mono font-bold text-[#23a55a] w-8 text-right">
+                      {Math.round(masterVolume)}%
                     </span>
                   </div>
                 )}

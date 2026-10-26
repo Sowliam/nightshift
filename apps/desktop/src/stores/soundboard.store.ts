@@ -43,6 +43,7 @@ interface SoundboardState {
   pauseSound: (id: string) => void;
   resumeSound: (id: string) => Promise<void>;
   togglePauseSound: (id: string) => Promise<void>;
+  togglePlayPause: (id?: string) => Promise<void>;
   seekSound: (id: string, seconds: number) => Promise<void>;
   handleHotkeyTrigger: (id: string) => Promise<void>;
   stopSound: (id: string) => void;
@@ -265,34 +266,7 @@ export const useSoundboardStore = create<SoundboardState>()(
         },
 
         playCloudSound: async (cloudItem: CloudSoundItem, localOnly = false) => {
-          try {
-            const soundboardItem: SoundboardItem = {
-              id: cloudItem.id,
-              name: cloudItem.name,
-              category: cloudItem.category,
-              volume: 80,
-              hotkey: null,
-              duration: cloudItem.duration,
-              createdAt: new Date(cloudItem.createdAt).getTime(),
-              audioUrl: cloudItem.audioUrl,
-              source: 'cloud',
-            };
-
-            const qIndex = get().queue.indexOf(cloudItem.id);
-            if (qIndex >= 0) {
-              set({ currentQueueIndex: qIndex });
-            } else if (!localOnly) {
-              set({ queue: [cloudItem.id], currentQueueIndex: 0 });
-            }
-
-            await soundboardAudioEngine.playSound(soundboardItem, localOnly);
-            if (!localOnly) {
-              useLiveKitStore.getState().broadcastSoundboardPlaying(soundboardItem.id, soundboardItem.name, soundboardItem.duration);
-            }
-          } catch (err: any) {
-            console.error(`Error playing cloud sound ${cloudItem.name}:`, err);
-            set({ error: err.message || 'Playback error' });
-          }
+          await get().playSound(cloudItem.id, localOnly);
         },
 
         saveCloudToLocal: async (cloudItem: CloudSoundItem) => {
@@ -372,7 +346,29 @@ export const useSoundboardStore = create<SoundboardState>()(
         },
 
         playSound: async (id: string, localOnly = false) => {
-          const sound = get().sounds.find((s) => s.id === id);
+          // If already paused, resume it!
+          if (soundboardAudioEngine.isPaused(id)) {
+            await soundboardAudioEngine.resumeSound(id);
+            return;
+          }
+
+          let sound = get().sounds.find((s) => s.id === id);
+          if (!sound) {
+            const cloud = get().cloudSounds.find((c) => c.id === id);
+            if (cloud) {
+              sound = {
+                id: cloud.id,
+                name: cloud.name,
+                category: cloud.category,
+                volume: 100,
+                hotkey: null,
+                duration: cloud.duration,
+                createdAt: new Date(cloud.createdAt).getTime(),
+                audioUrl: cloud.audioUrl,
+                source: 'cloud',
+              };
+            }
+          }
           if (!sound) return;
 
           try {
@@ -385,7 +381,7 @@ export const useSoundboardStore = create<SoundboardState>()(
               set({ queue: [id], currentQueueIndex: 0 });
             }
 
-            await soundboardAudioEngine.playSound(sound, localOnly);
+            await soundboardAudioEngine.playSound(sound, localOnly, true);
             if (!localOnly) {
               useLiveKitStore.getState().broadcastSoundboardPlaying(sound.id, sound.name, sound.duration);
             }
@@ -405,6 +401,23 @@ export const useSoundboardStore = create<SoundboardState>()(
 
         togglePauseSound: async (id: string) => {
           await soundboardAudioEngine.togglePauseSound(id);
+        },
+
+        togglePlayPause: async (targetId?: string) => {
+          const state = get();
+          const id =
+            targetId ||
+            state.queue[state.currentQueueIndex] ||
+            (state.activeSounds.length > 0 ? state.activeSounds[0].soundId : (state.queue.length > 0 ? state.queue[0] : null));
+          if (!id) return;
+
+          if (soundboardAudioEngine.isPlaying(id)) {
+            get().pauseSound(id);
+          } else if (soundboardAudioEngine.isPaused(id)) {
+            await get().resumeSound(id);
+          } else {
+            await get().playSound(id, false);
+          }
         },
 
         seekSound: async (id: string, seconds: number) => {

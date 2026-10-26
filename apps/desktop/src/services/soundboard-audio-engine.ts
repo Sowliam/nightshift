@@ -41,6 +41,8 @@ export class SoundboardAudioEngine {
 
   private activeInstances: Map<string, ActiveSoundInstance> = new Map();
   private audioBufferCache: Map<string, AudioBuffer> = new Map();
+  private currentMusicSessionId: string | null = null;
+  private loadAbortControllers: Map<string, AbortController> = new Map();
   private listeners: Set<() => void> = new Set();
   private onActiveChangeHandler: ((active: ActiveSoundInfo[]) => void) | null = null;
   private onTrackEndedHandler: ((soundId: string) => void) | null = null;
@@ -92,14 +94,14 @@ export class SoundboardAudioEngine {
       this.localMonitorGain.connect(ctx.destination);
     }
 
-    // Dynamics Compressor / Limiter to prevent clipping
+    // True 0 dBFS Peak Limiter (prevents digital clipping without squashing dynamics)
     if (!this.compressorNode) {
       this.compressorNode = ctx.createDynamicsCompressor();
-      this.compressorNode.threshold.setValueAtTime(-6, ctx.currentTime);
-      this.compressorNode.knee.setValueAtTime(10, ctx.currentTime);
-      this.compressorNode.ratio.setValueAtTime(12, ctx.currentTime);
-      this.compressorNode.attack.setValueAtTime(0.003, ctx.currentTime);
-      this.compressorNode.release.setValueAtTime(0.25, ctx.currentTime);
+      this.compressorNode.threshold.setValueAtTime(-0.5, ctx.currentTime);
+      this.compressorNode.knee.setValueAtTime(0, ctx.currentTime);
+      this.compressorNode.ratio.setValueAtTime(20, ctx.currentTime);
+      this.compressorNode.attack.setValueAtTime(0.001, ctx.currentTime);
+      this.compressorNode.release.setValueAtTime(0.05, ctx.currentTime);
       this.soundboardBusGain.connect(this.compressorNode);
     }
 
@@ -132,7 +134,9 @@ export class SoundboardAudioEngine {
     const shouldTransmit = !this.isMicMuted || this.allowWhileMuted;
     const targetVolume = shouldTransmit ? this.masterVolume : 0;
     try {
-      this.soundboardBusGain.gain.setValueAtTime(targetVolume, this.audioContext.currentTime);
+      const now = this.audioContext.currentTime;
+      this.soundboardBusGain.gain.cancelScheduledValues(now);
+      this.soundboardBusGain.gain.setValueAtTime(targetVolume, now);
     } catch {}
   }
 
@@ -142,9 +146,11 @@ export class SoundboardAudioEngine {
     if (this.soundboardBusGain && this.audioContext) {
       const shouldTransmit = !this.isMicMuted || this.allowWhileMuted;
       try {
+        const now = this.audioContext.currentTime;
+        this.soundboardBusGain.gain.cancelScheduledValues(now);
         this.soundboardBusGain.gain.setValueAtTime(
           shouldTransmit ? this.masterVolume : 0,
-          this.audioContext.currentTime
+          now
         );
       } catch {}
     }
@@ -176,7 +182,9 @@ export class SoundboardAudioEngine {
     if (this.localMonitorGain && this.audioContext) {
       const target = this.localMonitorMuted ? 0 : this.localMonitorVolume;
       try {
-        this.localMonitorGain.gain.setValueAtTime(target, this.audioContext.currentTime);
+        const now = this.audioContext.currentTime;
+        this.localMonitorGain.gain.cancelScheduledValues(now);
+        this.localMonitorGain.gain.setValueAtTime(target, now);
       } catch {}
     }
   }
@@ -196,59 +204,102 @@ export class SoundboardAudioEngine {
   }
 
   /**
-   * Plays a sound effect.
+   * Plays a sound effect or music track.
+   * If isMusic is true (default):
+   *   - Immediately stops any current sounds and cancels in-flight requests.
+   *   - Strictly prevents overlapping or ghost playback through session tokens.
    * If localOnly is true:
    *   - Routes ONLY to user's local speakers/headphones (private audition).
    *   - NEVER touches the outgoing WebRTC track or LiveKit broadcast.
-   *   - Works reliably even when not connected to a voice room.
-   * If localOnly is false:
-   *   - Transmits to the voice room via dedicated soundboardTrack.
-   *   - Also routes to local monitor (headphones) according to localMonitorVolume / localMonitorMuted.
    */
-  public async playSound(item: SoundboardItem, localOnly = false): Promise<void> {
+  public async playSound(item: SoundboardItem, localOnly = false, isMusic = true): Promise<void> {
     const ctx = await this.ensureAudioContext();
 
-    // If this sound is already playing or paused, stop it first
-    if (this.activeInstances.has(item.id)) {
-      this.stopSound(item.id);
-    }
-
-    // Enforce max concurrent sounds limit (stop oldest sound)
-    if (this.activeInstances.size >= this.maxConcurrentSounds) {
-      let oldestId: string | null = null;
-      let oldestTime = Infinity;
-      this.activeInstances.forEach((inst, id) => {
-        if (inst.startedAt < oldestTime) {
-          oldestTime = inst.startedAt;
-          oldestId = id;
-        }
+    if (isMusic) {
+      // 1. Immediately stop any currently playing sounds BEFORE setting the new session token
+      const currentActiveIds = Array.from(this.activeInstances.keys());
+      for (const activeId of currentActiveIds) {
+        this.stopSound(activeId);
+      }
+      // 2. Abort all previous in-flight network fetches
+      this.loadAbortControllers.forEach((c) => {
+        try { c.abort(); } catch {}
       });
-      if (oldestId) {
-        this.stopSound(oldestId);
+      this.loadAbortControllers.clear();
+    } else {
+      if (this.activeInstances.has(item.id)) {
+        this.stopSound(item.id);
+      }
+      if (this.activeInstances.size >= this.maxConcurrentSounds) {
+        const oldestId = this.activeInstances.keys().next().value;
+        if (oldestId) this.stopSound(oldestId);
       }
     }
 
-    // Retrieve audio data
+    const playbackSessionId = `${item.id}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    if (isMusic) {
+      this.currentMusicSessionId = playbackSessionId;
+    }
+
+    // Retrieve audio data with abortable network fetch
     let audioBuffer = this.audioBufferCache.get(item.id);
     if (!audioBuffer) {
       let rawData = await soundboardStorage.getAudioData(item.id);
+
+      // Check if session was superseded while reading from storage
+      if (isMusic && this.currentMusicSessionId !== playbackSessionId) {
+        return;
+      }
+
       if (!rawData && item.audioUrl) {
+        const abortCtrl = new AbortController();
+        this.loadAbortControllers.set(playbackSessionId, abortCtrl);
+
         try {
           const fullUrl = item.audioUrl.startsWith('http')
             ? item.audioUrl
             : `${api.getBaseUrl()}${item.audioUrl.startsWith('/') ? '' : '/'}${item.audioUrl}`;
-          const res = await fetch(fullUrl);
+          const res = await fetch(fullUrl, { signal: abortCtrl.signal });
           if (res.ok) {
             rawData = await res.arrayBuffer();
           }
-        } catch (fetchErr) {
+        } catch (fetchErr: any) {
+          if (fetchErr.name === 'AbortError') {
+            return;
+          }
           console.warn(`Failed to fetch audio from URL: ${item.audioUrl}`, fetchErr);
+        } finally {
+          this.loadAbortControllers.delete(playbackSessionId);
         }
       }
+
+      // Check if session was superseded during fetch
+      if (isMusic && this.currentMusicSessionId !== playbackSessionId) {
+        return;
+      }
+
       if (!rawData) {
         throw new Error(`Audio data not found for sound "${item.name}"`);
       }
+
       audioBuffer = await this.loadAudioBuffer(item.id, rawData);
+
+      // Check if session was superseded during decoding
+      if (isMusic && this.currentMusicSessionId !== playbackSessionId) {
+        return;
+      }
+    }
+
+    // Mutual exclusivity check right before creating audio nodes
+    if (isMusic && this.currentMusicSessionId !== playbackSessionId) {
+      return;
+    }
+
+    if (isMusic) {
+      const lingeringIds = Array.from(this.activeInstances.keys());
+      for (const id of lingeringIds) {
+        this.stopSound(id);
+      }
     }
 
     // Create buffer source node and per-sound gain node
@@ -256,23 +307,29 @@ export class SoundboardAudioEngine {
     sourceNode.buffer = audioBuffer;
 
     const itemGainNode = ctx.createGain();
-    const itemVol = (item.volume ?? 80) / 100;
+    const itemVol = item.volume !== undefined && item.volume !== null ? Math.max(0, item.volume / 100) : 1.0;
     itemGainNode.gain.setValueAtTime(itemVol, ctx.currentTime);
 
     sourceNode.connect(itemGainNode);
 
     if (localOnly) {
-      // 100% PRIVATE LOCAL PREVIEW:
-      // Direct connection to ctx.destination only (user's audio output)
-      // Completely isolated from the LiveKit transmission pipeline
+      // 100% PRIVATE LOCAL PREVIEW
       itemGainNode.connect(ctx.destination);
     } else {
-      // BROADCAST TO CHANNEL:
-      // Connect to soundboardBusGain (which splits to WebRTC outgoing stream and local monitor)
+      // BROADCAST TO CHANNEL
       if (!this.soundboardBusGain) {
         this.initializePipeline();
       }
       itemGainNode.connect(this.soundboardBusGain!);
+    }
+
+    // Final sanity check before playback starts
+    if (isMusic && this.currentMusicSessionId !== playbackSessionId) {
+      try {
+        sourceNode.disconnect();
+        itemGainNode.disconnect();
+      } catch {}
+      return;
     }
 
     const instance: ActiveSoundInstance = {
@@ -330,6 +387,11 @@ export class SoundboardAudioEngine {
     inst.pauseOffset = Math.max(0, Math.min(inst.duration, elapsedSeconds));
     inst.isPaused = true;
 
+    try {
+      inst.gainNode.gain.cancelScheduledValues(now);
+      inst.gainNode.gain.setValueAtTime(0, now);
+    } catch {}
+
     inst.sourceNode.onended = null;
     try {
       inst.sourceNode.stop(now);
@@ -355,6 +417,12 @@ export class SoundboardAudioEngine {
     sourceNode.connect(inst.gainNode);
 
     const now = ctx.currentTime;
+    const itemVol = inst.item.volume !== undefined && inst.item.volume !== null ? Math.max(0, inst.item.volume / 100) : 1.0;
+    try {
+      inst.gainNode.gain.cancelScheduledValues(now);
+      inst.gainNode.gain.setValueAtTime(itemVol, now);
+    } catch {}
+
     inst.startedAt = Date.now() - (inst.pauseOffset * 1000);
     inst.isPaused = false;
     inst.sourceNode = sourceNode;
@@ -481,6 +549,16 @@ export class SoundboardAudioEngine {
    * Cancels scheduled audio values and immediately stops the buffer node.
    */
   public stopSound(soundId: string): void {
+    if (this.currentMusicSessionId?.startsWith(soundId)) {
+      this.currentMusicSessionId = null;
+    }
+    this.loadAbortControllers.forEach((ctrl, key) => {
+      if (key.startsWith(soundId)) {
+        try { ctrl.abort(); } catch {}
+        this.loadAbortControllers.delete(key);
+      }
+    });
+
     const inst = this.activeInstances.get(soundId);
     if (!inst) return;
 
@@ -513,9 +591,15 @@ export class SoundboardAudioEngine {
   }
 
   /**
-   * Emergency stop for all active sounds
+   * Emergency stop for all active sounds and cancellation of all pending loads.
    */
   public stopAllSounds(): void {
+    this.currentMusicSessionId = null;
+    this.loadAbortControllers.forEach((ctrl) => {
+      try { ctrl.abort(); } catch {}
+    });
+    this.loadAbortControllers.clear();
+
     const ids = Array.from(this.activeInstances.keys());
     for (const id of ids) {
       this.stopSound(id);

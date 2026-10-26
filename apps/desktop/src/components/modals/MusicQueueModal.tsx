@@ -59,7 +59,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   const playCloudSound = useSoundboardStore((s) => s.playCloudSound);
 
   const playSound = useSoundboardStore((s) => s.playSound);
-  const togglePauseSound = useSoundboardStore((s) => s.togglePauseSound);
+  const togglePlayPause = useSoundboardStore((s) => s.togglePlayPause);
   const stopSound = useSoundboardStore((s) => s.stopSound);
   const playNext = useSoundboardStore((s) => s.playNext);
   const playPrevious = useSoundboardStore((s) => s.playPrevious);
@@ -77,8 +77,29 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
     progress: 0,
   });
 
+  const allAvailableTracks = React.useMemo(() => {
+    const map = new Map<string, SoundboardItem>();
+    sounds.forEach((s) => map.set(s.id, s));
+    cloudSounds.forEach((c) => {
+      if (!map.has(c.id)) {
+        map.set(c.id, {
+          id: c.id,
+          name: c.name,
+          category: c.category,
+          volume: 100,
+          hotkey: null,
+          duration: c.duration,
+          createdAt: new Date(c.createdAt).getTime(),
+          audioUrl: c.audioUrl,
+          source: 'cloud',
+        });
+      }
+    });
+    return map;
+  }, [sounds, cloudSounds]);
+
   const currentSoundId = queue[currentQueueIndex] || (activeSounds.length > 0 ? activeSounds[0].soundId : null);
-  const currentTrack = sounds.find((s) => s.id === currentSoundId);
+  const currentTrack = currentSoundId ? allAvailableTracks.get(currentSoundId) : null;
   const isPlaying = activeSounds.some((a) => a.soundId === currentSoundId && !a.isPaused);
 
   useEffect(() => {
@@ -97,7 +118,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   if (!isOpen) return null;
 
   const queueItems: SoundboardItem[] = queue
-    .map((id: string) => sounds.find((s: SoundboardItem) => s.id === id))
+    .map((id: string) => allAvailableTracks.get(id))
     .filter((s: SoundboardItem | undefined): s is SoundboardItem => !!s);
 
   const formatTime = (secs: number) => {
@@ -269,17 +290,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
                 {/* Big Circular Green Play Button */}
                 <button
-                  onClick={() => {
-                    if (currentSoundId) {
-                      if (isPlaying) {
-                        togglePauseSound(currentSoundId);
-                      } else {
-                        playSound(currentSoundId);
-                      }
-                    } else if (queue.length > 0) {
-                      playSound(queue[0]);
-                    }
-                  }}
+                  onClick={() => togglePlayPause(currentSoundId || (queue.length > 0 ? queue[0] : undefined))}
                   className="w-11 h-11 rounded-full bg-[#23a55a] hover:bg-[#209650] text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-lg shadow-[#23a55a]/30 cursor-pointer"
                   title={isPlaying ? 'Pause' : 'Play'}
                 >
@@ -556,8 +567,8 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
                           <button
                             onClick={() => {
-                              if (isItemPlaying) {
-                                togglePauseSound(item.id);
+                              if (isItemCurrent) {
+                                togglePlayPause(item.id);
                               } else {
                                 setQueue(queue, index);
                                 playSound(item.id);

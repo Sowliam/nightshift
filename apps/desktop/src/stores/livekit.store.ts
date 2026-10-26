@@ -583,6 +583,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     private ctx: AudioContext | null = null;
     private nodes = new Map<string, { gain: GainNode; source: MediaStreamAudioSourceNode }>();
 
+    constructor() {
+      const unlockAudio = () => {
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      };
+      if (typeof window !== 'undefined') {
+        window.addEventListener('click', unlockAudio, { passive: true });
+        window.addEventListener('keydown', unlockAudio, { passive: true });
+        window.addEventListener('touchstart', unlockAudio, { passive: true });
+      }
+    }
+
     private getAudioContext(): AudioContext {
       if (!this.ctx || this.ctx.state === 'closed') {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -606,8 +619,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const stream = new MediaStream([mediaStreamTrack]);
         const source = ctx.createMediaStreamSource(stream);
         const gain = ctx.createGain();
+        const now = ctx.currentTime;
         const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
-        gain.gain.setValueAtTime(gainVal, ctx.currentTime);
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gainVal, now);
         source.connect(gain);
         gain.connect(ctx.destination);
         this.nodes.set(trackKey, { gain, source });
@@ -618,11 +633,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     public updateVolume(trackKey: string, volumePercent: number, isMuted: boolean): void {
       const entry = this.nodes.get(trackKey);
+      const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
       if (entry && this.ctx) {
         try {
-          const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
-          entry.gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+          const now = this.ctx.currentTime;
+          entry.gain.gain.cancelScheduledValues(now);
+          entry.gain.gain.setValueAtTime(gainVal, now);
         } catch {}
+      } else if (this.ctx) {
+        // Fallback: match any node starting with the participant prefix
+        this.nodes.forEach((node, key) => {
+          if (key.startsWith(trackKey) || trackKey.startsWith(key)) {
+            try {
+              const now = this.ctx!.currentTime;
+              node.gain.gain.cancelScheduledValues(now);
+              node.gain.gain.setValueAtTime(gainVal, now);
+            } catch {}
+          }
+        });
       }
     }
 
@@ -809,7 +837,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           }
           const element = track.attach();
           element.autoplay = true;
-          element.muted = true; // Audio is rendered through remoteAudioGainEngine for real 0-200% volume
+          // In Chromium/browser, element.muted = true pauses WebRTC audio decoding for the MediaStreamTrack.
+          // Keeping element.muted = false and element.volume = 0 keeps the WebRTC audio decoder feeding WebAudio.
+          element.muted = false;
+          element.volume = 0;
           container.appendChild(element);
 
           const isLocallyMuted = isSoundboard
@@ -822,12 +853,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
           if (track.mediaStreamTrack) {
             remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isLocallyMuted || get().isDeafened);
-          }
-
-          if (typeof (track as RemoteAudioTrack).setVolume === 'function') {
-            try {
-              (track as RemoteAudioTrack).setVolume(isLocallyMuted || get().isDeafened ? 0 : Math.max(0, Math.min(1, savedVol / 100)));
-            } catch {}
           }
 
           if ((get().isDeafened || isLocallyMuted) && track.mediaStreamTrack) {
@@ -1600,11 +1625,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (pub.source === Track.Source.Microphone) {
             const trackKey = `${identity}_mic_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, volumePercent, isLocallyMuted || isDeafened);
-            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-              try {
-                (pub.track as RemoteAudioTrack).setVolume(isLocallyMuted || isDeafened ? 0 : Math.max(0, Math.min(1, volumePercent / 100)));
-              } catch {}
-            }
             if (pub.track && pub.track.mediaStreamTrack) {
               pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
             }
@@ -1625,11 +1645,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (pub.trackName === 'soundboard' || (pub.track as any)?.name === 'soundboard') {
             const trackKey = `${identity}_soundboard_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, volumePercent, isMuted || isDeafened);
-            if (pub.track && typeof (pub.track as RemoteAudioTrack).setVolume === 'function') {
-              try {
-                (pub.track as RemoteAudioTrack).setVolume(isMuted || isDeafened ? 0 : Math.max(0, Math.min(1, volumePercent / 100)));
-              } catch {}
-            }
             if (pub.track && pub.track.mediaStreamTrack) {
               pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
             }
