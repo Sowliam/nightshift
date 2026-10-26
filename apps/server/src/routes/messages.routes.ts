@@ -38,6 +38,25 @@ function isValidImageMagicBytes(buffer: Buffer): { valid: boolean; ext: string; 
   return { valid: false, ext: '', mime: '' };
 }
 
+async function removeLocalUploadIfUnused(url: string | null) {
+  if (!url || !url.startsWith('/uploads/') || url.includes('..')) return;
+
+  const fileName = path.basename(url);
+  if (!fileName || fileName === '.' || fileName === '..') return;
+
+  const [stillAttached, usedAsAvatar] = await Promise.all([
+    prisma.message.count({ where: { attachmentUrl: url } }),
+    prisma.user.count({ where: { avatarUrl: url } }),
+  ]);
+  if (stillAttached > 0 || usedAsAvatar > 0) return;
+
+  const filePath = path.resolve(UPLOADS_DIR, fileName);
+  const relative = path.relative(UPLOADS_DIR, filePath);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+
+  await fs.promises.unlink(filePath).catch(() => undefined);
+}
+
 export const messagesRoutes: FastifyPluginAsync = async (fastify) => {
   // 1. Get messages for a channel
   fastify.get('/api/channels/:channelId/messages', async (request, reply) => {
@@ -151,7 +170,45 @@ export const messagesRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ message: messageDto });
   });
 
-  // 3. Strict Image Upload (JPEG, JPG, PNG with Magic Bytes validation & 5MB size limit)
+  // 3. Delete a text-channel message. Only the server owner may do this.
+  fastify.delete('/api/channels/:channelId/messages/:messageId', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) return;
+
+    const { channelId, messageId } = request.params as { channelId: string; messageId: string };
+
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      include: { server: true },
+    });
+
+    if (!channel) {
+      return reply.status(404).send({ error: 'Channel not found' });
+    }
+
+    if (channel.type !== 'text') {
+      return reply.status(400).send({ error: 'Only text channel messages can be deleted' });
+    }
+
+    if (channel.server.ownerId !== user.id) {
+      return reply.status(403).send({ error: 'Only the server owner can delete messages' });
+    }
+
+    const message = await prisma.message.findFirst({
+      where: { id: messageId, channelId },
+    });
+
+    if (!message) {
+      return reply.status(404).send({ error: 'Message not found' });
+    }
+
+    await prisma.message.delete({ where: { id: message.id } });
+    await removeLocalUploadIfUnused(message.attachmentUrl);
+
+    return reply.status(200).send({ success: true, messageId: message.id });
+  });
+
+  // 4. Strict Image Upload (JPEG, JPG, PNG with Magic Bytes validation & 5MB size limit)
   fastify.post('/api/upload', async (request, reply) => {
     const user = await requireAuth(request, reply);
     if (!user) return;
