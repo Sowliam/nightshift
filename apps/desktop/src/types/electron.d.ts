@@ -7,6 +7,8 @@ export interface NightshiftDesktopApi {
   close: () => Promise<void>;
   getVersion: () => Promise<string>;
   getScreenSources: () => Promise<DesktopScreenSource[]>;
+  setGlobalPttKey?: (key: string, enabled: boolean) => Promise<boolean>;
+  onGlobalPttChange?: (callback: (isDown: boolean) => void) => () => void;
 }
 
 declare global {

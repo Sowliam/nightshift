@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Hash,
   Volume2,
+  Music,
   Plus,
   ChevronDown,
   Headphones,
@@ -841,7 +842,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
               aria-label="Soundboard"
             >
               <div className="call-icon-layer call-icon-on call-icon-bounce">
-                <Volume2 className="w-3.5 h-3.5 stroke-[2.2]" />
+                <Music className="w-3.5 h-3.5 stroke-[2.2]" />
               </div>
             </button>
 

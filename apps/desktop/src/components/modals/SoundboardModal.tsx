@@ -219,18 +219,21 @@ export const SoundboardModal: React.FC = () => {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Filter lists
-  const musicSounds = sounds.filter((s) => (s.category || '').toLowerCase() !== 'sfx');
-  const sfxSounds = sounds.filter((s) => (s.category || '').toLowerCase() === 'sfx');
-  const favoriteSounds = sounds.filter((s) => s.isFavorite);
+  // Filter lists: combine local sounds and cloud sounds into a unified library list
+  const allTracksList = Array.from(allAvailableTracks.values());
+  const musicSounds = allTracksList.filter((s) => (s.category || '').toLowerCase() !== 'sfx');
+  const sfxSounds = allTracksList.filter((s) => (s.category || '').toLowerCase() === 'sfx');
+  const favoriteSounds = allTracksList.filter((s) => s.isFavorite);
 
-  let displayedSounds = sounds;
-  if (navSection === 'soundboard') {
+  let displayedSounds = allTracksList;
+  if (navSection === 'library') {
+    displayedSounds = allTracksList;
+  } else if (navSection === 'soundboard') {
     displayedSounds = sfxSounds;
   } else if (navSection === 'favorites') {
     displayedSounds = favoriteSounds;
   } else if (navSection === 'uploads') {
-    displayedSounds = sounds;
+    displayedSounds = allTracksList.filter((s) => s.source === 'cloud');
   }
 
   if (filterType === 'music') {
@@ -590,7 +593,7 @@ export const SoundboardModal: React.FC = () => {
                           : 'bg-[#14161d] text-white/60 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      All ({sounds.length})
+                      All ({allTracksList.length})
                     </button>
                     <button
                       onClick={() => setFilterType('music')}
@@ -694,9 +697,16 @@ export const SoundboardModal: React.FC = () => {
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
-                              {sound.name}
-                            </h4>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <h4 className={`text-xs font-bold truncate ${isCurrentThis ? 'text-[#1db954]' : 'text-white'}`}>
+                                {sound.name}
+                              </h4>
+                              {sound.source === 'cloud' && (
+                                <span className="px-1 py-0.2 rounded text-[9px] font-extrabold bg-[#23a55a]/15 text-[#23a55a] border border-[#23a55a]/30 shrink-0" title="Cloud Track">
+                                  CLOUD
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[10px] text-white/50 truncate">
                               {sound.artist || sound.category || 'Nightshift Audio'}
                             </p>

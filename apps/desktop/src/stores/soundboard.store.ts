@@ -235,6 +235,29 @@ export const useSoundboardStore = create<SoundboardState>()(
             } catch {}
 
             const newSound = await api.uploadCloudSound(file, finalName, category, duration);
+            
+            // Automatically add to local storage cache so it plays instantly without network wait
+            try {
+              const arrayBuf = await file.arrayBuffer();
+              const localItem: SoundboardItem = {
+                id: newSound.id,
+                name: newSound.name,
+                category: newSound.category || category,
+                volume: 100,
+                hotkey: null,
+                duration: newSound.duration || duration,
+                createdAt: new Date(newSound.createdAt).getTime(),
+                audioUrl: newSound.audioUrl,
+                source: 'cloud',
+                isFavorite: false,
+              };
+              await soundboardStorage.saveSound(localItem, arrayBuf);
+              const updatedSounds = await soundboardStorage.getAllItems();
+              set({ sounds: updatedSounds });
+            } catch (storageErr) {
+              console.warn('Could not cache cloud sound locally:', storageErr);
+            }
+
             set((state) => ({
               cloudSounds: [newSound, ...state.cloudSounds.filter((s) => s.id !== newSound.id)],
               isCloudUploading: false,
@@ -393,14 +416,23 @@ export const useSoundboardStore = create<SoundboardState>()(
 
         pauseSound: (id: string) => {
           soundboardAudioEngine.pauseSound(id);
+          useLiveKitStore.getState().broadcastSoundboardStopped(id);
         },
 
         resumeSound: async (id: string) => {
           await soundboardAudioEngine.resumeSound(id);
+          const sound = get().sounds.find((s) => s.id === id) || get().cloudSounds.find((c) => c.id === id);
+          if (sound) {
+            useLiveKitStore.getState().broadcastSoundboardPlaying(sound.id, sound.name, sound.duration);
+          }
         },
 
         togglePauseSound: async (id: string) => {
-          await soundboardAudioEngine.togglePauseSound(id);
+          if (soundboardAudioEngine.isPaused(id)) {
+            await get().resumeSound(id);
+          } else {
+            get().pauseSound(id);
+          }
         },
 
         togglePlayPause: async (targetId?: string) => {
@@ -455,6 +487,7 @@ export const useSoundboardStore = create<SoundboardState>()(
           ids.forEach((id) => {
             useLiveKitStore.getState().broadcastSoundboardStopped(id);
           });
+          useLiveKitStore.getState().broadcastSoundboardStopped('all');
         },
 
         updateSound: async (id: string, updates: Partial<SoundboardItem>) => {
@@ -468,8 +501,13 @@ export const useSoundboardStore = create<SoundboardState>()(
           soundboardAudioEngine.stopSound(id);
           useLiveKitStore.getState().broadcastSoundboardStopped(id);
           await soundboardStorage.deleteItem(id);
+          const isCloud = get().cloudSounds.some((c) => c.id === id);
+          if (isCloud) {
+            api.deleteCloudSound(id).catch(() => {});
+          }
           set((state) => ({
             sounds: state.sounds.filter((s) => s.id !== id),
+            cloudSounds: state.cloudSounds.filter((c) => c.id !== id),
             queue: state.queue.filter((sId) => sId !== id),
           }));
         },

@@ -466,6 +466,19 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
 
                           <div className="flex items-center gap-2">
                             <button
+                              onClick={() => {
+                                if (!queue.includes(cloudItem.id)) {
+                                  setQueue([...queue, cloudItem.id], currentQueueIndex >= 0 ? currentQueueIndex : 0);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/5 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                              title="Add to current playback queue"
+                            >
+                              <Plus className="w-3 h-3 text-[#23a55a]" />
+                              <span>Queue</span>
+                            </button>
+
+                            <button
                               onClick={() => playCloudSound(cloudItem)}
                               className="px-3 py-1.5 rounded-lg bg-[#23a55a] hover:bg-[#209650] text-black font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer active:scale-95"
                               title="Play into voice room"

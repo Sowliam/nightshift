@@ -151,7 +151,27 @@ export const App: React.FC = () => {
     }
   }, [user?.id]);
 
-  // Global hotkeys for Push-to-Talk, Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D), Soundboard (Ctrl+Shift+S)
+  // Register global PTT hotkey with Electron main process (for background & games)
+  useEffect(() => {
+    if (window.nightshift?.setGlobalPttKey) {
+      window.nightshift.setGlobalPttKey(pushToTalkKey, inputMode === 'push-to-talk').catch(() => {});
+    }
+  }, [pushToTalkKey, inputMode]);
+
+  // Listen for global PTT changes (works outside app and in games)
+  useEffect(() => {
+    if (!window.nightshift?.onGlobalPttChange) return;
+
+    const cleanup = window.nightshift.onGlobalPttChange((isDown: boolean) => {
+      if (inputMode === 'push-to-talk') {
+        setPushToTalkActive(isDown);
+      }
+    });
+
+    return cleanup;
+  }, [inputMode]);
+
+  // Global hotkeys for in-app Push-to-Talk, Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D), Soundboard (Ctrl+Shift+S)
   useEffect(() => {
     const matchesPttKey = (e: KeyboardEvent) => {
       let key = e.code;

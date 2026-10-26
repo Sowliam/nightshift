@@ -522,7 +522,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     // 1. Check local participant
     const localScreenPub = Array.from(room.localParticipant.videoTrackPublications.values()).find(
-      (pub) => pub.source === Track.Source.ScreenShare && pub.track
+      (pub) => pub.source === Track.Source.ScreenShare && !pub.isMuted && !!pub.track
     );
     if (localScreenPub) {
       list.push({
@@ -536,7 +536,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     // 2. Check all remote participants
     for (const remote of room.remoteParticipants.values()) {
       const screenPub = Array.from(remote.videoTrackPublications.values()).find(
-        (pub) => pub.source === Track.Source.ScreenShare && pub.track
+        (pub) => pub.source === Track.Source.ScreenShare && !pub.isMuted
       );
       if (screenPub) {
         list.push({
@@ -973,6 +973,40 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         updateScreenShareState(room);
       });
 
+      room.on(RoomEvent.TrackPublished, (_pub, _participant) => {
+        set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        updateScreenShareState(room);
+      });
+
+      room.on(RoomEvent.TrackUnpublished, (pub, participant) => {
+        set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        updateScreenShareState(room);
+
+        // Immediate cleanup if soundboard track is unpublished
+        const trackName = (pub?.trackName || (pub as any)?.name || '').toLowerCase();
+        if (trackName === 'soundboard' && participant?.identity) {
+          set((state) => {
+            const updated = { ...state.activeSoundboardPlayers };
+            delete updated[participant.identity];
+            return { activeSoundboardPlayers: updated };
+          });
+        }
+      });
+
+      room.on(RoomEvent.TrackMuted, (pub, _participant) => {
+        set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        if (pub.source === Track.Source.ScreenShare) {
+          updateScreenShareState(room);
+        }
+      });
+
+      room.on(RoomEvent.TrackUnmuted, (pub, _participant) => {
+        set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
+        if (pub.source === Track.Source.ScreenShare) {
+          updateScreenShareState(room);
+        }
+      });
+
       room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
         try {
           const text = new TextDecoder().decode(payload);
@@ -1008,6 +1042,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               delete updated[data.participantIdentity];
               return { activeSoundboardPlayers: updated };
             });
+          } else if (data.type === 'screenshare_stopped' && data.participantIdentity) {
+            // Instant drop of screenshare card when someone closes screen share
+            set((state) => {
+              const filtered = state.availableScreenShares.filter((s) => s.participantIdentity !== data.participantIdentity);
+              const watched = new Set(state.watchedScreenShareIds);
+              watched.delete(data.participantIdentity);
+              return {
+                availableScreenShares: filtered,
+                watchedScreenShareIds: watched,
+                activeScreenTrack: state.screenSharerIdentity === data.participantIdentity ? null : state.activeScreenTrack,
+                screenSharerIdentity: state.screenSharerIdentity === data.participantIdentity ? null : state.screenSharerIdentity,
+                screenSharerName: state.screenSharerIdentity === data.participantIdentity ? null : state.screenSharerName,
+              };
+            });
+            updateScreenShareState(room);
           } else if (data.type === 'soundboard_sync_request') {
             // Someone joined the room and requested active music playback state
             try {
@@ -1521,6 +1570,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (!room || !room.localParticipant) return;
 
       try {
+        // Fast-drop notice to all room participants so "Watch Live" closes instantly
+        try {
+          const stopMsg = new TextEncoder().encode(JSON.stringify({
+            type: 'screenshare_stopped',
+            participantIdentity: room.localParticipant.identity,
+          }));
+          room.localParticipant.publishData(stopMsg, { reliable: true });
+        } catch {}
+
         if (activeCustomScreenAudioTrack) {
           await room.localParticipant.unpublishTrack(activeCustomScreenAudioTrack);
           activeCustomScreenAudioTrack.stop();

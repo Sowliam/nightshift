@@ -1,8 +1,102 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session } from 'electron';
 import path from 'path';
+import { uIOhook, UiohookKey, UiohookKeyboardEvent, UiohookMouseEvent } from 'uiohook-napi';
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.ELECTRON_DEV === 'true' || !app.isPackaged;
+
+// Global Push-to-Talk state
+let globalPttEnabled = false;
+let globalPttKeyCode: number | null = UiohookKey.Space;
+let globalPttMouseButton: number | null = null;
+let isGlobalPttDown = false;
+
+// Dynamic key name -> keycode mapping
+const keyNameToCode: Record<string, number> = {};
+for (const [name, code] of Object.entries(UiohookKey)) {
+  keyNameToCode[name.toLowerCase()] = code as number;
+}
+keyNameToCode['space'] = UiohookKey.Space;
+keyNameToCode['spacebar'] = UiohookKey.Space;
+keyNameToCode['ctrl'] = UiohookKey.Ctrl;
+keyNameToCode['control'] = UiohookKey.Ctrl;
+keyNameToCode['caps'] = UiohookKey.CapsLock;
+keyNameToCode['capslock'] = UiohookKey.CapsLock;
+keyNameToCode['shift'] = UiohookKey.Shift;
+keyNameToCode['alt'] = UiohookKey.Alt;
+keyNameToCode['meta'] = UiohookKey.Meta;
+
+function resolvePttKey(keyStr: string) {
+  if (!keyStr) {
+    globalPttKeyCode = UiohookKey.Space;
+    globalPttMouseButton = null;
+    return;
+  }
+  const clean = keyStr.trim().toLowerCase();
+
+  // Mouse button support: e.g. "mouse3", "mouse4", "mouse5"
+  if (clean.startsWith('mouse')) {
+    const num = parseInt(clean.replace('mouse', ''), 10);
+    if (!isNaN(num)) {
+      globalPttMouseButton = num;
+      globalPttKeyCode = null;
+      return;
+    }
+  }
+
+  globalPttMouseButton = null;
+  let lookup = clean;
+  if (lookup.startsWith('key')) lookup = lookup.replace('key', '');
+  if (lookup.startsWith('digit')) lookup = lookup.replace('digit', '');
+
+  if (keyNameToCode[lookup] !== undefined) {
+    globalPttKeyCode = keyNameToCode[lookup];
+  } else if (keyNameToCode[clean] !== undefined) {
+    globalPttKeyCode = keyNameToCode[clean];
+  } else {
+    globalPttKeyCode = UiohookKey.Space;
+  }
+}
+
+function initGlobalPttHook() {
+  try {
+    uIOhook.on('keydown', (e: UiohookKeyboardEvent) => {
+      if (!globalPttEnabled || globalPttKeyCode === null) return;
+      if (e.keycode === globalPttKeyCode && !isGlobalPttDown) {
+        isGlobalPttDown = true;
+        mainWindow?.webContents.send('global-ptt-change', true);
+      }
+    });
+
+    uIOhook.on('keyup', (e: UiohookKeyboardEvent) => {
+      if (!globalPttEnabled || globalPttKeyCode === null) return;
+      if (e.keycode === globalPttKeyCode && isGlobalPttDown) {
+        isGlobalPttDown = false;
+        mainWindow?.webContents.send('global-ptt-change', false);
+      }
+    });
+
+    uIOhook.on('mousedown', (e: UiohookMouseEvent) => {
+      if (!globalPttEnabled || globalPttMouseButton === null) return;
+      if (e.button === globalPttMouseButton && !isGlobalPttDown) {
+        isGlobalPttDown = true;
+        mainWindow?.webContents.send('global-ptt-change', true);
+      }
+    });
+
+    uIOhook.on('mouseup', (e: UiohookMouseEvent) => {
+      if (!globalPttEnabled || globalPttMouseButton === null) return;
+      if (e.button === globalPttMouseButton && isGlobalPttDown) {
+        isGlobalPttDown = false;
+        mainWindow?.webContents.send('global-ptt-change', false);
+      }
+    });
+
+    uIOhook.start();
+  } catch (err) {
+    console.warn('Failed to start uIOhook for global PTT:', err);
+  }
+}
 
 // Discord-grade hardware acceleration & color fidelity for screen sharing
 app.commandLine.appendSwitch('enable-gpu-rasterization');
@@ -164,6 +258,17 @@ async function createWindow() {
     }
   });
 
+  // Global Push-to-Talk IPC configuration handler
+  ipcMain.handle('set-global-ptt-key', (_event, key: string, enabled: boolean) => {
+    globalPttEnabled = !!enabled;
+    resolvePttKey(key);
+    if (!globalPttEnabled && isGlobalPttDown) {
+      isGlobalPttDown = false;
+      mainWindow?.webContents.send('global-ptt-change', false);
+    }
+    return true;
+  });
+
   if (isDev) {
     try {
       await mainWindow.webContents.session.clearCache();
@@ -179,7 +284,16 @@ async function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  initGlobalPttHook();
+});
+
+app.on('before-quit', () => {
+  try {
+    uIOhook.stop();
+  } catch {}
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

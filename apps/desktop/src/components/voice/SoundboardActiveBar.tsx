@@ -47,6 +47,8 @@ export const SoundboardActiveBar: React.FC = () => {
 
   const localMonitorMuted = useSoundboardStore((s) => s.localMonitorMuted);
   const setLocalMonitorMuted = useSoundboardStore((s) => s.setLocalMonitorMuted);
+  const localMonitorVolume = useSoundboardStore((s) => s.localMonitorVolume);
+  const setLocalMonitorVolume = useSoundboardStore((s) => s.setLocalMonitorVolume);
   const masterVolume = useSoundboardStore((s) => s.masterVolume);
   const setMasterVolume = useSoundboardStore((s) => s.setMasterVolume);
   const togglePlayPause = useSoundboardStore((s) => s.togglePlayPause);
@@ -63,6 +65,9 @@ export const SoundboardActiveBar: React.FC = () => {
   const members = useServerStore((s) => s.members);
 
   const [isVolumeSliderOpen, setIsVolumeSliderOpen] = useState(false);
+  const [isHeadphonesMenuOpen, setIsHeadphonesMenuOpen] = useState(false);
+  const headphonesMenuRef = useRef<HTMLDivElement>(null);
+  const volumeSliderRef = useRef<HTMLDivElement>(null);
   const [isMini, setIsMini] = useState(false);
   const [miniPos, setMiniPos] = useState({ x: 24, y: 96 });
   const dragRef = useRef<{
@@ -108,6 +113,27 @@ export const SoundboardActiveBar: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [currentLocalSound?.soundId]);
+
+  // Click outside to close headphone menu or volume popovers
+  useEffect(() => {
+    if (!isHeadphonesMenuOpen && !isVolumeSliderOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        headphonesMenuRef.current &&
+        !headphonesMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsHeadphonesMenuOpen(false);
+      }
+      if (
+        volumeSliderRef.current &&
+        !volumeSliderRef.current.contains(e.target as Node)
+      ) {
+        setIsVolumeSliderOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, [isHeadphonesMenuOpen, isVolumeSliderOpen]);
 
   if (!hasLocalActive && !hasRemoteActive) {
     return null;
@@ -348,25 +374,79 @@ export const SoundboardActiveBar: React.FC = () => {
                 </button>
               )}
 
-              {/* Private Headphones Monitor Button */}
-              <button
-                onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                  localMonitorMuted
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                    : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
-                }`}
-                title={
-                  localMonitorMuted
-                    ? 'Unmute in your headphones (Music currently playing to channel only)'
-                    : 'Mute in your headphones (Music continues streaming to everyone else in channel)'
-                }
-              >
-                <Headphones className="w-3.5 h-3.5" />
-              </button>
+              {/* Private Headphones Monitor Popover (Volume Slider + Complete Mute) */}
+              <div className="relative" ref={headphonesMenuRef}>
+                <button
+                  onClick={() => {
+                    setIsHeadphonesMenuOpen(!isHeadphonesMenuOpen);
+                    setIsVolumeSliderOpen(false);
+                  }}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    localMonitorMuted
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : localMonitorVolume < 100
+                      ? 'bg-[#23a55a]/20 text-[#23a55a] border border-[#23a55a]/30'
+                      : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                  }`}
+                  title="Headphone Monitor Settings (Volume & Mute)"
+                >
+                  <Headphones className="w-3.5 h-3.5" />
+                </button>
+
+                {isHeadphonesMenuOpen && (
+                  <div className="absolute right-0 top-12 bg-[#12151c] border border-white/10 shadow-2xl rounded-2xl p-3 flex flex-col gap-2 z-50 w-52 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-white flex items-center gap-1.5">
+                        <Headphones className="w-3.5 h-3.5 text-[#23a55a]" />
+                        <span>Headphones</span>
+                      </span>
+                      <button
+                        onClick={() => setLocalMonitorMuted(!localMonitorMuted)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          localMonitorMuted
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
+                        }`}
+                        title={localMonitorMuted ? 'Unmute in headphones' : 'Mute in headphones'}
+                      >
+                        {localMonitorMuted ? 'Muted' : 'Mute'}
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1 pt-1.5 border-t border-white/5">
+                      <div className="flex items-center justify-between text-[10px] text-white/60">
+                        <span>Monitor Volume</span>
+                        <span className="font-mono font-bold text-[#23a55a]">
+                          {localMonitorMuted ? '0%' : `${Math.round(localMonitorVolume)}%`}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={localMonitorMuted ? 0 : localMonitorVolume}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setLocalMonitorVolume(val);
+                          if (localMonitorMuted && val > 0) {
+                            setLocalMonitorMuted(false);
+                          }
+                        }}
+                        className="w-full h-1.5 accent-[#23a55a] bg-white/10 rounded-full cursor-pointer"
+                      />
+                      <p className="text-[9px] text-white/40 leading-tight mt-0.5">
+                        {localMonitorMuted
+                          ? 'Muted for you • Room still hears it'
+                          : 'Adjust your own listening volume'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Volume Button with Popover Slider (0-200% Real Gain) */}
-              <div className="relative">
+              <div className="relative" ref={volumeSliderRef}>
                 <button
                   onClick={() => setIsVolumeSliderOpen(!isVolumeSliderOpen)}
                   className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${

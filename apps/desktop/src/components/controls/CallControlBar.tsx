@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Headphones,
   VolumeX,
-  Volume2,
+  Music,
   Monitor,
   PhoneOff,
   Settings,
@@ -121,7 +121,7 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
         aria-label="Soundboard"
       >
         <div className="call-icon-layer call-icon-on call-icon-bounce">
-          <Volume2 className="w-5 h-5 stroke-[2.2]" />
+          <Music className="w-5 h-5 stroke-[2.2]" />
         </div>
       </button>
 
