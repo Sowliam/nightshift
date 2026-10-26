@@ -11,8 +11,8 @@ export const PingIndicator: React.FC<PingIndicatorProps> = ({
   className = '',
   showLabel = false,
 }) => {
-  let colorClass = 'bg-zinc-500';
-  let qualityText = 'در حال اندازه‌گیری...';
+  let colorClass = 'bg-[#23a55a]/60 animate-pulse';
+  let qualityText = 'در حال محاسبه پینگ...';
 
   if (typeof ping === 'number' && ping > 0) {
     if (ping < 150) {

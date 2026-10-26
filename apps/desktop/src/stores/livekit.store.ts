@@ -20,6 +20,7 @@ import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
+import { getApiBase } from '../lib/api';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -401,8 +402,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
   };
 
+  let lastMeasuredPing = 0;
+  let isPingMeasuring = false;
+
   const measurePing = async (room: Room) => {
+    if (isPingMeasuring) return;
+    isPingMeasuring = true;
     try {
+      let bestRtt: number | null = null;
+
+      // 1. Check WebRTC stats across publisher and subscriber
       const pcManager = (room.engine as any)?.pcManager;
       const candidates = [
         pcManager?.publisher?.getStats ? pcManager.publisher : null,
@@ -412,61 +421,35 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         (room.engine as any)?.pc?.getStats ? (room.engine as any).pc : null,
       ].filter(Boolean);
 
-      let bestRtt: number | null = null;
-
       for (const transport of candidates) {
         try {
           const stats: RTCStatsReport = await transport.getStats();
           if (!stats) continue;
 
-          let selectedPairId: string | undefined;
-          const candidatePairs: any[] = [];
-
           for (const report of stats.values()) {
-            if (report.type === 'transport' && (report as any).selectedCandidatePairId) {
-              selectedPairId = (report as any).selectedCandidatePairId;
-            } else if (report.type === 'candidate-pair') {
-              candidatePairs.push(report);
-            }
-          }
-
-          // Prioritize: 1) transport's selectedCandidatePairId, 2) pair with selected === true, 3) nominated & succeeded
-          let activePair =
-            (selectedPairId ? stats.get(selectedPairId) : undefined) ??
-            candidatePairs.find((c) => c.selected && (c.currentRoundTripTime || c.totalRoundTripTime)) ??
-            candidatePairs.find(
-              (c) => c.nominated && c.state === 'succeeded' && (c.currentRoundTripTime || c.totalRoundTripTime)
-            );
-
-          if (!activePair && candidatePairs.length > 0) {
-            const valid = candidatePairs
-              .filter(
-                (c) =>
-                  (c.state === 'succeeded' || c.nominated) &&
-                  typeof c.currentRoundTripTime === 'number' &&
-                  c.currentRoundTripTime > 0
-              )
-              .sort((a, b) => a.currentRoundTripTime - b.currentRoundTripTime);
-            if (valid.length > 0) {
-              activePair = valid[0];
-            }
-          }
-
-          if (activePair) {
-            let rttSec = activePair.currentRoundTripTime;
-            if (typeof rttSec !== 'number' || rttSec <= 0) {
-              if (
-                typeof activePair.totalRoundTripTime === 'number' &&
-                typeof activePair.responsesReceived === 'number' &&
-                activePair.responsesReceived > 0
-              ) {
-                rttSec = activePair.totalRoundTripTime / activePair.responsesReceived;
+            if (report.type === 'candidate-pair') {
+              const pair = report as any;
+              let rttSec = pair.currentRoundTripTime;
+              if (typeof rttSec !== 'number' || rttSec <= 0) {
+                if (
+                  typeof pair.totalRoundTripTime === 'number' &&
+                  typeof pair.responsesReceived === 'number' &&
+                  pair.responsesReceived > 0
+                ) {
+                  rttSec = pair.totalRoundTripTime / pair.responsesReceived;
+                }
               }
-            }
-            if (typeof rttSec === 'number' && rttSec > 0) {
-              const rttMs = Math.round(rttSec * 1000);
-              if (rttMs > 0 && rttMs < 2000) {
-                if (bestRtt === null || rttMs < bestRtt) {
+              if (typeof rttSec === 'number' && rttSec > 0) {
+                const rttMs = Math.round(rttSec * 1000);
+                if (rttMs > 0 && rttMs < 3000 && (bestRtt === null || rttMs < bestRtt)) {
+                  bestRtt = rttMs;
+                }
+              }
+            } else if (report.type === 'remote-inbound-rtp') {
+              const rir = report as any;
+              if (typeof rir.roundTripTime === 'number' && rir.roundTripTime > 0) {
+                const rttMs = Math.round(rir.roundTripTime * 1000);
+                if (rttMs > 0 && rttMs < 3000 && (bestRtt === null || rttMs < bestRtt)) {
                   bestRtt = rttMs;
                 }
               }
@@ -475,26 +458,49 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } catch {}
       }
 
-      const finalPing = bestRtt !== null ? bestRtt : typeof (room.engine as any)?.rtt === 'number' && (room.engine as any).rtt > 0 ? Math.round((room.engine as any).rtt) : null;
+      // 2. If WebRTC doesn't have an active candidate pair yet (e.g. idle/muted room or solo user),
+      // measure direct network latency to the edge server endpoint!
+      if (bestRtt === null) {
+        try {
+          const t0 = performance.now();
+          const res = await fetch(`${getApiBase()}/api/health?_t=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+          });
+          if (res.ok) {
+            const netRtt = Math.round(performance.now() - t0);
+            if (netRtt > 0 && netRtt < 4000) {
+              bestRtt = netRtt;
+            }
+          }
+        } catch {}
+      }
 
-      if (finalPing !== null) {
+      if (bestRtt !== null) {
+        const smoothed = lastMeasuredPing > 0
+          ? Math.round(lastMeasuredPing * 0.3 + bestRtt * 0.7)
+          : bestRtt;
+        lastMeasuredPing = smoothed;
+
         set((state) => ({
-          currentPing: finalPing,
+          currentPing: smoothed,
           participantPings: {
             ...state.participantPings,
-            [room.localParticipant.identity]: finalPing,
+            [room.localParticipant.identity]: smoothed,
+            ...(room.localParticipant.name ? { [room.localParticipant.name]: smoothed } : {}),
           },
         }));
 
         const now = Date.now();
-        if (now - lastPingBroadcastTime >= 1500) {
+        if (now - lastPingBroadcastTime >= 2000) {
           lastPingBroadcastTime = now;
           try {
             const payload = new TextEncoder().encode(
               JSON.stringify({
                 type: 'ping_stat',
                 identity: room.localParticipant.identity,
-                ping: finalPing,
+                name: room.localParticipant.name,
+                ping: smoothed,
               })
             );
             room.localParticipant.publishData(payload, {
@@ -503,10 +509,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             });
           } catch {}
         }
-        return;
       }
     } catch {
       // Ignore transient ping failure
+    } finally {
+      isPingMeasuring = false;
     }
   };
 
@@ -793,10 +800,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const text = new TextDecoder().decode(payload);
           const data = JSON.parse(text);
           if (data.type === 'ping_stat' && data.identity && typeof data.ping === 'number') {
+            const p = Math.round(data.ping);
             set((state) => ({
               participantPings: {
                 ...state.participantPings,
-                [data.identity]: Math.round(data.ping),
+                [data.identity]: p,
+                ...(data.name ? { [data.name]: p } : {}),
               },
             }));
           } else if (data.type === 'chat_message' && data.message && data.roomId) {

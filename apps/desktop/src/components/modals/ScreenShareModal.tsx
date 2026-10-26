@@ -12,6 +12,7 @@ import {
   Globe,
   Sparkles,
   Info,
+  AlertCircle,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import {
@@ -30,6 +31,8 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
   const [sources, setSources] = useState<DesktopScreenSource[]>([]);
   const [activeTab, setActiveTab] = useState<'applications' | 'screens' | 'devices'>('applications');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
   // Quality & Stream Customization Settings
@@ -50,6 +53,7 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
   const loadSources = async () => {
     setIsLoading(true);
+    setShareError(null);
     try {
       if (isElectron && window.nightshift?.getScreenSources) {
         const desktopSources = await window.nightshift.getScreenSources();
@@ -202,22 +206,36 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
 
   const handleShare = async () => {
     const targetSourceId = selectedSourceId;
-    if (!targetSourceId) return;
+    if (!targetSourceId || isSubmitting) return;
 
-    const isBrowserTarget =
-      targetSourceId.startsWith('browser-') || !isElectron;
+    try {
+      setIsSubmitting(true);
+      setShareError(null);
 
-    const success = await startScreenShare(
-      isBrowserTarget ? targetSourceId : targetSourceId,
-      {
-        resolution,
-        frameRate,
-        preset,
-        includeAudio,
+      const isBrowserTarget =
+        targetSourceId.startsWith('browser-') || !isElectron;
+
+      const success = await startScreenShare(
+        isBrowserTarget ? targetSourceId : targetSourceId,
+        {
+          resolution,
+          frameRate,
+          preset,
+          includeAudio,
+        }
+      );
+
+      if (success) {
+        onClose();
+      } else {
+        const lastErr = useLiveKitStore.getState().error;
+        setShareError(lastErr || 'شروع لایو ناموفق بود. لطفاً پنجره یا صفحه دیگری را انتخاب کنید.');
       }
-    );
-    if (success) {
-      onClose();
+    } catch (err: any) {
+      console.error('Error starting screen share in modal:', err);
+      setShareError(err.message || 'خطا در برقراری استریم لایو');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -683,22 +701,40 @@ export const ScreenShareModal: React.FC<ScreenShareModalProps> = ({ isOpen, onCl
           )}
         </div>
 
+        {/* Error notification if live failed */}
+        {shareError && (
+          <div className="mx-6 mb-3 p-3 rounded-xl bg-destructive/15 border border-destructive/30 text-destructive text-xs font-medium flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">{shareError}</div>
+          </div>
+        )}
+
         {/* Modal Action Footer */}
         <div className="px-6 py-4 bg-[#0A0908] border-t border-[#232428] flex items-center justify-between shrink-0">
           <button
             onClick={onClose}
-            className="text-xs font-semibold text-[#80848e] hover:text-white hover:underline transition-all cursor-pointer"
+            disabled={isSubmitting}
+            className="text-xs font-semibold text-[#80848e] hover:text-white hover:underline transition-all cursor-pointer disabled:opacity-40"
           >
             Cancel
           </button>
 
           <button
             onClick={handleShare}
-            disabled={!selectedSourceId || isLoading}
+            disabled={!selectedSourceId || isLoading || isSubmitting}
             className="px-6 py-2.5 rounded-lg bg-[#5865F2] hover:bg-[#4752c4] active:scale-95 text-white disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold transition-all shadow-lg cursor-pointer flex items-center gap-2"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Go Live</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>در حال شروع لایو...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Go Live</span>
+              </>
+            )}
           </button>
         </div>
       </div>

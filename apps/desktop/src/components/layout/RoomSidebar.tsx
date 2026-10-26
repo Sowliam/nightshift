@@ -655,7 +655,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                       <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
                                         {displayName}
                                       </span>
-                                      <PingIndicator ping={participantPings[p.identity]} />
+                                      <PingIndicator ping={participantPings[p.identity] ?? participantPings[p.name || '']} />
                                     </div>
                                   </div>
 

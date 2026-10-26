@@ -290,7 +290,7 @@ export const App: React.FC = () => {
 
       {/* Global Modals (Lazy Loaded on Demand) */}
       <React.Suspense fallback={null}>
-        {isScreenShareOpen && (
+        {isScreenShareOpen && window.nightshift?.isElectron && (
           <ScreenShareModal
             isOpen={isScreenShareOpen}
             onClose={() => setIsScreenShareOpen(false)}

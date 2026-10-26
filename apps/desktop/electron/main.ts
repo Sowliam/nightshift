@@ -15,6 +15,8 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+// Disable unstable Chromium Windows.Graphics.Capture session on Windows to eliminate ProcessFrame failed (-2147467259)
+app.commandLine.appendSwitch('disable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer');
 
 async function createWindow() {
   const iconPath = path.join(__dirname, '../public/logo.png');

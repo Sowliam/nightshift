@@ -15,6 +15,7 @@ import {
   X,
   Music,
 } from 'lucide-react';
+import { ConnectionState } from 'livekit-client';
 import { useServerStore } from '../../stores/server.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
@@ -28,7 +29,15 @@ import { PingIndicator } from '../common/PingIndicator';
 export const ParticipantPanel: React.FC = () => {
   const { activeServerId, servers, members, fetchMembers, moderateMember } = useServerStore();
   const { user } = useAuthStore();
-  const { activeSpeakers, isLocallySpeaking, activeSoundboardPlayers, currentPing, participantPings } = useLiveKitStore();
+  const {
+    activeSpeakers,
+    isLocallySpeaking,
+    activeSoundboardPlayers,
+    currentPing,
+    participantPings,
+    connectionState,
+    remoteParticipants,
+  } = useLiveKitStore();
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
   const localActiveSounds = useSoundboardStore((s) => s.activeSounds);
 
@@ -174,6 +183,15 @@ export const ParticipantPanel: React.FC = () => {
     const isBot = isBotUser(member);
     const subtitle = getMemberSubtitle(member);
 
+    const isConnectedToVoice = connectionState === ConnectionState.Connected;
+    const isInVoice = isMe
+      ? isConnectedToVoice
+      : isConnectedToVoice && remoteParticipants.some((p) => p.identity === member.userId || p.name === member.username || p.identity === member.username);
+
+    const memberPing = isMe
+      ? currentPing
+      : (participantPings[member.userId] ?? participantPings[member.username]);
+
     const remotePlaying = !isMe ? activeSoundboardPlayers[member.userId] : null;
     const isPlayingSound = isMe ? localActiveSounds.length > 0 : !!remotePlaying;
     const soundTitle = isMe ? localActiveSounds[0]?.name : remotePlaying?.soundName;
@@ -253,8 +271,8 @@ export const ParticipantPanel: React.FC = () => {
               </span>
 
               {/* Real voice ping indicator if user is in voice channel */}
-              {(isMe ? typeof currentPing === 'number' : typeof participantPings[member.userId] === 'number') && (
-                <PingIndicator ping={isMe ? currentPing : participantPings[member.userId]} />
+              {isInVoice && (
+                <PingIndicator ping={memberPing} />
               )}
 
               {/* Bot APP Badge matching Image 1 */}

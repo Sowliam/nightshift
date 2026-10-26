@@ -390,7 +390,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   <span className="text-xs font-semibold text-text-primary truncate">
                     {p.name} {p.isLocal && <span className="text-[10px] text-text-muted font-normal">(You)</span>}
                   </span>
-                  <PingIndicator ping={p.isLocal ? currentPing : participantPings[p.identity]} />
+                  <PingIndicator ping={p.isLocal ? currentPing : (participantPings[p.identity] ?? participantPings[p.name])} />
                 </div>
 
                 {/* Status Badges: Local Mute, Custom Volume, Screen Share, Deafen, Mic Muted */}
