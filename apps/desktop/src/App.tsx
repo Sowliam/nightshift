@@ -245,12 +245,21 @@ export const App: React.FC = () => {
       }
     };
 
+    const handleBlur = () => {
+      // In browser mode (or if window loses focus without global OS hook), release PTT to avoid stuck transmitting
+      if (inputMode === 'push-to-talk' && !window.nightshift?.onGlobalPttChange) {
+        setPushToTalkActive(false);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [inputMode, pushToTalkKey]);
 

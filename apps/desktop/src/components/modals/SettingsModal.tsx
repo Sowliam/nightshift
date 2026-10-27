@@ -29,7 +29,7 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'voice' | 'account' | 'about'>('voice');
+  const [activeTab, setActiveTab] = useState<'voice' | 'sounds' | 'account' | 'about'>('voice');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [micLevel, setMicLevel] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -56,6 +56,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setPushToTalkKey,
     setInputDevice,
     setOutputDevice,
+    // Sound effects customization
+    soundEffectsEnabled,
+    soundVolume,
+    pttSoundEnabled,
+    joinLeaveSoundEnabled,
+    muteSoundEnabled,
+    uiSoundEnabled,
+    setSoundEffectsEnabled,
+    setSoundVolume,
+    setPttSoundEnabled,
+    setJoinLeaveSoundEnabled,
+    setMuteSoundEnabled,
+    setUiSoundEnabled,
   } = useSettingsStore();
 
   const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
@@ -377,6 +390,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             >
               <Mic className="w-4 h-4" />
               <span>Voice & Video</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('sounds')}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'sounds'
+                  ? 'bg-highlight text-highlight-text shadow-sm'
+                  : 'text-text-secondary hover:bg-bg-elevated hover:text-text-primary'
+              }`}
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>Sound Effects</span>
             </button>
 
             <button
@@ -773,14 +798,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </div>
 
                   {pushToTalk && (
-                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-bg-elevated border border-border-subtle">
-                      <span className="text-xs text-text-secondary">PTT Keybind Shortcut</span>
-                      <input
-                        type="text"
-                        value={pushToTalkKey}
-                        onChange={(e) => setPushToTalkKey(e.target.value.toUpperCase() || 'SPACE')}
-                        className="w-24 px-2 py-1 rounded bg-bg-main border border-border-subtle text-xs text-center font-mono font-bold text-highlight focus:outline-none"
-                      />
+                    <div className="space-y-2.5 mt-2">
+                      {/* PTT Keybind Shortcut */}
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-bg-elevated border border-border-subtle">
+                        <div>
+                          <span className="text-xs font-bold text-text-primary block">PTT Keybind Shortcut</span>
+                          <span className="text-[11px] text-text-muted">Key to hold while speaking</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={pushToTalkKey}
+                          onChange={(e) => setPushToTalkKey(e.target.value.toUpperCase() || 'SPACE')}
+                          className="w-24 px-2 py-1 rounded bg-bg-main border border-border-subtle text-xs text-center font-mono font-bold text-highlight focus:outline-none"
+                        />
+                      </div>
+
+                      {/* PTT Activation Audio Cue Toggle */}
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-bg-elevated border border-border-subtle">
+                        <div>
+                          <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                            <span>PTT Activation Sound</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                              pttSoundEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-main text-text-muted'
+                            }`}>
+                              {pttSoundEnabled ? 'Enabled' : 'Muted'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-text-muted">
+                            Play sound cue when pressing and releasing Push-to-Talk
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => sounds.previewPtt(true)}
+                            title="Preview PTT activate sound"
+                            className="px-2 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                          >
+                            Test
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPttSoundEnabled(!pttSoundEnabled)}
+                            className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                              pttSoundEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                            }`}
+                          >
+                            <span
+                              className={`block w-5 h-5 rounded-full transition-transform ${
+                                pttSoundEnabled
+                                  ? 'bg-highlight-text translate-x-5'
+                                  : 'bg-text-muted translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Desktop App vs Browser Global PTT Status Notice */}
+                      <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                        typeof window !== 'undefined' && !!(window.nightshift?.isElectron || window.nightshift?.setGlobalPttKey)
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                          : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+                      }`}>
+                        {typeof window !== 'undefined' && !!(window.nightshift?.isElectron || window.nightshift?.setGlobalPttKey) ? (
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                            <span>
+                              <strong>Global PTT Active:</strong> Works across all games and background applications in Windows.
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 font-bold text-amber-300">
+                              <AlertCircle className="w-4 h-4 shrink-0" />
+                              <span>Browser Security Notice</span>
+                            </div>
+                            <p className="text-[11px] text-amber-200/90">
+                              Web browsers do not allow web pages to listen to background keys when minimized or out-of-focus (security sandbox). For Global Push-to-Talk inside full-screen games and other apps, run the <strong>NIGHTSHIFT Desktop App</strong>.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -820,6 +919,239 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       }`}
                     />
                   </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'sounds' && (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-text-primary mb-1">Sound Effects & Audio Cues</h3>
+                  <p className="text-xs text-text-secondary">
+                    Customize which sound cues you want to hear. Turn off specific alerts like Push-to-Talk or button clicks while keeping voice channel join/leave notifications active.
+                  </p>
+                </div>
+
+                {/* Master Sound Controls */}
+                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Master Sound Effects</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          soundEffectsEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-main text-text-muted'
+                        }`}>
+                          {soundEffectsEnabled ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-text-secondary mt-0.5">
+                        Enable or completely silence all sound effects and notifications in the application
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSoundEffectsEnabled(!soundEffectsEnabled)}
+                      className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                        soundEffectsEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                      }`}
+                    >
+                      <span
+                        className={`block w-5 h-5 rounded-full transition-transform ${
+                          soundEffectsEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {soundEffectsEnabled && (
+                    <div className="pt-3 border-t border-border-subtle/60 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-text-secondary font-medium">Sound Effects Volume</span>
+                        <span className="font-mono text-highlight font-bold">{soundVolume}%</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={soundVolume}
+                          onChange={(e) => setSoundVolume(Number(e.target.value))}
+                          className="flex-1 accent-highlight cursor-pointer h-1.5 bg-bg-main rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => sounds.previewCue('join')}
+                          title="Preview volume level"
+                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer shrink-0"
+                        >
+                          Test Volume
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Individual Sound Categories */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wider">
+                    Individual Audio Cues
+                  </h4>
+
+                  {/* 1. Push-to-Talk Sounds */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Push-to-Talk Cues</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                          pttSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
+                        }`}>
+                          {pttSoundEnabled ? '● On' : '○ Muted'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary">
+                        Plays a subtle audio cue when holding down and releasing your PTT key.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewPtt(true)}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPttSoundEnabled(!pttSoundEnabled)}
+                        className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                          pttSoundEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                        }`}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full transition-transform ${
+                            pttSoundEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. Voice Channel Join & Leave */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Voice Channel Join & Leave</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                          joinLeaveSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
+                        }`}>
+                          {joinLeaveSoundEnabled ? '● On' : '○ Muted'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary">
+                        Plays a sound when you or another user joins or leaves a voice channel.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('join')}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJoinLeaveSoundEnabled(!joinLeaveSoundEnabled)}
+                        className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                          joinLeaveSoundEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                        }`}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full transition-transform ${
+                            joinLeaveSoundEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. Mute & Deafen Cues */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Mute & Deafen Cues</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                          muteSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
+                        }`}>
+                          {muteSoundEnabled ? '● On' : '○ Muted'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary">
+                        Plays a sound when toggling microphone mute or headset deafen.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('mute')}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMuteSoundEnabled(!muteSoundEnabled)}
+                        className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                          muteSoundEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                        }`}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full transition-transform ${
+                            muteSoundEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4. App UI & Button Clicks */}
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
+                        <span>Application Button Clicks</span>
+                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                          uiSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
+                        }`}>
+                          {uiSoundEnabled ? '● On' : '○ Muted'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-text-secondary">
+                        Plays subtle acoustic click feedback when pressing buttons throughout the app.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewButtonClick()}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
+                        className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
+                          uiSoundEnabled ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
+                        }`}
+                      >
+                        <span
+                          className={`block w-5 h-5 rounded-full transition-transform ${
+                            uiSoundEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

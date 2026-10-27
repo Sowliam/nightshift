@@ -1,10 +1,28 @@
 // Soft CC0 UI cues (SFXMint). Played quietly through a lowpass so they stay warm, not sharp.
 
+export interface SoundPreferences {
+  masterEnabled: boolean;
+  masterVolume: number; // 0 - 100
+  pttSound: boolean;
+  joinLeaveSound: boolean;
+  muteSound: boolean;
+  uiSound: boolean;
+}
+
 class SoundService {
   private ctx: AudioContext | null = null;
   private isEnabled: boolean = true;
   private masterGain: number = 0.5;
   private cues = new Map<string, Promise<AudioBuffer>>();
+
+  private prefs: SoundPreferences = {
+    masterEnabled: true,
+    masterVolume: 70,
+    pttSound: true,
+    joinLeaveSound: true,
+    muteSound: true,
+    uiSound: false,
+  };
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -22,10 +40,40 @@ class SoundService {
 
   public setEnabled(enabled: boolean) {
     this.isEnabled = enabled;
+    this.prefs.masterEnabled = enabled;
   }
 
   public setVolume(volPercent: number) {
     this.masterGain = Math.max(0, Math.min(1, volPercent / 100));
+    this.prefs.masterVolume = volPercent;
+  }
+
+  public setPttSoundEnabled(enabled: boolean) {
+    this.prefs.pttSound = enabled;
+  }
+
+  public setJoinLeaveSoundEnabled(enabled: boolean) {
+    this.prefs.joinLeaveSound = enabled;
+  }
+
+  public setMuteSoundEnabled(enabled: boolean) {
+    this.prefs.muteSound = enabled;
+  }
+
+  public setUiSoundEnabled(enabled: boolean) {
+    this.prefs.uiSound = enabled;
+  }
+
+  public updatePreferences(prefs: Partial<SoundPreferences>) {
+    this.prefs = { ...this.prefs, ...prefs };
+    if (prefs.masterEnabled !== undefined) this.isEnabled = prefs.masterEnabled;
+    if (prefs.masterVolume !== undefined) {
+      this.masterGain = Math.max(0, Math.min(1, prefs.masterVolume / 100));
+    }
+  }
+
+  public getPreferences(): SoundPreferences {
+    return { ...this.prefs };
   }
 
   private loadCue(ctx: AudioContext, name: string) {
@@ -42,8 +90,8 @@ class SoundService {
     return pending;
   }
 
-  private playCue(name: string) {
-    if (!this.isEnabled) return;
+  private playCue(name: string, force: boolean = false) {
+    if (!this.isEnabled && !force) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
     this.loadCue(ctx, name)
@@ -74,32 +122,38 @@ class SoundService {
   }
 
   public playMute() {
+    if (!this.prefs.muteSound) return;
     this.playCue('mute');
   }
 
   public playUnmute() {
+    if (!this.prefs.muteSound) return;
     this.playCue('unmute');
   }
 
   public playDeafen() {
+    if (!this.prefs.muteSound) return;
     this.playCue('deafen');
   }
 
   public playUndeafen() {
+    if (!this.prefs.muteSound) return;
     this.playCue('undeafen');
   }
 
   public playJoin() {
+    if (!this.prefs.joinLeaveSound) return;
     this.playCue('join');
   }
 
   public playDisconnect() {
+    if (!this.prefs.joinLeaveSound) return;
     this.playCue('leave');
   }
 
-  // 7. Push-To-Talk Activate Click (Super subtle 800Hz blip)
-  public playPttActivate() {
-    if (!this.isEnabled) return;
+  // 7. Push-To-Talk Activate Click (Super subtle 880Hz blip)
+  public playPttActivate(force: boolean = false) {
+    if (!force && (!this.isEnabled || !this.prefs.pttSound)) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
 
@@ -111,7 +165,7 @@ class SoundService {
     osc.frequency.setValueAtTime(880, now);
     osc.frequency.exponentialRampToValueAtTime(600, now + 0.04);
 
-    gain.gain.setValueAtTime(this.masterGain * 0.15, now);
+    gain.gain.setValueAtTime(Math.max(0.01, this.masterGain * 0.15), now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
     osc.connect(gain);
@@ -121,9 +175,9 @@ class SoundService {
     osc.stop(now + 0.04);
   }
 
-  // 8. Push-To-Talk Deactivate Click (Super subtle 500Hz blip)
-  public playPttDeactivate() {
-    if (!this.isEnabled) return;
+  // 8. Push-To-Talk Deactivate Click (Super subtle 540Hz blip)
+  public playPttDeactivate(force: boolean = false) {
+    if (!force && (!this.isEnabled || !this.prefs.pttSound)) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
 
@@ -135,7 +189,7 @@ class SoundService {
     osc.frequency.setValueAtTime(540, now);
     osc.frequency.exponentialRampToValueAtTime(400, now + 0.04);
 
-    gain.gain.setValueAtTime(this.masterGain * 0.15, now);
+    gain.gain.setValueAtTime(Math.max(0.01, this.masterGain * 0.15), now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
     osc.connect(gain);
@@ -143,6 +197,44 @@ class SoundService {
 
     osc.start(now);
     osc.stop(now + 0.04);
+  }
+
+  // 9. UI Button Click (Subtle high-register tick)
+  public playButtonClick(force: boolean = false) {
+    if (!force && (!this.isEnabled || !this.prefs.uiSound)) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, now);
+    osc.frequency.exponentialRampToValueAtTime(700, now + 0.025);
+
+    gain.gain.setValueAtTime(Math.max(0.005, this.masterGain * 0.08), now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.025);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.025);
+  }
+
+  // Preview methods that play even if temporarily disabled so the user can test the sound
+  public previewPtt(isActivate: boolean = true) {
+    if (isActivate) this.playPttActivate(true);
+    else this.playPttDeactivate(true);
+  }
+
+  public previewCue(name: 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen') {
+    this.playCue(name, true);
+  }
+
+  public previewButtonClick() {
+    this.playButtonClick(true);
   }
 }
 

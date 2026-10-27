@@ -25,6 +25,10 @@ interface SettingsState {
   // Sound effects
   soundEffectsEnabled: boolean;
   soundVolume: number;
+  pttSoundEnabled: boolean;
+  joinLeaveSoundEnabled: boolean;
+  muteSoundEnabled: boolean;
+  uiSoundEnabled: boolean;
 
   // Available hardware
   availableInputs: MediaDeviceInfo[];
@@ -66,6 +70,10 @@ interface SettingsState {
   setSelfDeafened: (val: boolean) => void;
   setSoundEffectsEnabled: (val: boolean) => void;
   setSoundVolume: (val: number) => void;
+  setPttSoundEnabled: (val: boolean) => void;
+  setJoinLeaveSoundEnabled: (val: boolean) => void;
+  setMuteSoundEnabled: (val: boolean) => void;
+  setUiSoundEnabled: (val: boolean) => void;
 }
 
 const SETTINGS_KEY = 'nightshift_user_voice_settings_v2';
@@ -91,6 +99,10 @@ function loadPersistedSettings() {
     isSelfDeafened: false,
     soundEffectsEnabled: true,
     soundVolume: 70,
+    pttSoundEnabled: true,
+    joinLeaveSoundEnabled: true,
+    muteSoundEnabled: true,
+    uiSoundEnabled: false,
     participantVolumes: {},
     localMutedUsers: {},
   };
@@ -98,6 +110,16 @@ function loadPersistedSettings() {
 
 export const useSettingsStore = create<SettingsState>((set, get) => {
   const initial = loadPersistedSettings();
+
+  // Initialize SoundService with persisted preferences
+  sounds.updatePreferences({
+    masterEnabled: initial.soundEffectsEnabled ?? true,
+    masterVolume: initial.soundVolume ?? 70,
+    pttSound: initial.pttSoundEnabled ?? true,
+    joinLeaveSound: initial.joinLeaveSoundEnabled ?? true,
+    muteSound: initial.muteSoundEnabled ?? true,
+    uiSound: initial.uiSoundEnabled ?? false,
+  });
 
   const persist = (partial: Partial<SettingsState>) => {
     try {
@@ -117,6 +139,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         isSelfDeafened: get().isSelfDeafened,
         soundEffectsEnabled: get().soundEffectsEnabled,
         soundVolume: get().soundVolume,
+        pttSoundEnabled: get().pttSoundEnabled,
+        joinLeaveSoundEnabled: get().joinLeaveSoundEnabled,
+        muteSoundEnabled: get().muteSoundEnabled,
+        uiSoundEnabled: get().uiSoundEnabled,
         participantVolumes: get().participantVolumes,
         localMutedUsers: get().localMutedUsers,
         ...partial,
@@ -141,6 +167,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     isSelfDeafened: initial.isSelfDeafened ?? false,
     soundEffectsEnabled: initial.soundEffectsEnabled ?? true,
     soundVolume: initial.soundVolume ?? 70,
+    pttSoundEnabled: initial.pttSoundEnabled ?? true,
+    joinLeaveSoundEnabled: initial.joinLeaveSoundEnabled ?? true,
+    muteSoundEnabled: initial.muteSoundEnabled ?? true,
+    uiSoundEnabled: initial.uiSoundEnabled ?? false,
     availableInputs: [],
     availableOutputs: [],
 
@@ -320,6 +350,30 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       set({ soundVolume });
       sounds.setVolume(soundVolume);
       persist({ soundVolume });
+    },
+
+    setPttSoundEnabled: (pttSoundEnabled: boolean) => {
+      set({ pttSoundEnabled });
+      sounds.setPttSoundEnabled(pttSoundEnabled);
+      persist({ pttSoundEnabled });
+    },
+
+    setJoinLeaveSoundEnabled: (joinLeaveSoundEnabled: boolean) => {
+      set({ joinLeaveSoundEnabled });
+      sounds.setJoinLeaveSoundEnabled(joinLeaveSoundEnabled);
+      persist({ joinLeaveSoundEnabled });
+    },
+
+    setMuteSoundEnabled: (muteSoundEnabled: boolean) => {
+      set({ muteSoundEnabled });
+      sounds.setMuteSoundEnabled(muteSoundEnabled);
+      persist({ muteSoundEnabled });
+    },
+
+    setUiSoundEnabled: (uiSoundEnabled: boolean) => {
+      set({ uiSoundEnabled });
+      sounds.setUiSoundEnabled(uiSoundEnabled);
+      persist({ uiSoundEnabled });
     },
   };
 });
