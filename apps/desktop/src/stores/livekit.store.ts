@@ -80,6 +80,8 @@ interface LiveKitState {
   toggleMuteForMyself: (identity: string) => void;
   broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
   broadcastChatDeleted: (roomId: string, messageId: string) => Promise<void>;
+  canPlaybackAudio: boolean;
+  startAudio: () => Promise<void>;
 }
 
 export const useLiveKitStore = create<LiveKitState>((set, get) => {
@@ -739,6 +741,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             (pub.track as RemoteAudioTrack).setVolume(deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100)));
           } catch {}
         }
+        if ((pub.track as any)?.attachedElements) {
+          (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
+            try {
+              const v = deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100));
+              el.volume = v;
+              el.muted = v === 0;
+            } catch {}
+          });
+        }
       });
     });
   };
@@ -746,6 +757,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   return {
     room: null,
     connectionState: ConnectionState.Disconnected,
+    canPlaybackAudio: true,
     isMuted: false,
     isDeafened: false,
     isScreenSharing: false,
@@ -888,6 +900,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         set({ activeSpeakers: speakingSet });
       });
 
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        set({ canPlaybackAudio: room.canPlaybackAudio });
+        if (!room.canPlaybackAudio) {
+          room.startAudio().catch(() => {});
+        }
+      });
+
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
           const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
@@ -897,16 +916,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (!container) {
             container = document.createElement('div');
             container.id = containerId;
-            container.style.display = 'none';
+            container.style.position = 'fixed';
+            container.style.left = '-9999px';
+            container.style.top = '-9999px';
+            container.style.width = '0';
+            container.style.height = '0';
+            container.style.opacity = '0';
+            container.style.pointerEvents = 'none';
             document.body.appendChild(container);
           }
-          const element = track.attach();
-          element.autoplay = true;
-          // In Chromium/browser, element.muted = true pauses WebRTC audio decoding for the MediaStreamTrack.
-          // Keeping element.muted = false and element.volume = 0 keeps the WebRTC audio decoder feeding WebAudio.
-          element.muted = false;
-          element.volume = 0;
-          container.appendChild(element);
 
           const isLocallyMuted = isSoundboard
             ? !!useSettingsStore.getState().localMutedSoundboards[participant.identity]
@@ -915,8 +933,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             ? (useSettingsStore.getState().soundboardVolumes[participant.identity] ?? 100)
             : (useSettingsStore.getState().participantVolumes[participant.identity] ?? 100);
 
+          const targetVol = (isLocallyMuted || get().isDeafened) ? 0 : Math.min(1, Math.max(0, savedVol / 100));
+
+          const element = track.attach();
+          element.autoplay = true;
+          element.muted = targetVol === 0;
+          element.volume = targetVol;
+          container.appendChild(element);
+
+          if (typeof (track as any).setVolume === 'function') {
+            try {
+              (track as any).setVolume(targetVol);
+            } catch {}
+          }
+
+          // Unblock audio playback in browser if needed
+          element.play().catch(() => {});
+          if (room && !room.canPlaybackAudio) {
+            room.startAudio().catch(() => {});
+          }
+
           const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
-          if (track.mediaStreamTrack) {
+          if (track.mediaStreamTrack && savedVol > 100 && window.nightshift?.isElectron) {
             remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isLocallyMuted || get().isDeafened);
           }
 
@@ -1140,6 +1178,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           localParticipant: room.localParticipant,
           remoteParticipants: Array.from(room.remoteParticipants.values()),
           connectionState: ConnectionState.Connected,
+          canPlaybackAudio: room.canPlaybackAudio,
         });
 
         // Start ping measurement immediately and periodic updates
@@ -1299,7 +1338,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         soundboardAudioEngine.setMicrophoneMuted(!active);
         await room.localParticipant.setMicrophoneEnabled(active);
         set({ isMuted: !active, isLocallySpeaking: active });
-        useSettingsStore.getState().setSelfMuted(!active);
         if (active) {
           sounds.playPttActivate();
         } else {
@@ -1770,14 +1808,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (!room) return;
 
       const isLocallyMuted = !!useSettingsStore.getState().localMutedUsers[identity];
+      const targetVol = (isLocallyMuted || isDeafened) ? 0 : Math.max(0, Math.min(1, volumePercent / 100));
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
         remote.audioTrackPublications.forEach((pub) => {
           if (pub.source === Track.Source.Microphone) {
             const trackKey = `${identity}_mic_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, volumePercent, isLocallyMuted || isDeafened);
-            if (pub.track && pub.track.mediaStreamTrack) {
-              pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+            if (pub.track) {
+              if (pub.track.mediaStreamTrack) {
+                pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+              }
+              try {
+                (pub.track as any).setVolume?.(targetVol);
+              } catch {}
+              if ((pub.track as any).attachedElements) {
+                (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
+                  try {
+                    el.volume = targetVol;
+                    el.muted = targetVol === 0;
+                  } catch {}
+                });
+              }
             }
           }
         });
@@ -1788,6 +1840,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       useSettingsStore.getState().setSoundboardVolume(identity, volumePercent);
       const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
       const { room, isDeafened } = get();
+      const targetVol = (isMuted || isDeafened) ? 0 : Math.max(0, Math.min(1, volumePercent / 100));
 
       // Directly update WebAudio gain node for immediate real 0-200% volume change
       remoteAudioGainEngine.updateSoundboardVolume(identity, volumePercent, isMuted || isDeafened);
@@ -1800,8 +1853,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (trackName === 'soundboard' || pub.source === Track.Source.Unknown) {
             const trackKey = `${identity}_soundboard_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, volumePercent, isMuted || isDeafened);
-            if (pub.track && pub.track.mediaStreamTrack) {
-              pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+            if (pub.track) {
+              if (pub.track.mediaStreamTrack) {
+                pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+              }
+              try {
+                (pub.track as any).setVolume?.(targetVol);
+              } catch {}
+              if ((pub.track as any).attachedElements) {
+                (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
+                  try {
+                    el.volume = targetVol;
+                    el.muted = targetVol === 0;
+                  } catch {}
+                });
+              }
             }
           }
         });
@@ -1814,6 +1880,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const currentVol = useSettingsStore.getState().participantVolumes[identity] ?? 100;
       const { room, isDeafened } = get();
       if (!room) return;
+      const targetVol = (isLocallyMuted || isDeafened) ? 0 : Math.max(0, Math.min(1, currentVol / 100));
 
       const remote = room.remoteParticipants.get(identity);
       if (remote) {
@@ -1821,8 +1888,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (pub.source === Track.Source.Microphone) {
             const trackKey = `${identity}_mic_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, currentVol, isLocallyMuted || isDeafened);
-            if (pub.track && pub.track.mediaStreamTrack) {
-              pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+            if (pub.track) {
+              if (pub.track.mediaStreamTrack) {
+                pub.track.mediaStreamTrack.enabled = !isLocallyMuted && !isDeafened;
+              }
+              try {
+                (pub.track as any).setVolume?.(targetVol);
+              } catch {}
+              if ((pub.track as any).attachedElements) {
+                (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
+                  try {
+                    el.volume = targetVol;
+                    el.muted = targetVol === 0;
+                  } catch {}
+                });
+              }
             }
           }
         });
@@ -1834,6 +1914,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const isMuted = !!useSettingsStore.getState().localMutedSoundboards[identity];
       const currentVol = useSettingsStore.getState().soundboardVolumes[identity] ?? 100;
       const { room, isDeafened } = get();
+      const targetVol = (isMuted || isDeafened) ? 0 : Math.max(0, Math.min(1, currentVol / 100));
 
       // Directly mute/unmute WebAudio gain node
       remoteAudioGainEngine.updateSoundboardVolume(identity, currentVol, isMuted || isDeafened);
@@ -1846,8 +1927,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (trackName === 'soundboard' || pub.source === Track.Source.Unknown) {
             const trackKey = `${identity}_soundboard_${pub.trackSid || pub.track?.sid || pub.trackName || 'audio'}`;
             remoteAudioGainEngine.updateVolume(trackKey, currentVol, isMuted || isDeafened);
-            if (pub.track && pub.track.mediaStreamTrack) {
-              pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+            if (pub.track) {
+              if (pub.track.mediaStreamTrack) {
+                pub.track.mediaStreamTrack.enabled = !isMuted && !isDeafened;
+              }
+              try {
+                (pub.track as any).setVolume?.(targetVol);
+              } catch {}
+              if ((pub.track as any).attachedElements) {
+                (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
+                  try {
+                    el.volume = targetVol;
+                    el.muted = targetVol === 0;
+                  } catch {}
+                });
+              }
             }
           }
         });
@@ -1933,6 +2027,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         await room.localParticipant.publishData(bytes, { reliable: true });
       } catch (err) {
         console.warn('Failed to broadcast chat deletion:', err);
+      }
+    },
+
+    startAudio: async () => {
+      const { room } = get();
+      sounds.unlock().catch(() => {});
+      soundboardAudioEngine.ensureAudioContext().catch(() => {});
+      if (room) {
+        try {
+          await room.startAudio();
+          set({ canPlaybackAudio: room.canPlaybackAudio });
+        } catch (e) {
+          console.warn('[LiveKit] room.startAudio error:', e);
+        }
       }
     },
   };

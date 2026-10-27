@@ -76,6 +76,14 @@ class SoundService {
     return { ...this.prefs };
   }
 
+  public async unlock(): Promise<void> {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {}
+    }
+  }
+
   private loadCue(ctx: AudioContext, name: string) {
     let pending = this.cues.get(name);
     if (!pending) {
@@ -92,33 +100,61 @@ class SoundService {
 
   private playCue(name: string, force: boolean = false) {
     if (!this.isEnabled && !force) return;
+
+    // Primary: Instant native HTML5 Audio element (bulletproof across all browsers without WebAudio suspended time bugs)
+    try {
+      const audio = new Audio(`/sounds/ui/${name}.mp3`);
+      audio.volume = Math.max(0, Math.min(1, this.masterGain * 0.7));
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Fallback to Web Audio if HTML5 audio fails
+          this.playCueWebAudio(name, force);
+        });
+      }
+    } catch {
+      this.playCueWebAudio(name, force);
+    }
+  }
+
+  private playCueWebAudio(name: string, force: boolean = false) {
+    if (!this.isEnabled && !force) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
-    this.loadCue(ctx, name)
-      .then((buffer) => {
-        const src = ctx.createBufferSource();
-        src.buffer = buffer;
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 1100;
-        filter.Q.value = 0.4;
-        const gain = ctx.createGain();
-        const now = ctx.currentTime;
-        const peak = Math.min(0.4, Math.max(0.04, this.masterGain * 0.32));
-        const audible = Math.min(buffer.duration, 0.9);
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.linearRampToValueAtTime(peak, now + 0.04);
-        gain.gain.setValueAtTime(peak, now + Math.max(0.08, audible - 0.14));
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + audible);
-        src.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        src.start(now);
-        src.stop(now + audible + 0.02);
-      })
-      .catch(() => {
-        this.cues.delete(name);
-      });
+
+    const playWithCtx = () => {
+      this.loadCue(ctx, name)
+        .then((buffer) => {
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = 1100;
+          filter.Q.value = 0.4;
+          const gain = ctx.createGain();
+          const now = ctx.currentTime;
+          const peak = Math.min(0.4, Math.max(0.04, this.masterGain * 0.32));
+          const audible = Math.min(buffer.duration, 0.9);
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.linearRampToValueAtTime(peak, now + 0.04);
+          gain.gain.setValueAtTime(peak, now + Math.max(0.08, audible - 0.14));
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + audible);
+          src.connect(filter);
+          filter.connect(gain);
+          gain.connect(ctx.destination);
+          src.start(now);
+          src.stop(now + audible + 0.02);
+        })
+        .catch(() => {
+          this.cues.delete(name);
+        });
+    };
+
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(playWithCtx).catch(() => {});
+    } else {
+      playWithCtx();
+    }
   }
 
   public playMute() {
@@ -152,10 +188,16 @@ class SoundService {
   }
 
   // 7. Push-To-Talk Activate Click (Super subtle 880Hz blip)
-  public playPttActivate(force: boolean = false) {
+  public async playPttActivate(force: boolean = false) {
     if (!force && (!this.isEnabled || !this.prefs.pttSound)) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {}
+    }
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -176,10 +218,16 @@ class SoundService {
   }
 
   // 8. Push-To-Talk Deactivate Click (Super subtle 540Hz blip)
-  public playPttDeactivate(force: boolean = false) {
+  public async playPttDeactivate(force: boolean = false) {
     if (!force && (!this.isEnabled || !this.prefs.pttSound)) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {}
+    }
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -200,10 +248,16 @@ class SoundService {
   }
 
   // 9. UI Button Click (Subtle high-register tick)
-  public playButtonClick(force: boolean = false) {
+  public async playButtonClick(force: boolean = false) {
     if (!force && (!this.isEnabled || !this.prefs.uiSound)) return;
     const ctx = this.getAudioContext();
     if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch {}
+    }
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -239,3 +293,13 @@ class SoundService {
 }
 
 export const sounds = new SoundService();
+
+// Auto-unlock WebAudio on first user gesture in browser
+if (typeof window !== 'undefined') {
+  const unlockOnInteraction = () => {
+    sounds.unlock();
+  };
+  window.addEventListener('click', unlockOnInteraction, { passive: true });
+  window.addEventListener('keydown', unlockOnInteraction, { passive: true });
+  window.addEventListener('touchstart', unlockOnInteraction, { passive: true });
+}

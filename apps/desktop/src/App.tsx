@@ -36,6 +36,8 @@ import { useSoundboardStore } from './stores/soundboard.store';
 import { ShieldAlert, RefreshCw, Server, Check, Loader2 } from 'lucide-react';
 import { getApiBase, setApiBase, api } from './lib/api';
 import { extractInviteCode } from '@nightshift/shared';
+import { sounds } from './services/sound.service';
+import { soundboardAudioEngine } from './services/soundboard-audio-engine';
 
 export const App: React.FC = () => {
   const [isMembersOpen, setIsMembersOpen] = useState(true);
@@ -142,6 +144,30 @@ export const App: React.FC = () => {
         setIsInviteOpen(true);
       }
     } catch {}
+  }, []);
+
+  // Browser Audio Unblocker: Resumes WebAudio Context and LiveKit audio playback on any interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      sounds.unlock().catch(() => {});
+      const livekit = useLiveKitStore.getState();
+      if (livekit.room && !livekit.canPlaybackAudio) {
+        livekit.startAudio().catch(() => {});
+      }
+      soundboardAudioEngine.ensureAudioContext().catch(() => {});
+    };
+
+    window.addEventListener('click', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+
+    return () => {
+      window.removeEventListener('click', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('pointerdown', unlockAudio);
+    };
   }, []);
 
   // When user signs in or changes, load servers

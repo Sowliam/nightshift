@@ -51,6 +51,8 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     activeSoundboardPlayers,
     currentPing,
     participantPings,
+    canPlaybackAudio,
+    startAudio,
   } = useLiveKitStore();
   const { getActiveRoom, getSelectedRoom, joiningRoomId } = useRoomStore();
   const members = useServerStore((s) => s.members);
@@ -236,6 +238,40 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
           <span>Share Screen</span>
         </button>
       </div>
+
+      {/* Browser Autoplay Blocked Banner */}
+      {!canPlaybackAudio && (
+        <div
+          onClick={startAudio}
+          className="mb-4 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-between shrink-0 shadow-lg cursor-pointer hover:bg-amber-500/20 transition-all"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+              <VolumeX className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-amber-300">
+                  صدا توسط مرورگر مسدود شده است (Autoplay Blocked)
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                برای فعال‌سازی صدای اعضا و موزیک، روی این نوار یا هر جای صفحه کلیک کنید.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              startAudio();
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer shrink-0"
+          >
+            <Volume2 className="w-4 h-4" />
+            <span>فعال‌سازی صدا</span>
+          </button>
+        </div>
+      )}
 
       {/* Unwatched Screen Share Notification Banner */}
       {unwatchedShares.length > 0 && (

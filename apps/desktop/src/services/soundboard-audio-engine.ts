@@ -59,7 +59,7 @@ export class SoundboardAudioEngine {
     return this.audioContext;
   }
 
-  private async ensureAudioContext(): Promise<AudioContext> {
+  public async ensureAudioContext(): Promise<AudioContext> {
     const ctx = this.getAudioContext();
     if (ctx.state === 'suspended') {
       try {
