@@ -12,6 +12,7 @@ import {
   RemoteTrackPublication,
   LocalAudioTrack,
   RemoteAudioTrack,
+  AudioPresets,
 } from 'livekit-client';
 import { useSettingsStore } from './settings.store';
 import { sounds } from '../services/sound.service';
@@ -67,6 +68,7 @@ interface LiveKitState {
   broadcastSoundboardStopped: (soundId: string) => Promise<void>;
   setParticipantSoundboardVolume: (identity: string, volumePercent: number) => void;
   toggleMuteSoundboardForMyself: (identity: string) => void;
+  ensureSoundboardTrackPublished: () => Promise<void>;
 
   // Stream watching actions
   startWatchingStream: (participantIdentity: string) => void;
@@ -75,7 +77,10 @@ interface LiveKitState {
   applyAudioProcessingSettings: () => Promise<void>;
   setAudioInputDevice: (deviceId: string) => Promise<void>;
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
-  setPushToTalkActive: (active: boolean) => Promise<void>;
+  setPushToTalkActive: (active: boolean, seq?: number) => Promise<void>;
+  getAudioSenderStats: () => Promise<any>;
+  testContinuousAudio: (durationMs?: number) => Promise<{ success: boolean; packetsSent: number; bytesSent: number; error?: string }>;
+  testUiPtt: (durationMs?: number) => Promise<{ success: boolean; packetsSent: number; bytesSent: number; error?: string }>;
   setParticipantVolume: (identity: string, volumePercent: number) => void;
   toggleMuteForMyself: (identity: string) => void;
   broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
@@ -91,6 +96,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let activeLocalMicTrack: MediaStreamTrack | null = null;
   let activeAnalyserStream: MediaStream | null = null;
   let activeAnalyserTrack: MediaStreamTrack | null = null;
+  let pttQueue: Promise<void> = Promise.resolve();
+  let targetPttActive = false;
+  let currentPttSeq = 0;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectCountdownInterval: ReturnType<typeof setInterval> | null = null;
@@ -218,57 +226,32 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const settings = useSettingsStore.getState();
       const isVoiceActivity = settings.inputMode === 'voice-activity';
 
-      // To prevent Chromium from deadlocking cloned audio when track.enabled is muted on WebRTC,
-      // we acquire an isolated hardware stream specifically for voice activity detection.
+      // Use track clone for isolated voice activity detection without opening a conflicting second getUserMedia stream
       let stream: MediaStream;
       try {
-        const streamConstraints: MediaStreamConstraints = {
-          audio: {
-            deviceId:
-              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
-                ? { exact: settings.audioInputDeviceId }
-                : undefined,
-            echoCancellation: settings.echoCancellation,
-            noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: true,
-          },
-        };
-        stream = await navigator.mediaDevices.getUserMedia(streamConstraints);
-        activeAnalyserStream = stream;
-      } catch {
-        // Fallback to track clone if second getUserMedia is denied
         activeAnalyserTrack = track.clone();
         activeAnalyserTrack.enabled = true;
         stream = new MediaStream([activeAnalyserTrack]);
+      } catch {
+        stream = new MediaStream([track]);
       }
+      activeAnalyserStream = stream;
 
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
 
-      // Cascaded Vocal Bandpass Filtering (140 Hz 4th-order High-Pass + 3400 Hz Low-Pass):
-      // Aggressively strips breath puffs, microphone air turbulence, desk thumps, and high hiss
-      const highpass1 = localAudioContext.createBiquadFilter();
-      highpass1.type = 'highpass';
-      highpass1.frequency.setValueAtTime(140, localAudioContext.currentTime);
-      highpass1.Q.setValueAtTime(1.0, localAudioContext.currentTime);
-
-      const highpass2 = localAudioContext.createBiquadFilter();
-      highpass2.type = 'highpass';
-      highpass2.frequency.setValueAtTime(140, localAudioContext.currentTime);
-      highpass2.Q.setValueAtTime(1.0, localAudioContext.currentTime);
-
-      const lowpass = localAudioContext.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(3400, localAudioContext.currentTime);
-      lowpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
+      // Clean, studio-grade vocal pass:
+      // Gentle 75 Hz high-pass strips desk thumps and sub-bass DC rumble without cutting vocal warmth or speech clarity
+      const highpass = localAudioContext.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.setValueAtTime(75, localAudioContext.currentTime);
+      highpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
 
       localAnalyser = localAudioContext.createAnalyser();
       localAnalyser.fftSize = 512;
       localAnalyser.smoothingTimeConstant = 0.2;
 
-      localAudioSource.connect(highpass1);
-      highpass1.connect(highpass2);
-      highpass2.connect(lowpass);
-      lowpass.connect(localAnalyser);
+      localAudioSource.connect(highpass);
+      highpass.connect(localAnalyser);
 
       // Terminate analyser through a ScriptProcessor connected to a silent GainNode.
       // This forces the Web Audio thread to process audio callbacks continuously via hardware
@@ -323,8 +306,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const isMuted = get().isMuted;
         const isDeafened = get().isDeafened;
         const threshold = currentSettings.autoSensitivity
-          ? 35
-          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
+          ? 18
+          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 25);
+
+        // Push-to-talk owns the capture gate. This must run before the muted
+        // branch: a game keeps the audio thread busy, and that branch was
+        // turning the track back off in the gap while LiveKit unmuted it.
+        if (isPtt) {
+          const transmit = !isMuted && !isDeafened && targetPttActive;
+          if (track.enabled !== transmit) track.enabled = transmit;
+          if (localAudioContext && localAudioContext.state === 'suspended') {
+            localAudioContext.resume().catch(() => {});
+          }
+          return;
+        }
 
         if (isMuted || isDeafened) {
           if (track.enabled) track.enabled = false;
@@ -339,11 +334,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               });
             }
           }
-          return;
-        }
-
-        if (isPtt) {
-          // Managed by setPushToTalkActive
           return;
         }
 
@@ -411,7 +401,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     if (isPingMeasuring) return;
     isPingMeasuring = true;
     try {
-      let bestRtt: number | null = null;
+      let selectedPairRtt: number | null = null;
+      let candidatePairRtt: number | null = null;
+      let remoteRtpRtt: number | null = null;
 
       // 1. Check WebRTC stats across publisher and subscriber
       const pcManager = (room.engine as any)?.pcManager;
@@ -443,16 +435,27 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               }
               if (typeof rttSec === 'number' && rttSec > 0) {
                 const rttMs = Math.round(rttSec * 1000);
-                if (rttMs > 0 && rttMs < 3000 && (bestRtt === null || rttMs < bestRtt)) {
-                  bestRtt = rttMs;
+                if (rttMs > 0 && rttMs < 2000) {
+                  const isSelected = pair.state === 'succeeded' && (pair.nominated === true || pair.selected === true);
+                  if (isSelected) {
+                    if (selectedPairRtt === null || rttMs < selectedPairRtt) {
+                      selectedPairRtt = rttMs;
+                    }
+                  } else if (pair.state === 'succeeded') {
+                    if (candidatePairRtt === null || rttMs < candidatePairRtt) {
+                      candidatePairRtt = rttMs;
+                    }
+                  }
                 }
               }
             } else if (report.type === 'remote-inbound-rtp') {
               const rir = report as any;
               if (typeof rir.roundTripTime === 'number' && rir.roundTripTime > 0) {
                 const rttMs = Math.round(rir.roundTripTime * 1000);
-                if (rttMs > 0 && rttMs < 3000 && (bestRtt === null || rttMs < bestRtt)) {
-                  bestRtt = rttMs;
+                if (rttMs > 0 && rttMs < 2000) {
+                  if (remoteRtpRtt === null || rttMs < remoteRtpRtt) {
+                    remoteRtpRtt = rttMs;
+                  }
                 }
               }
             }
@@ -460,9 +463,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } catch {}
       }
 
-      // 2. If WebRTC doesn't have an active candidate pair yet (e.g. idle/muted room or solo user),
-      // measure direct network latency to the edge server endpoint!
-      if (bestRtt === null) {
+      // Best RTT priority: 1) Active Nominated Pair, 2) Remote Inbound RTP, 3) Any Succeeded Pair
+      let bestRtt = selectedPairRtt ?? remoteRtpRtt ?? candidatePairRtt;
+
+      // 2. Fallback to server ping ONLY if WebRTC hasn't produced a candidate pair yet
+      if (bestRtt === null && lastMeasuredPing <= 0) {
         try {
           const t0 = performance.now();
           const res = await fetch(`${getApiBase()}/api/health?_t=${Date.now()}`, {
@@ -471,7 +476,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           });
           if (res.ok) {
             const netRtt = Math.round(performance.now() - t0);
-            if (netRtt > 0 && netRtt < 4000) {
+            if (netRtt > 0 && netRtt < 3000) {
               bestRtt = netRtt;
             }
           }
@@ -479,9 +484,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
 
       if (bestRtt !== null) {
-        const smoothed = lastMeasuredPing > 0
-          ? Math.round(lastMeasuredPing * 0.3 + bestRtt * 0.7)
-          : bestRtt;
+        // Instant snap if previously had synthetic high HTTP ping or outlier
+        const smoothed = (lastMeasuredPing > 120 && bestRtt < 100) || lastMeasuredPing <= 0
+          ? bestRtt
+          : Math.round(lastMeasuredPing * 0.4 + bestRtt * 0.6);
         lastMeasuredPing = smoothed;
 
         set((state) => ({
@@ -791,10 +797,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           autoGainControl: true,
           echoCancellation: true,
           noiseSuppression: true,
+          channelCount: 1,
+          sampleRate: 48000,
         },
         publishDefaults: {
           simulcast: false,
           degradationPreference: 'maintain-resolution',
+          audioPreset: AudioPresets.speech,
+          red: true,
+          dtx: false,
         },
       });
 
@@ -933,18 +944,28 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             ? (useSettingsStore.getState().soundboardVolumes[participant.identity] ?? 100)
             : (useSettingsStore.getState().participantVolumes[participant.identity] ?? 100);
 
-          const targetVol = (isLocallyMuted || get().isDeafened) ? 0 : Math.min(1, Math.max(0, savedVol / 100));
-
           const element = track.attach();
           element.autoplay = true;
-          element.muted = targetVol === 0;
-          element.volume = targetVol;
           container.appendChild(element);
 
-          if (typeof (track as any).setVolume === 'function') {
-            try {
-              (track as any).setVolume(targetVol);
-            } catch {}
+          const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
+          const isMutedTotal = isLocallyMuted || get().isDeafened;
+          const targetVol = isMutedTotal ? 0 : Math.min(1, Math.max(0, savedVol / 100));
+
+          // Route ALL remote audio through RemoteAudioGainEngine for unified 0-200% volume control and clear playback
+          if (track.mediaStreamTrack) {
+            remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isMutedTotal);
+            // Mute the raw HTML audio element to prevent double playback / phase echo
+            element.muted = true;
+            element.volume = 0;
+          } else {
+            element.volume = targetVol;
+            element.muted = targetVol === 0;
+            if (typeof (track as any).setVolume === 'function') {
+              try {
+                (track as any).setVolume(targetVol);
+              } catch {}
+            }
           }
 
           // Unblock audio playback in browser if needed
@@ -953,12 +974,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             room.startAudio().catch(() => {});
           }
 
-          const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
-          if (track.mediaStreamTrack && savedVol > 100 && window.nightshift?.isElectron) {
-            remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isLocallyMuted || get().isDeafened);
-          }
-
-          if ((get().isDeafened || isLocallyMuted) && track.mediaStreamTrack) {
+          if (isMutedTotal && track.mediaStreamTrack) {
             track.mediaStreamTrack.enabled = false;
           }
 
@@ -1129,13 +1145,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           }
         }
 
-        // Check if push-to-talk is enabled by default
+        // Ensure microphone track is acquired and published to LiveKit
         const isPtt = settings.inputMode === 'push-to-talk';
         const isNoiseSuppressed = settings.noiseSuppression !== 'none';
         const isEchoCancelled = settings.echoCancellation;
 
         try {
-          await room.localParticipant.setMicrophoneEnabled(!isPtt, {
+          // Always publish the microphone track with hardware audio constraints
+          await room.localParticipant.setMicrophoneEnabled(true, {
             echoCancellation: isEchoCancelled,
             noiseSuppression: isNoiseSuppressed,
             autoGainControl: true,
@@ -1144,7 +1161,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                 ? settings.audioInputDeviceId
                 : undefined,
           });
-          set({ isMuted: isPtt });
 
           const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
             (p) => p.source === Track.Source.Microphone
@@ -1152,6 +1168,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
             setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
             await get().applyAudioProcessingSettings();
+
+            if (isPtt) {
+              // Push-to-Talk mode: mute the track initially until PTT key is pressed
+              (micPub.track as LocalAudioTrack).mediaStreamTrack.enabled = false;
+              await micPub.mute();
+              set({ isMuted: true, isLocallySpeaking: false });
+            } else {
+              set({ isMuted: false });
+            }
           }
         } catch (micErr: any) {
           console.warn('Microphone error:', micErr);
@@ -1167,6 +1192,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             name: 'soundboard',
             source: Track.Source.Unknown,
             dtx: false,
+            audioPreset: AudioPresets.music,
           });
           console.log('[LiveKit] Dedicated Soundboard audio track published successfully');
         } catch (sbErr) {
@@ -1307,10 +1333,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const newMuted = !isMuted;
       try {
         soundboardAudioEngine.setMicrophoneMuted(newMuted);
-        await room.localParticipant.setMicrophoneEnabled(!newMuted);
+        const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+          (p) => p.source === Track.Source.Microphone
+        );
 
-        if (activeLocalMicTrack) {
-          activeLocalMicTrack.enabled = !newMuted && useSettingsStore.getState().inputMode !== 'voice-activity';
+        if (newMuted) {
+          if (micPub) await micPub.mute();
+          if (activeLocalMicTrack) activeLocalMicTrack.enabled = false;
+        } else {
+          if (micPub) await micPub.unmute();
+          if (activeLocalMicTrack) activeLocalMicTrack.enabled = true;
         }
 
         set({ isMuted: newMuted });
@@ -1325,27 +1357,182 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     },
 
-    setPushToTalkActive: async (active: boolean) => {
-      const { room, isDeafened } = get();
-      // If deafened, cannot transmit
-      if (isDeafened) return;
-      if (!room || !room.localParticipant) return;
-
-      try {
-        if (activeLocalMicTrack) {
-          activeLocalMicTrack.enabled = active;
-        }
-        soundboardAudioEngine.setMicrophoneMuted(!active);
-        await room.localParticipant.setMicrophoneEnabled(active);
-        set({ isMuted: !active, isLocallySpeaking: active });
-        if (active) {
-          sounds.playPttActivate();
-        } else {
-          sounds.playPttDeactivate();
-        }
-      } catch (err) {
-        console.warn('Failed to update PTT mic state:', err);
+    setPushToTalkActive: async (active: boolean, seq?: number) => {
+      window.nightshift?.logPtt?.(`setPushToTalkActive START: active=${active}, seq=${seq}`);
+      // Out-of-order event check: drop if an event with older sequence arrives late
+      if (seq !== undefined && currentPttSeq > 0 && seq < currentPttSeq) {
+        window.nightshift?.logPtt?.(`Dropping outdated event: seq=${seq} < currentPttSeq=${currentPttSeq}`);
+        console.log(`[LiveKit PTT] Dropping outdated event (seq: ${seq} < ${currentPttSeq})`);
+        return;
       }
+      if (seq !== undefined) {
+        currentPttSeq = seq;
+      }
+
+      targetPttActive = active;
+
+      // Sequential promise serialization queue: guarantees no overlapping mute/unmute calls
+      pttQueue = pttQueue.then(async () => {
+        const { room, isDeafened } = get();
+        if (isDeafened) {
+          window.nightshift?.logPtt?.('Skipping PTT: user is deafened');
+          return;
+        }
+        if (!room || !room.localParticipant) {
+          window.nightshift?.logPtt?.('Skipping PTT: not in a connected room');
+          return;
+        }
+
+        const desiredMuted = !targetPttActive;
+        // Publish the gate before any await. The capture analyser runs on the
+        // audio thread and was disabling the track again while unmute() was in flight.
+        set({ isMuted: desiredMuted, isLocallySpeaking: !desiredMuted });
+
+        try {
+          let micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+            (p) => p.source === Track.Source.Microphone
+          );
+
+          const settings = useSettingsStore.getState();
+          const micConstraints = {
+            echoCancellation: settings.echoCancellation,
+            noiseSuppression: settings.noiseSuppression !== 'none',
+            autoGainControl: true,
+            deviceId:
+              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
+                ? settings.audioInputDeviceId
+                : undefined,
+          };
+
+          // Fail-safe: if mic track was somehow not published yet, publish it now
+          if (!micPub || !micPub.track) {
+            await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+            micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+              (p) => p.source === Track.Source.Microphone
+            );
+            if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
+              setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+            }
+          }
+
+          const mediaTrack = micPub?.track
+            ? (micPub.track as LocalAudioTrack).mediaStreamTrack
+            : null;
+
+          // A fullscreen game can leave the capturer paused. Reopen it on the way down to talk.
+          if (!desiredMuted && mediaTrack && (mediaTrack.readyState !== 'live' || mediaTrack.muted)) {
+            window.nightshift?.logPtt?.(`Mic capturer stalled (ready=${mediaTrack.readyState}, muted=${mediaTrack.muted}). Restarting.`);
+            try {
+              await room.localParticipant.setMicrophoneEnabled(false);
+              await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+              micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+                (p) => p.source === Track.Source.Microphone
+              );
+              const restarted = micPub?.track
+                ? (micPub.track as LocalAudioTrack).mediaStreamTrack
+                : null;
+              if (restarted) setupAudioAnalyser(restarted);
+            } catch (restartErr) {
+              window.nightshift?.logPtt?.(`Mic restart failed: ${restartErr}`);
+            }
+          }
+
+          if (micPub && micPub.track) {
+            const liveTrack = (micPub.track as LocalAudioTrack).mediaStreamTrack;
+            if (liveTrack) liveTrack.enabled = !desiredMuted;
+            if (micPub.isMuted !== desiredMuted) {
+              window.nightshift?.logPtt?.(`Mic transition: ${micPub.isMuted ? 'MUTED' : 'UNMUTED'} -> ${desiredMuted ? 'MUTED' : 'UNMUTED'}`);
+              console.log(`[LiveKit PTT] Transitioning mic: ${micPub.isMuted ? 'MUTED' : 'UNMUTED'} -> ${desiredMuted ? 'MUTED' : 'UNMUTED'} (active: ${targetPttActive}, seq: ${seq})`);
+              if (desiredMuted) {
+                await micPub.mute();
+              } else {
+                await micPub.unmute();
+              }
+              window.nightshift?.logPtt?.(`Mic transition DONE -> isMuted=${micPub.isMuted}, trackEnabled=${liveTrack?.enabled}`);
+            }
+            if (liveTrack && liveTrack.enabled !== !desiredMuted) {
+              liveTrack.enabled = !desiredMuted;
+            }
+          }
+
+          soundboardAudioEngine.setMicrophoneMuted(desiredMuted);
+          if (get().isMuted !== desiredMuted || get().isLocallySpeaking === desiredMuted) {
+            set({ isMuted: desiredMuted, isLocallySpeaking: !desiredMuted });
+          }
+
+          if (!desiredMuted) {
+            sounds.playPttActivate();
+          } else {
+            sounds.playPttDeactivate();
+          }
+        } catch (err) {
+          window.nightshift?.logPtt?.(`Error during PTT state update: ${err}`);
+          console.warn('[LiveKit PTT] Error during PTT state update:', err);
+        }
+      });
+
+      return pttQueue;
+    },
+
+    getAudioSenderStats: async () => {
+      const { room } = get();
+      if (!room || !room.localParticipant) return null;
+      const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+        (p) => p.source === Track.Source.Microphone
+      );
+      if (!micPub || !micPub.track) return null;
+      const track = micPub.track as LocalAudioTrack;
+      if (typeof track.getSenderStats === 'function') {
+        return await track.getSenderStats();
+      }
+      return null;
+    },
+
+    testContinuousAudio: async (durationMs = 3000) => {
+      const { room, isMuted } = get();
+      if (!room || !room.localParticipant) {
+        return { success: false, packetsSent: 0, bytesSent: 0, error: 'Not connected to room' };
+      }
+      console.log(`[PTT Diagnostic] Starting Continuous Audio Test for ${durationMs}ms...`);
+      const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+        (p) => p.source === Track.Source.Microphone
+      );
+      if (!micPub || !micPub.track) {
+        return { success: false, packetsSent: 0, bytesSent: 0, error: 'No microphone track published' };
+      }
+
+      const initialStats: any = await (micPub.track as LocalAudioTrack).getSenderStats();
+      const initialPackets = (initialStats?.packetsSent || 0) as number;
+      const initialBytes = (initialStats?.bytesSent || 0) as number;
+
+      await micPub.unmute();
+      set({ isMuted: false, isLocallySpeaking: true });
+
+      await new Promise((res) => setTimeout(res, durationMs));
+
+      const finalStats: any = await (micPub.track as LocalAudioTrack).getSenderStats();
+      const finalPackets = (finalStats?.packetsSent || 0) as number;
+      const finalBytes = (finalStats?.bytesSent || 0) as number;
+
+      if (isMuted) {
+        await micPub.mute();
+        set({ isMuted: true, isLocallySpeaking: false });
+      }
+
+      const packetsSent = finalPackets - initialPackets;
+      const bytesSent = finalBytes - initialBytes;
+      const success = packetsSent > 0 || bytesSent > 0;
+      console.log(`[PTT Diagnostic] Continuous Audio Result: success=${success}, packets=${packetsSent}, bytes=${bytesSent}`);
+      return { success, packetsSent, bytesSent };
+    },
+
+    testUiPtt: async (durationMs = 2000) => {
+      console.log(`[PTT Diagnostic] Starting UI PTT Test for ${durationMs}ms...`);
+      const nextSeq = ++currentPttSeq;
+      await get().setPushToTalkActive(true, nextSeq);
+      const stats = await get().testContinuousAudio(durationMs);
+      await get().setPushToTalkActive(false, ++currentPttSeq);
+      return stats;
     },
 
     toggleDeafen: async () => {
@@ -2030,6 +2217,39 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     },
 
+    ensureSoundboardTrackPublished: async () => {
+      const { room } = get();
+      if (!room || room.state !== ConnectionState.Connected) return;
+
+      await soundboardAudioEngine.ensureAudioContext();
+
+      const existingPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+        (p) => p.trackName === 'soundboard' || (p.track as any)?.name === 'soundboard'
+      );
+
+      if (existingPub && existingPub.track) {
+        if (existingPub.track.mediaStreamTrack) {
+          existingPub.track.mediaStreamTrack.enabled = true;
+        }
+        return;
+      }
+
+      try {
+        const sbMediaTrack = soundboardAudioEngine.initializePipeline();
+        const sbTrack = new LocalAudioTrack(sbMediaTrack);
+        activeLocalSoundboardTrack = sbTrack;
+        await room.localParticipant.publishTrack(sbTrack, {
+          name: 'soundboard',
+          source: Track.Source.Unknown,
+          dtx: false,
+          audioPreset: AudioPresets.music,
+        });
+        console.log('[LiveKit] Dedicated Soundboard audio track ensured and published');
+      } catch (err) {
+        console.warn('Failed to ensure soundboard track published:', err);
+      }
+    },
+
     startAudio: async () => {
       const { room } = get();
       sounds.unlock().catch(() => {});
@@ -2045,3 +2265,35 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
   };
 });
+
+// Dynamically handle inputMode changes (Voice Activity vs Push-to-Talk) while connected to a room
+if (typeof window !== 'undefined') {
+  (window as any).nightshift_diagnostics = {
+    getStats: () => useLiveKitStore.getState().getAudioSenderStats(),
+    testContinuous: (ms?: number) => useLiveKitStore.getState().testContinuousAudio(ms),
+    testUiPtt: (ms?: number) => useLiveKitStore.getState().testUiPtt(ms),
+  };
+
+  useSettingsStore.subscribe((state, prevState) => {
+    if (state.inputMode !== prevState.inputMode) {
+      const livekit = useLiveKitStore.getState();
+      const room = livekit.room;
+      if (room && room.localParticipant) {
+        const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+          (p) => p.source === Track.Source.Microphone
+        );
+        if (state.inputMode === 'push-to-talk') {
+          // Switch to PTT: mute mic track immediately until PTT key is held down
+          micPub?.mute();
+          useLiveKitStore.setState({ isMuted: true, isLocallySpeaking: false });
+        } else {
+          // Switch to Voice Activity: unmute if user is not deafened or manually self-muted
+          if (!livekit.isDeafened && !state.isSelfMuted) {
+            micPub?.unmute();
+            useLiveKitStore.setState({ isMuted: false });
+          }
+        }
+      }
+    }
+  });
+}

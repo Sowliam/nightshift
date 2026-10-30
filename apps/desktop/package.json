@@ -9,7 +9,7 @@
     "dev:electron": "cross-env ELECTRON_DEV=true electron .",
     "build": "cross-env BUILD_FOR_ELECTRON=true tsc && cross-env BUILD_FOR_ELECTRON=true vite build && npm run build:electron",
     "build:renderer": "vite build",
-    "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').writeFileSync('dist-electron/package.json', '{\\\"type\\\":\\\"commonjs\\\"}'); try { require('fs').copyFileSync('electron/ptt-helper.exe', 'dist-electron/ptt-helper.exe'); } catch(e){}\"",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run",
     "dist": "electron-builder"
@@ -54,7 +54,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": true,

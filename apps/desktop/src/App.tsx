@@ -143,18 +143,18 @@ export const App: React.FC = () => {
         setInviteInitialCode(code);
         setIsInviteOpen(true);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   // Browser Audio Unblocker: Resumes WebAudio Context and LiveKit audio playback on any interaction
   useEffect(() => {
     const unlockAudio = () => {
-      sounds.unlock().catch(() => {});
+      sounds.unlock().catch(() => { });
       const livekit = useLiveKitStore.getState();
       if (livekit.room && !livekit.canPlaybackAudio) {
-        livekit.startAudio().catch(() => {});
+        livekit.startAudio().catch(() => { });
       }
-      soundboardAudioEngine.ensureAudioContext().catch(() => {});
+      soundboardAudioEngine.ensureAudioContext().catch(() => { });
     };
 
     window.addEventListener('click', unlockAudio, { passive: true });
@@ -180,7 +180,7 @@ export const App: React.FC = () => {
   // Register global PTT hotkey with Electron main process (for background & games)
   useEffect(() => {
     if (window.nightshift?.setGlobalPttKey) {
-      window.nightshift.setGlobalPttKey(pushToTalkKey, inputMode === 'push-to-talk').catch(() => {});
+      window.nightshift.setGlobalPttKey(pushToTalkKey, inputMode === 'push-to-talk').catch(() => { });
     }
   }, [pushToTalkKey, inputMode]);
 
@@ -188,28 +188,71 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!window.nightshift?.onGlobalPttChange) return;
 
-    const cleanup = window.nightshift.onGlobalPttChange((isDown: boolean) => {
-      if (inputMode === 'push-to-talk') {
-        setPushToTalkActive(isDown);
+    const cleanup = window.nightshift.onGlobalPttChange((data: any) => {
+      const isDown = typeof data === 'boolean' ? data : !!data?.isDown;
+      const seq = typeof data === 'object' && data?.seq ? Number(data.seq) : undefined;
+      const currentMode = useSettingsStore.getState().inputMode;
+      window.nightshift?.logPtt?.(`onGlobalPttChange received: isDown=${isDown}, seq=${seq}, currentMode=${currentMode}`);
+      console.log(`[Renderer PTT Event] isDown: ${isDown}, seq: ${seq}, currentMode: ${currentMode}`);
+      if (currentMode === 'push-to-talk') {
+        useLiveKitStore.getState().setPushToTalkActive(isDown, seq);
       }
     });
 
     return cleanup;
-  }, [inputMode]);
+  }, []);
 
-  // Global hotkeys for in-app Push-to-Talk, Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D), Soundboard (Ctrl+Shift+S)
+  // Global hotkeys for in-app Push-to-Talk (Keyboard & Mouse), Mute (Ctrl+Shift+M), Deafen (Ctrl+Shift+D), Soundboard (Ctrl+Shift+S)
   useEffect(() => {
-    const matchesPttKey = (e: KeyboardEvent) => {
-      let key = e.code;
-      if (e.code === 'Space') key = 'Space';
-      else if (e.code.startsWith('Key')) key = e.code.replace('Key', '');
-      else if (e.code.startsWith('Digit')) key = e.code.replace('Digit', '');
+    const matchesPttMouseButton = (button: number) => {
+      const clean = pushToTalkKey.toLowerCase().replace(/\s+/g, '');
+      if (button === 1 && (clean === 'mouse3' || clean === 'middle' || clean === 'middleclick')) return true;
+      if (button === 2 && (clean === 'mouse2' || clean === 'right' || clean === 'rightclick')) return true;
+      if (button === 3 && clean === 'mouse4') return true;
+      if (button === 4 && clean === 'mouse5') return true;
+      if (clean === `mouse${button + 1}`) return true;
+      return false;
+    };
 
+    const matchesPttKey = (e: KeyboardEvent) => {
+      const ptt = pushToTalkKey.toLowerCase().replace(/\s+/g, '');
+      const codeClean = e.code.toLowerCase();
+      const keyClean = e.key.toLowerCase();
+
+      if (ptt === 'space' && (codeClean === 'space' || keyClean === ' ')) return true;
+      if (ptt === 'ctrl' && (codeClean === 'controlleft' || codeClean === 'controlright' || keyClean === 'control')) return true;
+      if (ptt === 'shift' && (codeClean === 'shiftleft' || codeClean === 'shiftright' || keyClean === 'shift')) return true;
+      if (ptt === 'alt' && (codeClean === 'altleft' || codeClean === 'altright' || keyClean === 'alt')) return true;
+      if (ptt === 'capslock' && codeClean === 'capslock') return true;
+      if (ptt === 'tab' && codeClean === 'tab') return true;
+      if (ptt === '~' && (codeClean === 'backquote' || keyClean === '`' || keyClean === '~')) return true;
+
+      const simplified = codeClean.replace(/^key/, '').replace(/^digit/, '');
       return (
-        key.toLowerCase() === pushToTalkKey.toLowerCase() ||
-        e.code.toLowerCase() === pushToTalkKey.toLowerCase() ||
-        e.key.toLowerCase() === pushToTalkKey.toLowerCase()
+        simplified === ptt ||
+        codeClean === ptt ||
+        keyClean === ptt
       );
+    };
+
+    // The desktop app has a global listener. Handling the same key here as well
+    // races it: a late keyup from this window mutes the mic while the key is still held in a game.
+    const globalPttOwnsKey = !!window.nightshift?.onGlobalPttChange;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (globalPttOwnsKey) return;
+      if (inputMode === 'push-to-talk' && matchesPttMouseButton(e.button)) {
+        e.preventDefault();
+        setPushToTalkActive(true);
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (globalPttOwnsKey) return;
+      if (inputMode === 'push-to-talk' && matchesPttMouseButton(e.button)) {
+        e.preventDefault();
+        setPushToTalkActive(false);
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -240,8 +283,8 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Push-to-Talk KeyDown
-      if (inputMode === 'push-to-talk' && !e.repeat && matchesPttKey(e)) {
+      // Push-to-Talk KeyDown. Desktop uses the global raw-input listener instead.
+      if (!globalPttOwnsKey && inputMode === 'push-to-talk' && !e.repeat && matchesPttKey(e)) {
         e.preventDefault();
         setPushToTalkActive(true);
         return;
@@ -264,8 +307,8 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Push-to-Talk KeyUp
-      if (inputMode === 'push-to-talk' && matchesPttKey(e)) {
+      // Push-to-Talk KeyUp. Desktop uses the global raw-input listener instead.
+      if (!globalPttOwnsKey && inputMode === 'push-to-talk' && matchesPttKey(e)) {
         e.preventDefault();
         setPushToTalkActive(false);
       }
@@ -280,11 +323,15 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('blur', handleBlur);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('blur', handleBlur);
     };
   }, [inputMode, pushToTalkKey]);

@@ -88,6 +88,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const [isMicTesting, setIsMicTesting] = useState(false);
   const [isSpeakerTesting, setIsSpeakerTesting] = useState(false);
+  const [isRecordingPttKey, setIsRecordingPttKey] = useState(false);
+
+  useEffect(() => {
+    if (!isRecordingPttKey) return;
+
+    let cleanupElectron: (() => void) | undefined;
+    if (window.nightshift?.startRecordingKey && window.nightshift?.onKeyRecorded) {
+      window.nightshift.startRecordingKey().catch(() => {});
+      cleanupElectron = window.nightshift.onKeyRecorded((detectedKey: string) => {
+        if (detectedKey === 'ESCAPE') {
+          setIsRecordingPttKey(false);
+          return;
+        }
+        setPushToTalkKey(detectedKey);
+        window.nightshift?.setGlobalPttKey?.(detectedKey, true);
+        setIsRecordingPttKey(false);
+      });
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.key === 'Escape') {
+        setIsRecordingPttKey(false);
+        return;
+      }
+
+      let keyName = e.code;
+      if (e.code === 'Space') keyName = 'Space';
+      else if (e.code === 'CapsLock') keyName = 'CapsLock';
+      else if (e.code.startsWith('Key')) keyName = e.code.replace('Key', '');
+      else if (e.code.startsWith('Digit')) keyName = e.code.replace('Digit', '');
+      else if (e.code.startsWith('Numpad')) keyName = e.code;
+      else if (e.code === 'ControlLeft' || e.code === 'ControlRight') keyName = 'Ctrl';
+      else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keyName = 'Shift';
+      else if (e.code === 'AltLeft' || e.code === 'AltRight') keyName = 'Alt';
+      else if (e.code === 'Tab') keyName = 'Tab';
+      else if (e.code === 'Backquote') keyName = '~';
+      else if (e.code.startsWith('F') && !isNaN(Number(e.code.slice(1)))) keyName = e.code;
+      else keyName = e.key.length === 1 ? e.key.toUpperCase() : (e.code || e.key);
+
+      setPushToTalkKey(keyName);
+      window.nightshift?.setGlobalPttKey?.(keyName, true);
+      setIsRecordingPttKey(false);
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      // Left Click (button 0) is ignored per instructions
+      if (e.button === 0) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      let mouseName = `Mouse ${e.button + 1}`;
+      if (e.button === 1) mouseName = 'Mouse 3'; // Middle Click
+      else if (e.button === 2) mouseName = 'Mouse 2'; // Right Click
+      else if (e.button === 3) mouseName = 'Mouse 4'; // Back / Thumb 1
+      else if (e.button === 4) mouseName = 'Mouse 5'; // Forward / Thumb 2
+
+      setPushToTalkKey(mouseName);
+      window.nightshift?.setGlobalPttKey?.(mouseName, true);
+      setIsRecordingPttKey(false);
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('mousedown', onMouseDown, true);
+    window.addEventListener('contextmenu', onContextMenu, true);
+
+    return () => {
+      window.nightshift?.stopRecordingKey?.().catch(() => {});
+      if (cleanupElectron) cleanupElectron();
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('mousedown', onMouseDown, true);
+      window.removeEventListener('contextmenu', onContextMenu, true);
+    };
+  }, [isRecordingPttKey]);
 
   useEffect(() => {
     if (isOpen) {
@@ -799,18 +881,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                   {pushToTalk && (
                     <div className="space-y-2.5 mt-2">
-                      {/* PTT Keybind Shortcut */}
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-bg-elevated border border-border-subtle">
+                      {/* PTT Keybind Shortcut (Auto-record keyboard or mouse button) */}
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
                         <div>
                           <span className="text-xs font-bold text-text-primary block">PTT Keybind Shortcut</span>
-                          <span className="text-[11px] text-text-muted">Key to hold while speaking</span>
+                          <span className="text-[11px] text-text-muted">
+                            {isRecordingPttKey
+                              ? 'Press any keyboard key or mouse button (except Left Click / Esc)...'
+                              : 'Click button to rebind any keyboard key or mouse button'}
+                          </span>
                         </div>
-                        <input
-                          type="text"
-                          value={pushToTalkKey}
-                          onChange={(e) => setPushToTalkKey(e.target.value.toUpperCase() || 'SPACE')}
-                          className="w-24 px-2 py-1 rounded bg-bg-main border border-border-subtle text-xs text-center font-mono font-bold text-highlight focus:outline-none"
-                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsRecordingPttKey(true)}
+                            className={`px-3.5 py-1.5 rounded-lg border font-mono text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm ${
+                              isRecordingPttKey
+                                ? 'bg-highlight text-highlight-text border-highlight animate-pulse ring-2 ring-highlight/50'
+                                : 'bg-bg-main hover:bg-bg-hover text-highlight border-border-subtle hover:border-highlight/60'
+                            }`}
+                            title="Click to automatically record any key or mouse button"
+                          >
+                            {isRecordingPttKey ? (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-current animate-ping" />
+                                <span>Listening...</span>
+                              </>
+                            ) : (
+                              <span>{pushToTalkKey || 'Space'}</span>
+                            )}
+                          </button>
+                          {isRecordingPttKey && (
+                            <button
+                              type="button"
+                              onClick={() => setIsRecordingPttKey(false)}
+                              className="px-2 py-1 text-[11px] rounded bg-bg-main hover:bg-bg-hover text-text-muted hover:text-text-primary border border-border-subtle cursor-pointer transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* PTT Activation Audio Cue Toggle */}

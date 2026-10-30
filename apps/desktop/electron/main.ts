@@ -1,5 +1,7 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, powerSaveBlocker } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import { spawn, ChildProcess } from 'child_process';
 import { uIOhook, UiohookKey, UiohookKeyboardEvent, UiohookMouseEvent } from 'uiohook-napi';
 
 let mainWindow: BrowserWindow | null = null;
@@ -10,21 +12,255 @@ let globalPttEnabled = false;
 let globalPttKeyCode: number | null = UiohookKey.Space;
 let globalPttMouseButton: number | null = null;
 let isGlobalPttDown = false;
+let isRecordingGlobalKey = false;
+let globalPttSeq = 0;
+
+// Persistent file logger for PTT diagnostics across games and background execution
+const pttLogPath = path.join(app.getPath('userData'), 'ptt_debug.log');
+function pttLog(msg: string) {
+  try {
+    const line = `[${new Date().toISOString()}] [Electron Main] ${msg}\r\n`;
+    fs.appendFileSync(pttLogPath, line);
+  } catch {}
+}
 
 // Dynamic key name -> keycode mapping
 const keyNameToCode: Record<string, number> = {};
+const codeToKeyName: Record<number, string> = {};
+
 for (const [name, code] of Object.entries(UiohookKey)) {
-  keyNameToCode[name.toLowerCase()] = code as number;
+  if (typeof code === 'number') {
+    keyNameToCode[name.toLowerCase()] = code;
+    if (!codeToKeyName[code]) {
+      codeToKeyName[code] = name;
+    }
+  }
 }
+
+// Aliases for user friendly matching
 keyNameToCode['space'] = UiohookKey.Space;
 keyNameToCode['spacebar'] = UiohookKey.Space;
 keyNameToCode['ctrl'] = UiohookKey.Ctrl;
 keyNameToCode['control'] = UiohookKey.Ctrl;
+keyNameToCode['ctrlleft'] = UiohookKey.Ctrl;
+keyNameToCode['ctrlright'] = UiohookKey.CtrlRight;
 keyNameToCode['caps'] = UiohookKey.CapsLock;
 keyNameToCode['capslock'] = UiohookKey.CapsLock;
 keyNameToCode['shift'] = UiohookKey.Shift;
+keyNameToCode['shiftleft'] = UiohookKey.Shift;
+keyNameToCode['shiftright'] = UiohookKey.ShiftRight;
 keyNameToCode['alt'] = UiohookKey.Alt;
+keyNameToCode['altleft'] = UiohookKey.Alt;
+keyNameToCode['altright'] = UiohookKey.AltRight;
 keyNameToCode['meta'] = UiohookKey.Meta;
+keyNameToCode['tab'] = UiohookKey.Tab;
+keyNameToCode['backquote'] = UiohookKey.Backquote;
+keyNameToCode['~'] = UiohookKey.Backquote;
+keyNameToCode['`'] = UiohookKey.Backquote;
+
+// Friendly reverse names
+codeToKeyName[UiohookKey.Space] = 'Space';
+codeToKeyName[UiohookKey.CapsLock] = 'CapsLock';
+codeToKeyName[UiohookKey.Ctrl] = 'Ctrl';
+codeToKeyName[UiohookKey.CtrlRight] = 'Ctrl';
+codeToKeyName[UiohookKey.Shift] = 'Shift';
+codeToKeyName[UiohookKey.ShiftRight] = 'Shift';
+codeToKeyName[UiohookKey.Alt] = 'Alt';
+codeToKeyName[UiohookKey.AltRight] = 'Alt';
+codeToKeyName[UiohookKey.Tab] = 'Tab';
+
+// Win32 Virtual Key Code maps for kernel-level GetAsyncKeyState helper
+const vkToName: Record<number, string> = {
+  2: 'Mouse 2',
+  4: 'Mouse 3',
+  5: 'Mouse 4',
+  6: 'Mouse 5',
+  8: 'Backspace',
+  9: 'Tab',
+  13: 'Enter',
+  16: 'Shift',
+  17: 'Ctrl',
+  18: 'Alt',
+  20: 'CapsLock',
+  32: 'Space',
+  33: 'PageUp',
+  34: 'PageDown',
+  35: 'End',
+  36: 'Home',
+  37: 'ArrowLeft',
+  38: 'ArrowUp',
+  39: 'ArrowRight',
+  40: 'ArrowDown',
+  45: 'Insert',
+  46: 'Delete',
+  186: ';',
+  187: '=',
+  188: ',',
+  189: '-',
+  190: '.',
+  191: '/',
+  192: '~',
+  219: '[',
+  220: '\\',
+  221: ']',
+  222: "'",
+};
+for (let i = 0; i <= 9; i++) {
+  vkToName[48 + i] = String(i);
+  vkToName[96 + i] = `Numpad${i}`;
+}
+for (let i = 0; i < 26; i++) {
+  vkToName[65 + i] = String.fromCharCode(65 + i);
+}
+for (let i = 1; i <= 12; i++) {
+  vkToName[111 + i] = `F${i}`;
+}
+
+const nameToVk: Record<string, number> = {};
+for (const [vkStr, name] of Object.entries(vkToName)) {
+  const vk = Number(vkStr);
+  nameToVk[name.toLowerCase()] = vk;
+}
+nameToVk['space'] = 32;
+nameToVk['spacebar'] = 32;
+nameToVk['caps'] = 20;
+nameToVk['capslock'] = 20;
+nameToVk['ctrl'] = 17;
+nameToVk['control'] = 17;
+nameToVk['ctrlleft'] = 17;
+nameToVk['ctrlright'] = 17;
+nameToVk['shift'] = 16;
+nameToVk['shiftleft'] = 16;
+nameToVk['shiftright'] = 16;
+nameToVk['alt'] = 18;
+nameToVk['altleft'] = 18;
+nameToVk['altright'] = 18;
+nameToVk['tab'] = 9;
+nameToVk['backquote'] = 192;
+nameToVk['~'] = 192;
+nameToVk['`'] = 192;
+nameToVk['mouse2'] = 2;
+nameToVk['mouse3'] = 4;
+nameToVk['mouse4'] = 5;
+nameToVk['mouse5'] = 6;
+nameToVk['rightclick'] = 2;
+nameToVk['middleclick'] = 4;
+
+function resolveWinVk(keyStr: string): number {
+  if (!keyStr) return 32; // Default VK_SPACE
+  const clean = keyStr.trim().toLowerCase().replace(/\s+/g, '');
+  if (nameToVk[clean] !== undefined) return nameToVk[clean];
+  const stripped = clean.replace(/^key/, '').replace(/^digit/, '');
+  if (nameToVk[stripped] !== undefined) return nameToVk[stripped];
+  if (clean.length === 1) {
+    const code = clean.toUpperCase().charCodeAt(0);
+    if ((code >= 65 && code <= 90) || (code >= 48 && code <= 57)) return code;
+  }
+  return 32;
+}
+
+let pttHelperProcess: ChildProcess | null = null;
+let globalPttKeyString = 'Space';
+
+function initNativePttHelper() {
+  if (process.platform !== 'win32') return;
+
+  try {
+    const helperPaths = [
+      path.join(__dirname, 'ptt-helper.exe'),
+      path.join(__dirname, '../electron/ptt-helper.exe'),
+      path.join(process.resourcesPath || '', 'ptt-helper.exe'),
+      path.join(process.resourcesPath || '', 'app.asar.unpacked', 'dist-electron', 'ptt-helper.exe'),
+    ];
+    const helperPath = helperPaths.find((p) => fs.existsSync(p));
+
+    if (!helperPath) {
+      pttLog('[PTT Helper] Native Win32 helper binary not found in candidate paths');
+      console.warn('[PTT Helper] Native Win32 helper binary not found in candidate paths');
+      return;
+    }
+
+    pttLog(`[PTT Helper] Spawning native helper from: ${helperPath}`);
+    console.log('[PTT Helper] Spawning native helper from:', helperPath);
+    pttHelperProcess = spawn(helperPath, [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    pttHelperProcess.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString('utf8');
+      const lines = text.split(/\r?\n/);
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        if (line.startsWith('PTT:')) {
+          const parts = line.split(':');
+          const isDown = parts[1] === '1';
+          const timestamp = parts.length > 2 ? parseInt(parts[2], 10) : Date.now();
+
+          if (isDown !== isGlobalPttDown) {
+            isGlobalPttDown = isDown;
+            const seq = ++globalPttSeq;
+            pttLog(`Native helper state -> ${isDown ? 'PRESSED' : 'RELEASED'} (seq: ${seq}, ts: ${timestamp})`);
+            console.log(`[Main PTT] Native helper state -> ${isDown ? 'PRESSED' : 'RELEASED'} (seq: ${seq}, ts: ${timestamp})`);
+            mainWindow?.webContents.send('global-ptt-change', { isDown, seq, timestamp });
+          }
+        } else if (line.startsWith('RECORDED:')) {
+          const parts = line.split(':');
+          const vk = parseInt(parts[1], 10);
+          const detectedName = vkToName[vk] || `Key${vk}`;
+          pttLog(`Native helper recorded key: vk=${vk} (${detectedName})`);
+          mainWindow?.webContents.send('key-recorded', detectedName);
+        } else {
+          pttLog(`Native helper stdout: ${line}`);
+        }
+      }
+    });
+
+    pttHelperProcess.stderr?.on('data', (data: Buffer) => {
+      const errText = data.toString('utf8').trim();
+      pttLog(`[PTT Helper STDERR] ${errText}`);
+      console.warn('[PTT Helper STDERR]:', errText);
+    });
+
+    pttHelperProcess.on('error', (err) => {
+      pttLog(`[PTT Helper] Native helper process error: ${err}`);
+      console.error('[PTT Helper] Native helper process error:', err);
+      if (isGlobalPttDown) {
+        isGlobalPttDown = false;
+        const seq = ++globalPttSeq;
+        mainWindow?.webContents.send('global-ptt-change', { isDown: false, seq, timestamp: Date.now() });
+      }
+    });
+
+    pttHelperProcess.on('exit', (code) => {
+      pttLog(`[PTT Helper] Process exited with code ${code}`);
+      console.warn(`[PTT Helper] Process exited with code ${code}`);
+      pttHelperProcess = null;
+      if (isGlobalPttDown) {
+        isGlobalPttDown = false;
+        const seq = ++globalPttSeq;
+        mainWindow?.webContents.send('global-ptt-change', { isDown: false, seq, timestamp: Date.now() });
+      }
+    });
+
+    // Deferred initial state synchronization to ensure the helper reader thread is up
+    setTimeout(() => {
+      if (pttHelperProcess && pttHelperProcess.stdin) {
+        const vk = resolveWinVk(globalPttKeyString || 'Space');
+        pttLog(`Syncing initial helper config: vk=${vk}, enabled=${globalPttEnabled}`);
+        pttHelperProcess.stdin.write(`SET_KEY:${vk}\nENABLE:${globalPttEnabled}\n`);
+      }
+    }, 150);
+
+    pttLog('[PTT Helper] Raw Input sink active. PTT is heard inside games without administrator.');
+    console.log('[PTT Helper] Raw Input sink active. PTT is heard inside games without administrator.');
+  } catch (err) {
+    pttLog(`[PTT Helper] Failed to initialize native helper: ${err}`);
+    console.warn('[PTT Helper] Failed to initialize native helper:', err);
+  }
+}
 
 function resolvePttKey(keyStr: string) {
   if (!keyStr) {
@@ -32,11 +268,11 @@ function resolvePttKey(keyStr: string) {
     globalPttMouseButton = null;
     return;
   }
-  const clean = keyStr.trim().toLowerCase();
+  const clean = keyStr.trim().toLowerCase().replace(/\s+/g, '');
 
-  // Mouse button support: e.g. "mouse3", "mouse4", "mouse5"
+  // Mouse button support: e.g. "mouse2", "mouse3", "mouse4", "mouse5"
   if (clean.startsWith('mouse')) {
-    const num = parseInt(clean.replace('mouse', ''), 10);
+    const num = parseInt(clean.replace('mouse', '').replace('button', ''), 10);
     if (!isNaN(num)) {
       globalPttMouseButton = num;
       globalPttKeyCode = null;
@@ -56,39 +292,99 @@ function resolvePttKey(keyStr: string) {
   } else {
     globalPttKeyCode = UiohookKey.Space;
   }
+  console.log(`[PTT Hook] Configured for Keycode ${globalPttKeyCode} (from: "${keyStr}")`);
+}
+
+function isKeyMatch(eventKeycode: number, targetKeycode: number | null): boolean {
+  if (targetKeycode === null) return false;
+  if (eventKeycode === targetKeycode) return true;
+
+  // Left & Right Ctrl
+  if (
+    (targetKeycode === UiohookKey.Ctrl || targetKeycode === UiohookKey.CtrlRight) &&
+    (eventKeycode === UiohookKey.Ctrl || eventKeycode === UiohookKey.CtrlRight)
+  ) return true;
+
+  // Left & Right Shift
+  if (
+    (targetKeycode === UiohookKey.Shift || targetKeycode === UiohookKey.ShiftRight) &&
+    (eventKeycode === UiohookKey.Shift || eventKeycode === UiohookKey.ShiftRight)
+  ) return true;
+
+  // Left & Right Alt
+  if (
+    (targetKeycode === UiohookKey.Alt || targetKeycode === UiohookKey.AltRight) &&
+    (eventKeycode === UiohookKey.Alt || eventKeycode === UiohookKey.AltRight)
+  ) return true;
+
+  // Meta / Win / Cmd
+  if (
+    (targetKeycode === UiohookKey.Meta || targetKeycode === UiohookKey.MetaRight) &&
+    (eventKeycode === UiohookKey.Meta || eventKeycode === UiohookKey.MetaRight)
+  ) return true;
+
+  return false;
 }
 
 function initGlobalPttHook() {
   try {
     uIOhook.on('keydown', (e: UiohookKeyboardEvent) => {
+      // Key recording mode
+      if (isRecordingGlobalKey) {
+        if (e.keycode === UiohookKey.Escape) {
+          isRecordingGlobalKey = false;
+          mainWindow?.webContents.send('key-recorded', 'ESCAPE');
+          return;
+        }
+        const detectedName = codeToKeyName[e.keycode] || `Key${e.keycode}`;
+        isRecordingGlobalKey = false;
+        mainWindow?.webContents.send('key-recorded', detectedName);
+        return;
+      }
+
       if (!globalPttEnabled || globalPttKeyCode === null) return;
-      if (e.keycode === globalPttKeyCode && !isGlobalPttDown) {
+      if (pttHelperProcess !== null) return; // Dedicated native Win32 helper is primary driver
+      if (isKeyMatch(e.keycode, globalPttKeyCode) && !isGlobalPttDown) {
         isGlobalPttDown = true;
-        mainWindow?.webContents.send('global-ptt-change', true);
+        mainWindow?.webContents.send('global-ptt-change', { isDown: true, seq: Date.now(), timestamp: Date.now() });
       }
     });
 
     uIOhook.on('keyup', (e: UiohookKeyboardEvent) => {
+      if (isRecordingGlobalKey) return;
       if (!globalPttEnabled || globalPttKeyCode === null) return;
-      if (e.keycode === globalPttKeyCode && isGlobalPttDown) {
+      if (pttHelperProcess !== null) return; // Dedicated native Win32 helper is primary driver
+      if (isKeyMatch(e.keycode, globalPttKeyCode) && isGlobalPttDown) {
         isGlobalPttDown = false;
-        mainWindow?.webContents.send('global-ptt-change', false);
+        mainWindow?.webContents.send('global-ptt-change', { isDown: false, seq: Date.now(), timestamp: Date.now() });
       }
     });
 
     uIOhook.on('mousedown', (e: UiohookMouseEvent) => {
+      // Key recording mode: ignore Left Click (button 1 in uIOhook) per user instruction
+      if (isRecordingGlobalKey) {
+        if (e.button === 1) return; // Ignore Left Click
+        isRecordingGlobalKey = false;
+        const mouseName = `Mouse ${e.button}`;
+        mainWindow?.webContents.send('key-recorded', mouseName);
+        return;
+      }
+
       if (!globalPttEnabled || globalPttMouseButton === null) return;
+      if (pttHelperProcess !== null) return; // Dedicated native Win32 helper is primary driver
       if (e.button === globalPttMouseButton && !isGlobalPttDown) {
         isGlobalPttDown = true;
-        mainWindow?.webContents.send('global-ptt-change', true);
+        mainWindow?.webContents.send('global-ptt-change', { isDown: true, seq: Date.now(), timestamp: Date.now() });
       }
     });
 
     uIOhook.on('mouseup', (e: UiohookMouseEvent) => {
+      if (isRecordingGlobalKey) return;
       if (!globalPttEnabled || globalPttMouseButton === null) return;
+      if (pttHelperProcess !== null) return; // Dedicated native Win32 helper is primary driver
       if (e.button === globalPttMouseButton && isGlobalPttDown) {
         isGlobalPttDown = false;
-        mainWindow?.webContents.send('global-ptt-change', false);
+        mainWindow?.webContents.send('global-ptt-change', { isDown: false, seq: Date.now(), timestamp: Date.now() });
       }
     });
 
@@ -109,8 +405,9 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
-// Disable unstable Chromium Windows.Graphics.Capture session on Windows to eliminate ProcessFrame failed (-2147467259)
-app.commandLine.appendSwitch('disable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer');
+app.commandLine.appendSwitch('disable-background-media-suspend');
+// Disable Chromium native window occlusion to prevent renderer freezing when a fullscreen game covers the screen
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer');
 
 async function createWindow() {
   const iconPath = path.join(__dirname, '../public/logo.png');
@@ -131,9 +428,17 @@ async function createWindow() {
       sandbox: true,
       webSecurity: true,
       backgroundThrottling: false, // CRITICAL: Never throttle audio DSP or WebRTC when minimized
+      additionalArguments: [
+        '--disable-features=CalculateNativeWinOcclusion',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+      ],
     },
     show: false,
   });
+
+  // Force disable background throttling on webContents directly
+  mainWindow.webContents.setBackgroundThrottling(false);
 
   // Explicitly allow microphone and display media captures in Electron
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -261,12 +566,56 @@ async function createWindow() {
   // Global Push-to-Talk IPC configuration handler
   ipcMain.handle('set-global-ptt-key', (_event, key: string, enabled: boolean) => {
     globalPttEnabled = !!enabled;
+    globalPttKeyString = key;
     resolvePttKey(key);
+    const vk = resolveWinVk(key);
+    pttLog(`[IPC set-global-ptt-key] key="${key}", enabled=${globalPttEnabled}, resolvedVk=${vk}`);
+
+    if (pttHelperProcess && pttHelperProcess.stdin) {
+      pttHelperProcess.stdin.write(`SET_KEY:${vk}\nENABLE:${globalPttEnabled}\n`);
+    }
+
     if (!globalPttEnabled && isGlobalPttDown) {
       isGlobalPttDown = false;
-      mainWindow?.webContents.send('global-ptt-change', false);
+      const seq = ++globalPttSeq;
+      pttLog(`Force-releasing PTT state on disable (seq: ${seq})`);
+      mainWindow?.webContents.send('global-ptt-change', { isDown: false, seq, timestamp: Date.now() });
     }
     return true;
+  });
+
+  // Renderer PTT diagnostic logger
+  ipcMain.on('ptt-renderer-log', (_event, msg: string) => {
+    pttLog(`[Renderer] ${msg}`);
+  });
+
+  // Global key/mouse recording handlers
+  ipcMain.handle('start-recording-key', () => {
+    isRecordingGlobalKey = true;
+    pttLog('start-recording-key invoked');
+    if (pttHelperProcess && pttHelperProcess.stdin) {
+      pttHelperProcess.stdin.write('START_RECORD\n');
+    }
+    return true;
+  });
+
+  ipcMain.handle('stop-recording-key', () => {
+    isRecordingGlobalKey = false;
+    pttLog('stop-recording-key invoked');
+    if (pttHelperProcess && pttHelperProcess.stdin) {
+      pttHelperProcess.stdin.write('STOP_RECORD\n');
+    }
+    return true;
+  });
+
+  // PTT debug log reader for in-app diagnostics
+  ipcMain.handle('get-ptt-debug-log', () => {
+    try {
+      if (fs.existsSync(pttLogPath)) {
+        return fs.readFileSync(pttLogPath, 'utf8');
+      }
+    } catch {}
+    return '';
   });
 
   if (isDev) {
@@ -285,12 +634,23 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  try {
+    const blockerId = powerSaveBlocker.start('prevent-app-suspension');
+    pttLog(`powerSaveBlocker started (prevent-app-suspension, id: ${blockerId})`);
+  } catch (err) {
+    pttLog(`Failed to start powerSaveBlocker: ${err}`);
+  }
   createWindow();
   initGlobalPttHook();
+  initNativePttHelper();
 });
 
 app.on('before-quit', () => {
   try {
+    if (pttHelperProcess) {
+      pttHelperProcess.stdin?.write('QUIT\n');
+      pttHelperProcess.kill();
+    }
     uIOhook.stop();
   } catch {}
 });
