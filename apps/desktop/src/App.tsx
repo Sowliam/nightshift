@@ -38,10 +38,8 @@ import { getApiBase, setApiBase, api } from './lib/api';
 import { extractInviteCode } from '@nightshift/shared';
 import { sounds } from './services/sound.service';
 import { soundboardAudioEngine } from './services/soundboard-audio-engine';
-import { PreLaunchGateway } from './components/layout/PreLaunchGateway';
 
 export const App: React.FC = () => {
-  const [isGatewayReady, setIsGatewayReady] = useState(false);
   const [isMembersOpen, setIsMembersOpen] = useState(true);
   const [isScreenShareOpen, setIsScreenShareOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -368,9 +366,6 @@ export const App: React.FC = () => {
   };
 
 
-  if (!isGatewayReady) {
-    return <PreLaunchGateway onReady={() => setIsGatewayReady(true)} />;
-  }
 
   return (
     <div className="w-screen h-screen flex flex-col bg-bg-main overflow-hidden text-text-primary select-none">
