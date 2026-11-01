@@ -413,7 +413,12 @@ app.commandLine.appendSwitch('disable-background-media-suspend');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer');
 
 async function createWindow() {
-  const iconPath = path.join(__dirname, '../public/logo.png');
+  const icoPath = path.join(__dirname, '../public/icon.ico');
+  const pngPath = path.join(__dirname, '../public/logo.png');
+  const distIco = path.join(__dirname, 'icon.ico');
+  let iconPath = pngPath;
+  if (fs.existsSync(icoPath)) iconPath = icoPath;
+  else if (fs.existsSync(distIco)) iconPath = distIco;
 
   mainWindow = new BrowserWindow({
     width: 1280,

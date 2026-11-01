@@ -1,6 +1,8 @@
 {
   "name": "@nightshift/desktop",
   "version": "0.1.0",
+  "description": "NIGHTSHIFT - Ultra-low latency voice and communication platform for gaming",
+  "author": "NIGHTSHIFT",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -41,10 +43,13 @@
     "vitest": "^2.1.2"
   },
   "build": {
-    "appId": "com.nightshift.app",
+    "electronVersion": "32.3.3",
+    "appId": "com.nightshift.voice",
     "productName": "NIGHTSHIFT",
+    "copyright": "Copyright © 2026 NIGHTSHIFT",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
@@ -52,15 +57,40 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "requestedExecutionLevel": "asInvoker"
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${target}-${version}.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "legalTrademarks": "NIGHTSHIFT"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "deleteAppDataOnUninstall": false
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "NIGHTSHIFT",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     }
   }
 }

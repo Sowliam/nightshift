@@ -70,11 +70,10 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
             )}
             <button
               onClick={() => onTabChange('rooms')}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${
-                activeTab === 'rooms'
+              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${activeTab === 'rooms'
                   ? 'bg-accent text-bg-main font-semibold shadow-sm'
                   : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
-              }`}
+                }`}
               title="Voice Rooms"
             >
               <Volume2 className="w-5 h-5" />
@@ -91,13 +90,12 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
               <Globe className="w-5 h-5" />
               {currentPing !== null && (
                 <span
-                  className={`text-[9px] font-mono font-bold mt-0.5 ${
-                    currentPing < 140
+                  className={`text-[9px] font-mono font-bold mt-0.5 ${currentPing < 140
                       ? 'text-[#52B788]'
                       : currentPing <= 350
-                      ? 'text-amber-400'
-                      : 'text-destructive'
-                  }`}
+                        ? 'text-amber-400'
+                        : 'text-destructive'
+                    }`}
                 >
                   {currentPing}ms
                 </span>
@@ -113,13 +111,12 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         {currentPing !== null && (
           <button
             onClick={onOpenServers}
-            className={`px-1.5 py-0.5 rounded-full border text-[10px] font-mono font-bold flex items-center gap-1 transition-all ${
-              currentPing < 140
+            className={`px-1.5 py-0.5 rounded-full border text-[10px] font-mono font-bold flex items-center gap-1 transition-all ${currentPing < 140
                 ? 'bg-[#52B788]/15 border-[#52B788]/40 text-[#52B788] hover:bg-[#52B788]/25'
                 : currentPing <= 350
-                ? 'bg-amber-400/15 border-amber-400/40 text-amber-400 hover:bg-amber-400/25'
-                : 'bg-destructive/15 border-destructive/40 text-destructive hover:bg-destructive/25'
-            }`}
+                  ? 'bg-amber-400/15 border-amber-400/40 text-amber-400 hover:bg-amber-400/25'
+                  : 'bg-destructive/15 border-destructive/40 text-destructive hover:bg-destructive/25'
+              }`}
             title="Current RTT Ping - Click to test regions"
           >
             <Zap className="w-2.5 h-2.5" />
@@ -137,11 +134,10 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
 
         <div className="relative group">
           <div
-            className={`w-10 h-10 rounded-full bg-bg-elevated border flex items-center justify-center text-xs font-bold text-text-primary cursor-pointer transition-all ${
-              isSpeakingNow
+            className={`w-10 h-10 rounded-full bg-bg-elevated border flex items-center justify-center text-xs font-bold text-text-primary cursor-pointer transition-all ${isSpeakingNow
                 ? 'border-online ring-2 ring-online ring-offset-2 ring-offset-bg-secondary text-online shadow-[0_0_16px_rgba(82,183,136,0.6)] scale-105'
                 : 'border-border-subtle hover:border-accent'
-            }`}
+              }`}
             title={user ? `${user.displayName} (${isSpeakingNow ? 'Speaking' : 'Online'})` : 'Guest'}
             onClick={onOpenSettings}
           >
