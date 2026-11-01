@@ -76,8 +76,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none animate-in fade-in duration-200">
       <div className="wrapper">
         <div className="card-switch">
-          <label className="switch">
+          <div className="switch">
             <input
+              id="auth-mode-toggle"
               className="toggle"
               type="checkbox"
               checked={mode === 'register'}
@@ -87,8 +88,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                 setConfirmPassword('');
               }}
             />
-            <span className="slider"></span>
-            <span className="card-side"></span>
+            <label htmlFor="auth-mode-toggle" className="slider" title="Toggle Log in / Sign up"></label>
+            <label htmlFor="auth-mode-toggle" className="card-side"></label>
             <div className="flip-card__inner">
               {/* Log in Front Card */}
               <div className="flip-card__front">
@@ -122,7 +123,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPassword((prev) => !prev); }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
                       tabIndex={-1}
                       title={showPassword ? 'Hide password' : 'Show password'}
@@ -188,7 +189,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPassword((prev) => !prev); }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
                       tabIndex={-1}
                       title={showPassword ? 'Hide password' : 'Show password'}
@@ -211,7 +212,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     />
                     <button
                       type="button"
-                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowConfirmPassword((prev) => !prev); }}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
                       tabIndex={-1}
                       title={showConfirmPassword ? 'Hide password' : 'Show password'}
@@ -234,9 +235,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                 </form>
               </div>
             </div>
-          </label>
+          </div>
         </div>
       </div>
     </div>
-    );
-  };
+  );
+};
