@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, RefreshCw, Zap, Shield, CheckCircle2 } from 'lucide-react';
+import { X, Globe, RefreshCw, Zap, Shield, CheckCircle2, Check, Sparkles } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
-import { getApiBase } from '../../lib/api';
+import { getApiBase, setApiBase } from '../../lib/api';
 
 interface ServerPingModalProps {
   isOpen: boolean;
@@ -13,48 +13,55 @@ interface ServerRegion {
   name: string;
   location: string;
   endpoint: string;
-  isPrimary: boolean;
+  type: 'gateway' | 'voice' | 'cdn';
   ping: number | null;
   status: 'idle' | 'testing' | 'online' | 'unreachable';
 }
 
+const RENDER_ORIGIN = 'https://nightshift-server-cfch.onrender.com';
+const CLOUDFLARE_PROXY = 'https://nightshift-api.gemesowl.workers.dev';
+
 export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClose }) => {
   const { currentPing } = useLiveKitStore();
+  const [activeBackend, setActiveBackend] = useState<string>(getApiBase());
+  const [switchFeedback, setSwitchFeedback] = useState<string | null>(null);
+
+  const isRenderActive = activeBackend.includes('onrender.com');
 
   const [servers, setServers] = useState<ServerRegion[]>([
     {
+      id: 'render-backend',
+      name: 'Render Origin Core Backend',
+      location: 'Frankfurt EU (Core API & DB - Direct)',
+      endpoint: RENDER_ORIGIN,
+      type: 'gateway',
+      ping: null,
+      status: 'idle',
+    },
+    {
       id: 'cloudflare-gateway',
       name: 'Cloudflare Edge Proxy (Iran Gateway)',
-      location: 'Global Anycast Edge Network',
-      endpoint: `${getApiBase()}/api/health`,
-      isPrimary: true,
+      location: 'Global Anycast Edge Network (Anti-Filter)',
+      endpoint: CLOUDFLARE_PROXY,
+      type: 'gateway',
       ping: null,
       status: 'idle',
     },
     {
       id: 'livekit-cloud',
       name: 'LiveKit Cloud Voice & Video Edge',
-      location: 'Frankfurt EU (Low-Latency WebRTC)',
+      location: 'Frankfurt EU (Low-Latency WebRTC Audio)',
       endpoint: 'https://voiceline-qy3slc6n.livekit.cloud',
-      isPrimary: false,
+      type: 'voice',
       ping: currentPing,
       status: currentPing ? 'online' : 'idle',
-    },
-    {
-      id: 'render-backend',
-      name: 'Render Origin Core Backend',
-      location: 'Frankfurt EU (Core API & DB)',
-      endpoint: 'https://nightshift-server-cfch.onrender.com/api/health',
-      isPrimary: false,
-      ping: null,
-      status: 'idle',
     },
     {
       id: 'vercel-web',
       name: 'Vercel Global Frontend CDN',
       location: 'Global High-Speed Edge CDN',
       endpoint: 'https://dist-three-gray-67.vercel.app',
-      isPrimary: false,
+      type: 'cdn',
       ping: null,
       status: 'idle',
     },
@@ -62,7 +69,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   const [isTestingAll, setIsTestingAll] = useState(false);
 
-    const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
+  const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
     // 1. If in Desktop Electron: use raw hardware-level TCP socket ping for 100% true network latency!
     if (window.nightshift?.measurePing) {
       try {
@@ -80,8 +87,8 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
     // 3. In Web browser:
     try {
-      const url = new URL(server.endpoint.startsWith('http') ? server.endpoint : `https://${server.endpoint}`);
-      const pingUrl = `${url.origin}/api/ping`;
+      const url = new URL(server.endpoint.startsWith('http') ? server.endpoint : `https://\${server.endpoint}`);
+      const pingUrl = `\${url.origin}/api/ping`;
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3500);
@@ -118,8 +125,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
         }
       } catch {}
 
-      // Real network RTT: An initial web HTTPS probe does ~2.5 roundtrips (TCP + TLS 1.3 + HTTP payload).
-      // Converting full HTTP handshake duration to true network ping:
+      // Real network RTT: An initial web HTTPS probe does ~2.5 roundtrips.
       const realPing = Math.max(35, Math.round(totalTime / 2.5));
       return { ping: realPing, status: 'online' };
     } catch {
@@ -149,8 +155,35 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
     setIsTestingAll(false);
   };
 
+  const handleSelectGateway = (target: 'render-backend' | 'cloudflare-gateway') => {
+    const selectedUrl = target === 'render-backend' ? RENDER_ORIGIN : CLOUDFLARE_PROXY;
+    setApiBase(selectedUrl);
+    setActiveBackend(selectedUrl);
+
+    const name = target === 'render-backend' ? 'Render Core (Direct EU)' : 'Cloudflare Proxy (Anti-Filter)';
+    setSwitchFeedback(`Switched active route to ${name}`);
+    setTimeout(() => setSwitchFeedback(null), 3000);
+  };
+
+  const handleAutoSelectBest = async () => {
+    setIsTestingAll(true);
+    const renderRes = await pingServer(servers.find((s) => s.id === 'render-backend')!);
+    const cfRes = await pingServer(servers.find((s) => s.id === 'cloudflare-gateway')!);
+    setIsTestingAll(false);
+
+    const renderPing = renderRes.ping || 9999;
+    const cfPing = cfRes.ping || 9999;
+
+    if (renderPing <= cfPing) {
+      handleSelectGateway('render-backend');
+    } else {
+      handleSelectGateway('cloudflare-gateway');
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
+      setActiveBackend(getApiBase());
       testAllServers();
     }
   }, [isOpen]);
@@ -195,7 +228,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="w-[580px] max-w-full bg-bg-secondary rounded-2xl border border-border-subtle shadow-card flex flex-col overflow-hidden">
+      <div className="w-[580px] max-w-full bg-bg-secondary rounded-2xl border border-border-subtle shadow-card flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -207,7 +240,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                 Voice Servers & Network Ping
               </h3>
               <p className="text-xs text-text-secondary">
-                Real-time latency to WebRTC media gateways
+                Select your preferred route or let NIGHTSHIFT auto-optimize
               </p>
             </div>
           </div>
@@ -224,59 +257,112 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
         <div className="p-6 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold tracking-wider text-text-secondary uppercase">
-              Available Regions
+              Route & Server Gateways
             </span>
-            <button
-              onClick={testAllServers}
-              disabled={isTestingAll}
-              className="flex items-center gap-1.5 text-xs text-accent hover:underline disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isTestingAll ? 'animate-spin' : ''}`} />
-              Test All Pings
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleAutoSelectBest}
+                disabled={isTestingAll}
+                className="flex items-center gap-1 text-xs text-online font-semibold hover:underline disabled:opacity-50"
+                title="Automatically test and pick the gateway with lowest latency"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-online" />
+                Auto-Select Lowest Ping
+              </button>
+              <button
+                onClick={testAllServers}
+                disabled={isTestingAll}
+                className="flex items-center gap-1 text-xs text-accent hover:underline disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 \${isTestingAll ? 'animate-spin' : ''}`} />
+                Test All
+              </button>
+            </div>
           </div>
 
+          {switchFeedback && (
+            <div className="px-3 py-1.5 rounded-lg bg-online/15 border border-online/30 text-online text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
+              <Check className="w-3.5 h-3.5" />
+              <span>{switchFeedback}</span>
+            </div>
+          )}
+
           <div className="space-y-2">
-            {servers.map((server) => (
-              <div
-                key={server.id}
-                className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
-                  server.isPrimary
-                    ? 'bg-bg-elevated border-accent/40 shadow-sm'
-                    : 'bg-bg-elevated/40 border-border-subtle'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                      server.isPrimary
-                        ? 'bg-highlight text-highlight-text font-bold shadow-sm'
-                        : 'bg-bg-secondary text-text-secondary border border-border-subtle'
-                    }`}
-                  >
-                    <Zap className="w-4 h-4" />
-                  </div>
+            {servers.map((server) => {
+              const isGateway = server.type === 'gateway';
+              const isConnected =
+                (server.id === 'render-backend' && isRenderActive) ||
+                (server.id === 'cloudflare-gateway' && !isRenderActive) ||
+                (server.id === 'livekit-cloud');
 
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold text-text-primary">
-                        {server.name}
-                      </span>
-                      {server.isPrimary && (
-                        <span className="text-[10px] font-bold text-accent uppercase bg-accent-subtle px-1.5 py-0.2 rounded">
-                          Connected
-                        </span>
-                      )}
+              return (
+                <div
+                  key={server.id}
+                  onClick={() => {
+                    if (isGateway) {
+                      handleSelectGateway(server.id as 'render-backend' | 'cloudflare-gateway');
+                    }
+                  }}
+                  className={`p-3.5 rounded-xl border transition-all flex items-center justify-between \${
+                    isGateway ? 'cursor-pointer hover:border-accent/70 hover:shadow-md' : ''
+                  } \${
+                    isConnected && isGateway
+                      ? 'bg-bg-elevated border-accent shadow-sm ring-1 ring-accent/30'
+                      : isConnected && server.id === 'livekit-cloud'
+                      ? 'bg-bg-elevated border-online/40'
+                      : 'bg-bg-elevated/40 border-border-subtle'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center \${
+                        isConnected && isGateway
+                          ? 'bg-highlight text-highlight-text font-bold shadow-sm'
+                          : isConnected && server.id === 'livekit-cloud'
+                          ? 'bg-online/20 text-online font-bold'
+                          : 'bg-bg-secondary text-text-secondary border border-border-subtle'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4" />
                     </div>
-                    <span className="text-[11px] text-text-muted">{server.location}</span>
+
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-text-primary">
+                          {server.name}
+                        </span>
+                        {isGateway && isConnected && (
+                          <span className="text-[10px] font-bold text-accent uppercase bg-accent-subtle px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <Check className="w-2.5 h-2.5" />
+                            Connected
+                          </span>
+                        )}
+                        {server.id === 'livekit-cloud' && (
+                          <span className="text-[10px] font-bold text-online uppercase bg-online/15 px-1.5 py-0.5 rounded">
+                            Active Voice SFU
+                          </span>
+                        )}
+                        {server.id === 'vercel-web' && (
+                          <span className="text-[10px] font-medium text-text-muted uppercase bg-bg-secondary px-1.5 py-0.5 rounded">
+                            Frontend
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-text-muted">{server.location}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {getPingBadge(server.ping, server.status)}
+                    {isGateway && !isConnected && (
+                      <span className="text-[11px] font-semibold text-accent hover:underline ml-1">
+                        Select
+                      </span>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2">
-                  {getPingBadge(server.ping, server.status)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Network Notes */}
@@ -284,9 +370,9 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
             <Shield className="w-4 h-4 text-accent shrink-0 mt-0.5" />
             <div className="leading-relaxed text-[11px]">
               <span className="text-text-primary font-medium block">
-                Automatic Low-Latency Routing & Fallback
+                Direct vs Anti-Filter Proxy Switching
               </span>
-              NIGHTSHIFT automatically routes voice packets through the lowest-latency edge server and uses TLS/TCP fallback if standard UDP is restricted on your network.
+              Click on <strong>Render Core Backend</strong> for direct lowest-latency connection (89ms), or click on <strong>Cloudflare Edge Proxy</strong> if your network experiences ISP filtering. Voice channels run on <strong>LiveKit Frankfurt WebRTC</strong>.
             </div>
           </div>
         </div>
