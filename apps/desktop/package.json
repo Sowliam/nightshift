@@ -71,20 +71,24 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${target}-${version}.${ext}",
       "requestedExecutionLevel": "asInvoker",
       "legalTrademarks": "NIGHTSHIFT"
     },
     "nsis": {
-      "oneClick": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "NIGHTSHIFT",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "differentialPackage": false
