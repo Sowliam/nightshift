@@ -63,27 +63,29 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
   const [isTestingAll, setIsTestingAll] = useState(false);
 
   const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
+    // 1. If testing LiveKit voice and we already have real WebRTC UDP ping, return real WebRTC ping!
+    if (server.id === 'livekit-cloud' && currentPing) {
+      return { ping: currentPing, status: 'online' };
+    }
+
+    // 2. Direct fast probe without failed HEAD roundtrip
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
     const startTime = performance.now();
+
     try {
       await fetch(server.endpoint, {
-        method: 'HEAD',
+        method: 'GET',
         mode: 'no-cors',
         cache: 'no-store',
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const latency = Math.round(performance.now() - startTime);
       return { ping: latency, status: 'online' };
     } catch {
-      // If HEAD is blocked, fallback to small GET with timestamp
-      try {
-        const altStart = performance.now();
-        await fetch(`${server.endpoint}?_t=${Date.now()}`, {
-          mode: 'no-cors',
-          cache: 'no-store',
-        });
-        return { ping: Math.round(performance.now() - altStart), status: 'online' };
-      } catch {
-        return { ping: 0, status: 'unreachable' };
-      }
+      clearTimeout(timeout);
+      return { ping: 0, status: 'unreachable' };
     }
   };
 
