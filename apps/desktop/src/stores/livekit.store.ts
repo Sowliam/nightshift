@@ -219,22 +219,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         localAudioContext = new AudioCtx();
       }
 
-      if (localAudioContext.state === 'suspended') {
-        localAudioContext.resume().catch(() => {});
-      }
+      const resumeAudioContext = () => {
+        if (localAudioContext && localAudioContext.state === 'suspended') {
+          localAudioContext.resume().catch(() => {});
+        }
+      };
+      resumeAudioContext();
+      window.addEventListener('click', resumeAudioContext, { once: true });
+      window.addEventListener('keydown', resumeAudioContext, { once: true });
 
-      const settings = useSettingsStore.getState();
-      const isVoiceActivity = settings.inputMode === 'voice-activity';
-
-      // Use track clone for isolated voice activity detection without opening a conflicting second getUserMedia stream
-      let stream: MediaStream;
-      try {
-        activeAnalyserTrack = track.clone();
-        activeAnalyserTrack.enabled = true;
-        stream = new MediaStream([activeAnalyserTrack]);
-      } catch {
-        stream = new MediaStream([track]);
-      }
+      // Direct live microphone stream: never clone track on Windows/Chromium to avoid dead audio buffers
+      const stream = new MediaStream([track]);
       activeAnalyserStream = stream;
 
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
@@ -270,10 +265,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       const timeBuffer = new Uint8Array(localAnalyser.fftSize);
 
-      // In voice-activity mode, start with WebRTC track muted until real speech is detected
-      if (isVoiceActivity && !get().isMuted && !get().isDeafened) {
-        track.enabled = false;
-      } else if (!get().isMuted && !get().isDeafened) {
+      // Unmuted microphones must be live so WebRTC audio flows cleanly without driver stutter
+      if (!get().isMuted && !get().isDeafened) {
         track.enabled = true;
       }
 
@@ -305,27 +298,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const isPtt = currentSettings.inputMode === 'push-to-talk';
         const isMuted = get().isMuted;
         const isDeafened = get().isDeafened;
-        const threshold = currentSettings.autoSensitivity
-          ? 18
-          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 25);
+        const localId = get().localParticipant?.identity;
 
-        // Push-to-talk owns the capture gate. This must run before the muted
-        // branch: a game keeps the audio thread busy, and that branch was
-        // turning the track back off in the gap while LiveKit unmuted it.
-        if (isPtt) {
-          const transmit = !isMuted && !isDeafened && targetPttActive;
-          if (track.enabled !== transmit) track.enabled = transmit;
-          if (localAudioContext && localAudioContext.state === 'suspended') {
-            localAudioContext.resume().catch(() => {});
-          }
-          return;
-        }
-
+        // 1. Muted or Deafened: disable capture and clear local speaking indicator
         if (isMuted || isDeafened) {
           if (track.enabled) track.enabled = false;
           if (get().isLocallySpeaking) {
             set({ isLocallySpeaking: false });
-            const localId = get().localParticipant?.identity;
             if (localId) {
               set((state) => {
                 const updated = new Set(state.activeSpeakers);
@@ -337,18 +316,40 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           return;
         }
 
-        // Voice Activity Gating:
+        // 2. Push-to-Talk: gate transmission by PTT button state and light up speaking ring
+        if (isPtt) {
+          const transmit = targetPttActive;
+          if (track.enabled !== transmit) track.enabled = transmit;
+          if (get().isLocallySpeaking !== transmit) {
+            set({ isLocallySpeaking: transmit });
+            if (localId) {
+              set((state) => {
+                const updated = new Set(state.activeSpeakers);
+                if (transmit) updated.add(localId);
+                else updated.delete(localId);
+                return { activeSpeakers: updated };
+              });
+            }
+          }
+          return;
+        }
+
+        // 3. Voice-Activity: keep track enabled for smooth WebRTC audio with Opus DTX
+        if (!track.enabled) {
+          track.enabled = true;
+        }
+
+        const threshold = currentSettings.autoSensitivity
+          ? 14
+          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 20);
+
         if (normalized >= threshold) {
           if (silenceTimer) {
             clearTimeout(silenceTimer);
             silenceTimer = null;
           }
-          if (!track.enabled) {
-            track.enabled = true;
-          }
           if (!get().isLocallySpeaking) {
             set({ isLocallySpeaking: true });
-            const localId = get().localParticipant?.identity;
             if (localId) {
               set((state) => ({
                 activeSpeakers: new Set([...state.activeSpeakers, localId]),
@@ -356,12 +357,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             }
           }
         } else {
-          // Below threshold: smooth 280ms hangover timer so speech endings are never clipped
+          // Below threshold: smooth 250ms hangover timer so speech endings are never clipped
           if (!silenceTimer && get().isLocallySpeaking) {
             silenceTimer = setTimeout(() => {
-              track.enabled = false;
               set({ isLocallySpeaking: false });
-              const localId = get().localParticipant?.identity;
               if (localId) {
                 set((state) => {
                   const updated = new Set(state.activeSpeakers);
@@ -370,7 +369,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                 });
               }
               silenceTimer = null;
-            }, 280);
+            }, 250);
           }
         }
       };
@@ -466,6 +465,27 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       // Best RTT priority: 1) Active Nominated Pair, 2) Remote Inbound RTP, 3) Any Succeeded Pair
       let bestRtt = selectedPairRtt ?? remoteRtpRtt ?? candidatePairRtt;
 
+      // In Desktop Electron: measure real socket TCP RTT directly to LiveKit Frankfurt edge
+      if (window.nightshift?.measurePing) {
+        try {
+          const roomUrl = (room as any)?.options?.url || (room.engine as any)?.url || 'voiceline-qy3slc6n.livekit.cloud';
+          const tcpHost = String(roomUrl)
+            .replace(/^(wss?|https?):\/\//, '')
+            .split('/')[0]
+            .split(':')[0]
+            .trim();
+          if (tcpHost) {
+            const hwPing = await window.nightshift.measurePing(tcpHost, 443);
+            if (hwPing > 0 && hwPing < 1500) {
+              // Prioritize true hardware TCP latency over delayed/stuck candidate stats
+              if (bestRtt === null || hwPing < bestRtt) {
+                bestRtt = hwPing;
+              }
+            }
+          }
+        } catch {}
+      }
+
       // 2. Fallback to server ping ONLY if WebRTC hasn't produced a candidate pair yet
       if (bestRtt === null && lastMeasuredPing <= 0) {
         try {
@@ -484,10 +504,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
 
       if (bestRtt !== null) {
-        // Instant snap if previously had synthetic high HTTP ping or outlier
-        const smoothed = (lastMeasuredPing > 120 && bestRtt < 100) || lastMeasuredPing <= 0
-          ? bestRtt
-          : Math.round(lastMeasuredPing * 0.4 + bestRtt * 0.6);
+        // Fast convergence: when ping drops, immediately track real low latency
+        let smoothed = bestRtt;
+        if (lastMeasuredPing > 0) {
+          if (bestRtt < lastMeasuredPing) {
+            smoothed = Math.round(lastMeasuredPing * 0.2 + bestRtt * 0.8);
+          } else {
+            smoothed = Math.round(lastMeasuredPing * 0.5 + bestRtt * 0.5);
+          }
+        }
         lastMeasuredPing = smoothed;
 
         set((state) => ({
@@ -1465,9 +1490,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           }
 
           soundboardAudioEngine.setMicrophoneMuted(desiredMuted);
-          if (get().isMuted !== desiredMuted || get().isLocallySpeaking === desiredMuted) {
-            set({ isMuted: desiredMuted, isLocallySpeaking: !desiredMuted });
-          }
+          const localId = room.localParticipant?.identity;
+          const isSpeaking = !desiredMuted;
+          set((state) => {
+            const updated = new Set(state.activeSpeakers);
+            if (localId) {
+              if (isSpeaking) updated.add(localId);
+              else updated.delete(localId);
+            }
+            return {
+              isMuted: desiredMuted,
+              isLocallySpeaking: isSpeaking,
+              activeSpeakers: updated,
+            };
+          });
 
           if (!desiredMuted) {
             sounds.playPttActivate();

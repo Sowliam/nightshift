@@ -415,7 +415,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
 
                 {/* Speaking Wave Pulse */}
                 {p.isSpeaking && (
-                  <span className="absolute -inset-1 rounded-full border-2 border-accent-bright/60 animate-ping pointer-events-none" />
+                  <span className="absolute -inset-1 rounded-full border-2 border-online/70 animate-ping pointer-events-none" />
                 )}
               </div>
 

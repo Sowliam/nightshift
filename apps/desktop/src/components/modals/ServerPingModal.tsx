@@ -332,13 +332,13 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                           {server.name}
                         </span>
                         {isGateway && isConnected && (
-                          <span className="text-[10px] font-bold text-accent uppercase bg-accent-subtle px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                          <span className="text-[10px] font-bold text-online uppercase bg-online/15 border border-online/30 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                             <Check className="w-2.5 h-2.5" />
-                            Connected
+                            Active Route
                           </span>
                         )}
                         {server.id === 'livekit-cloud' && (
-                          <span className="text-[10px] font-bold text-online uppercase bg-online/15 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] font-bold text-online uppercase bg-online/15 border border-online/30 px-1.5 py-0.5 rounded">
                             Active Voice SFU
                           </span>
                         )}
@@ -352,12 +352,26 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2.5">
                     {getPingBadge(server.ping, server.status)}
-                    {isGateway && !isConnected && (
-                      <span className="text-[11px] font-semibold text-accent hover:underline ml-1">
-                        Select
-                      </span>
+                    {isGateway && (
+                      isConnected ? (
+                        <div className="px-2.5 py-1 rounded-lg bg-online/15 text-online text-xs font-bold border border-online/30 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Active</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectGateway(server.id as 'render-backend' | 'cloudflare-gateway');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-accent text-bg-main hover:brightness-110 text-xs font-bold transition-all active:scale-95 shadow-sm cursor-pointer"
+                        >
+                          Select
+                        </button>
+                      )
                     )}
                   </div>
                 </div>

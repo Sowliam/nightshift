@@ -17,7 +17,11 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   onOpenServers,
 }) => {
   const { user } = useAuthStore();
-  const { currentPing, isLocallySpeaking } = useLiveKitStore();
+  const { currentPing, isLocallySpeaking, localParticipant, activeSpeakers } = useLiveKitStore();
+
+  const isSpeakingNow =
+    isLocallySpeaking ||
+    (localParticipant && (activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking));
 
   const getInitials = (name: string) => {
     return name
@@ -123,17 +127,17 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
         <div className="relative group">
           <div
             className={`w-10 h-10 rounded-full bg-bg-elevated border flex items-center justify-center text-xs font-bold text-text-primary cursor-pointer transition-all ${
-              isLocallySpeaking
-                ? 'border-accent text-accent shadow-[0_0_12px_rgba(196,211,106,0.6)] ring-2 ring-accent'
+              isSpeakingNow
+                ? 'border-online ring-2 ring-online ring-offset-2 ring-offset-bg-secondary text-online shadow-[0_0_16px_rgba(82,183,136,0.6)] scale-105'
                 : 'border-border-subtle hover:border-accent'
             }`}
-            title={user ? `${user.displayName} (${isLocallySpeaking ? 'Speaking' : 'Online'})` : 'Guest'}
+            title={user ? `${user.displayName} (${isSpeakingNow ? 'Speaking' : 'Online'})` : 'Guest'}
             onClick={onOpenSettings}
           >
             {user ? getInitials(user.displayName) : 'U'}
           </div>
-          {isLocallySpeaking ? (
-            <span className="absolute -inset-0.5 rounded-full border border-accent animate-ping opacity-75 pointer-events-none" />
+          {isSpeakingNow ? (
+            <span className="absolute -inset-1 rounded-full border-2 border-online animate-ping opacity-75 pointer-events-none" />
           ) : (
             <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-online border-2 border-bg-secondary" />
           )}
