@@ -74,15 +74,48 @@ export async function getLiveKitRoomParticipants(
     );
 
     const participants = await Promise.race([fetchPromise, timeoutPromise]);
-    const mapped = participants.map((p) => ({
-      identity: p.identity,
-      name: p.name || p.identity,
-    }));
+    
+    // Explicitly filter for ACTIVE (2) or JOINED (1) participants.
+    // Discard any participant marked as DISCONNECTED (3)
+    const mapped = (participants || [])
+      .filter((p: any) => {
+        if (!p) return false;
+        // ParticipantInfo_State: 0 = JOINING, 1 = JOINED, 2 = ACTIVE, 3 = DISCONNECTED
+        if (p.state === 3 || p.state === 'DISCONNECTED') return false;
+        return true;
+      })
+      .map((p) => ({
+        identity: p.identity,
+        name: p.name || p.identity,
+      }));
 
     participantCache.set(roomName, { data: mapped, timestamp: now });
     return mapped;
+  } catch (err: any) {
+    const msg = (err?.message || '').toLowerCase();
+    // If room doesn't exist on LiveKit (or 404 / not found / empty), there are 0 participants.
+    // Invalidate the cache so ghost users are never shown!
+    if (msg.includes('not found') || msg.includes('does not exist') || err?.status === 404 || err?.code === 5) {
+      participantCache.set(roomName, { data: [], timestamp: now });
+      return [];
+    }
+    // For other transient errors, if cache is expired, return empty array
+    if (!cached || now - cached.timestamp > 5000) {
+      return [];
+    }
+    return cached.data;
+  }
+}
+
+export async function removeLiveKitParticipant(roomName: string, identity: string): Promise<boolean> {
+  const client = getClient();
+  if (!client) return false;
+  try {
+    await client.removeParticipant(roomName, identity);
+    invalidateRoomParticipantCache(roomName);
+    return true;
   } catch {
-    return cached?.data || [];
+    return false;
   }
 }
 

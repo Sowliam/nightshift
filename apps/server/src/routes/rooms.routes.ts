@@ -10,6 +10,7 @@ import {
   generateLiveKitToken,
   getLiveKitRoomParticipants,
   invalidateRoomParticipantCache,
+  removeLiveKitParticipant,
 } from '../services/livekit.service.js';
 import { config } from '../config.js';
 import { requireAuth } from '../lib/auth.js';
@@ -119,5 +120,24 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
     };
 
     return reply.status(200).send(response);
+  });
+
+  // Explicit leave endpoint to purge participant from LiveKit immediately
+  fastify.post('/api/channels/:channelId/leave', async (request, reply) => {
+    const user = await requireAuth(request, reply);
+    if (!user) return;
+
+    const { channelId } = request.params as { channelId: string };
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+    });
+
+    if (channel) {
+      const roomKey = `ns_${channel.serverId}_${channel.id}`;
+      await removeLiveKitParticipant(roomKey, user.id);
+      invalidateRoomParticipantCache(roomKey);
+    }
+
+    return reply.status(200).send({ success: true });
   });
 };

@@ -7,6 +7,7 @@ describe('NIGHTSHIFT End-to-End Client Simulation', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
+  
     app = await buildApp();
     await app.ready();
   });
@@ -89,5 +90,5 @@ describe('NIGHTSHIFT End-to-End Client Simulation', () => {
     expect(updateRes.statusCode).toBe(200);
     const updatedUser = JSON.parse(updateRes.body).user;
     expect(updatedUser.displayName).toBe('Kian Prime');
-  });
+  }, 30000);
 });

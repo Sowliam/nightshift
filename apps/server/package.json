@@ -2,6 +2,7 @@
   "name": "@nightshift/server",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -9,8 +10,9 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma db push",
+    "db:sync": "node scripts/sync-db-provider.js",
+    "db:generate": "node scripts/sync-db-provider.js && prisma generate",
+    "db:migrate": "node scripts/sync-db-provider.js && prisma db push",
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {

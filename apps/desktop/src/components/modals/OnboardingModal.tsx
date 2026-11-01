@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth.store';
 
 interface OnboardingModalProps {
@@ -12,6 +12,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -28,6 +30,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
 
     if (!cleanUsername) {
       setErrorMsg('Please enter a username');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(cleanUsername)) {
+      setErrorMsg('Username can only contain English letters, numbers, and underscores');
       return;
     }
 
@@ -100,18 +107,29 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     autoFocus={mode === 'login'}
                     required
                   />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    name="password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (errorMsg) setErrorMsg(null);
-                    }}
-                    className="flip-card__input"
-                    required
-                  />
+                  <div className="relative w-[250px]">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Password"
+                      name="password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (errorMsg) setErrorMsg(null);
+                      }}
+                      className="flip-card__input pr-9 !w-full"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
+                      tabIndex={-1}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                   {errorMsg && mode === 'login' && (
                     <div className="text-[11px] text-rose-400 font-semibold px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 text-center max-w-[250px]">
                       {errorMsg}
@@ -155,30 +173,52 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     className="flip-card__input"
                     required
                   />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    name="password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (errorMsg) setErrorMsg(null);
-                    }}
-                    className="flip-card__input"
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Confirm Password"
-                    name="confirmPassword"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      if (errorMsg) setErrorMsg(null);
-                    }}
-                    className="flip-card__input"
-                    required
-                  />
+                  <div className="relative w-[250px]">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Password"
+                      name="password"
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (errorMsg) setErrorMsg(null);
+                      }}
+                      className="flip-card__input pr-9 !w-full"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
+                      tabIndex={-1}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <div className="relative w-[250px]">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      placeholder="Confirm Password"
+                      name="confirmPassword"
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (errorMsg) setErrorMsg(null);
+                      }}
+                      className="flip-card__input pr-9 !w-full"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white transition-colors p-1"
+                      tabIndex={-1}
+                      title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                   {errorMsg && mode === 'register' && (
                     <div className="text-[11px] text-rose-400 font-semibold px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 text-center max-w-[250px]">
                       {errorMsg}

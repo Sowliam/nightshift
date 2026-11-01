@@ -135,31 +135,59 @@ export const soundsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ success: true, message: 'Sound deleted successfully' });
   });
 
-  // 5. Proxy/stream audio from Cloudflare R2 (when public R2 dev domain is not enabled)
-  fastify.get('/api/sounds/stream/:key', async (request, reply) => {
-    const { key } = request.params as { key: string };
-    const decodedKey = decodeURIComponent(key);
+  // 5. Proxy/stream audio from Cloudflare R2 or local uploads (handles single keys and sub-paths with wildcards)
+  const streamHandler = async (request: any, reply: any) => {
+    const rawKey = request.params['*'] || request.params.key || '';
+    const decodedKey = decodeURIComponent(rawKey).replace(/^\/+/, '');
 
-    if (!r2Service.isConfigured()) {
-      return reply.status(400).send({ error: 'Cloudflare R2 is not configured' });
+    if (!decodedKey) {
+      return reply.status(400).send({ error: 'Missing audio key' });
     }
 
-    try {
-      const s3Res = await r2Service.getAudioStream(decodedKey);
-      if (!s3Res.Body) {
-        return reply.status(404).send({ error: 'Audio file not found in R2' });
+    // 1. First check if it's stored in Cloudflare R2
+    if (r2Service.isConfigured()) {
+      try {
+        const s3Res = await r2Service.getAudioStream(decodedKey);
+        if (s3Res.Body) {
+          reply.header('Content-Type', s3Res.ContentType || 'audio/mpeg');
+          reply.header('Accept-Ranges', 'bytes');
+          if (s3Res.ContentLength) {
+            reply.header('Content-Length', s3Res.ContentLength);
+          }
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+          return reply.send(s3Res.Body as any);
+        }
+      } catch (err: any) {
+        request.log.warn(err, `R2 streaming lookup for "${decodedKey}" not found, checking local storage fallback...`);
       }
-
-      reply.header('Content-Type', s3Res.ContentType || 'audio/mpeg');
-      reply.header('Accept-Ranges', 'bytes');
-      if (s3Res.ContentLength) {
-        reply.header('Content-Length', s3Res.ContentLength);
-      }
-
-      return reply.send(s3Res.Body as any);
-    } catch (err: any) {
-      request.log.error(err, 'Failed to stream audio from R2');
-      return reply.status(404).send({ error: 'Failed to stream audio' });
     }
-  });
+
+    // 2. Check local uploads directory fallback (e.g. uploads/sounds/)
+    const cleanBasename = path.basename(decodedKey);
+    const possiblePaths = [
+      path.resolve(process.cwd(), 'uploads', 'sounds', cleanBasename),
+      path.resolve(process.cwd(), 'uploads', 'sounds', decodedKey),
+      path.resolve(process.cwd(), 'uploads', cleanBasename),
+    ];
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const stat = fs.statSync(p);
+          reply.header('Content-Type', 'audio/mpeg');
+          reply.header('Accept-Ranges', 'bytes');
+          reply.header('Content-Length', stat.size);
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+          return reply.send(fs.createReadStream(p));
+        } catch (streamErr) {
+          request.log.error(streamErr, `Failed to stream file from ${p}`);
+        }
+      }
+    }
+
+    return reply.status(404).send({ error: `Audio file "${decodedKey}" not found in cloud storage or local disk` });
+  };
+
+  fastify.get('/api/sounds/stream/:key', streamHandler);
+  fastify.get('/api/sounds/stream/*', streamHandler);
 };

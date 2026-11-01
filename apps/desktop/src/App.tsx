@@ -125,6 +125,17 @@ export const App: React.FC = () => {
 
     initialize();
 
+    // Clean up voice participation and LiveKit sessions on window close or unload
+    const handleUnload = () => {
+      const activeVoice = useServerStore.getState().activeVoiceChannelId;
+      if (activeVoice) {
+        api.leaveVoiceChannel(activeVoice).catch(() => {});
+      }
+      useLiveKitStore.getState().disconnect().catch(() => {});
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+
     // Check for invite links in URL query (?invite=code) or hash (#invite=code) or path (/invite/code)
     try {
       const searchParams = new URLSearchParams(window.location.search);
@@ -144,6 +155,11 @@ export const App: React.FC = () => {
         setIsInviteOpen(true);
       }
     } catch { }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+    };
   }, []);
 
   // Browser Audio Unblocker: Resumes WebAudio Context and LiveKit audio playback on any interaction

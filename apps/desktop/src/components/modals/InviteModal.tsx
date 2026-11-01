@@ -71,9 +71,16 @@ export const InviteModal: React.FC<InviteModalProps> = ({
 
   useEffect(() => {
     if (isOpen && activeServerId) {
-      fetchInvites(activeServerId);
-      // Auto-generate or load default invite
-      handleGenerateInvite();
+      fetchInvites(activeServerId).then(() => {
+        const existing = useServerStore.getState().invites.find(
+          (inv) => inv.isValid && (!inv.expiresAt || new Date(inv.expiresAt) > new Date())
+        );
+        if (existing) {
+          setCreatedInvite(existing);
+        } else {
+          handleGenerateInvite();
+        }
+      });
     }
   }, [isOpen, activeServerId]);
 
@@ -155,9 +162,10 @@ export const InviteModal: React.FC<InviteModalProps> = ({
           onClose();
         }, 1200);
       } else {
+        const storeError = useServerStore.getState().error;
         setJoinStatus({
           success: false,
-          message: 'Invalid, expired, or revoked invite code.',
+          message: storeError || 'Invalid, expired, or revoked invite code.',
         });
       }
     } catch (err: any) {

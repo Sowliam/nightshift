@@ -67,7 +67,10 @@ interface SoundboardState {
   addSoundToPlaylist: (playlistId: string, soundId: string) => Promise<void>;
   removeSoundFromPlaylist: (playlistId: string, soundId: string) => Promise<void>;
   playPlaylist: (playlistId: string, startIndex?: number) => Promise<void>;
-  setQueue: (soundIds: string[], startIndex?: number) => Promise<void>;
+  setQueue: (soundIds: string[], startIndex?: number, autoPlay?: boolean) => Promise<void>;
+  addToQueue: (soundId: string) => void;
+  removeFromQueue: (index: number) => void;
+  clearQueue: () => void;
   playNext: () => Promise<void>;
   playPrevious: () => Promise<void>;
   toggleShuffle: () => void;
@@ -404,6 +407,10 @@ export const useSoundboardStore = create<SoundboardState>()(
               set({ queue: [id], currentQueueIndex: 0 });
             }
 
+            if (!localOnly) {
+              await useLiveKitStore.getState().ensureSoundboardTrackPublished();
+            }
+
             await soundboardAudioEngine.playSound(sound, localOnly, true);
             if (!localOnly) {
               useLiveKitStore.getState().broadcastSoundboardPlaying(sound.id, sound.name, sound.duration);
@@ -420,6 +427,7 @@ export const useSoundboardStore = create<SoundboardState>()(
         },
 
         resumeSound: async (id: string) => {
+          await useLiveKitStore.getState().ensureSoundboardTrackPublished();
           await soundboardAudioEngine.resumeSound(id);
           const sound = get().sounds.find((s) => s.id === id) || get().cloudSounds.find((c) => c.id === id);
           if (sound) {
@@ -601,15 +609,51 @@ export const useSoundboardStore = create<SoundboardState>()(
           }
         },
 
-        setQueue: async (soundIds: string[], startIndex = 0) => {
+        setQueue: async (soundIds: string[], startIndex = 0, autoPlay = true) => {
           set({
             queue: soundIds,
             currentQueueIndex: startIndex,
           });
           const target = soundIds[startIndex];
-          if (target) {
+          if (target && autoPlay) {
             await get().playSound(target, false);
           }
+        },
+
+        addToQueue: (soundId: string) => {
+          const { queue, activePlayingIds } = get();
+          if (queue.includes(soundId)) return;
+          const nextQueue = [...queue, soundId];
+          set({ queue: nextQueue });
+          if (activePlayingIds.length === 0) {
+            set({ currentQueueIndex: nextQueue.length - 1 });
+            get().playSound(soundId, false);
+          }
+        },
+
+        removeFromQueue: (index: number) => {
+          const { queue, currentQueueIndex } = get();
+          const removedId = queue[index];
+          const newQueue = queue.filter((_, idx) => idx !== index);
+          let newIndex = currentQueueIndex;
+          if (index < currentQueueIndex) {
+            newIndex = Math.max(0, currentQueueIndex - 1);
+          } else if (index === currentQueueIndex) {
+            if (removedId) {
+              get().stopSound(removedId);
+            }
+            newIndex = Math.min(newQueue.length - 1, currentQueueIndex);
+            if (newQueue[newIndex]) {
+              get().playSound(newQueue[newIndex], false);
+            }
+          }
+          set({ queue: newQueue, currentQueueIndex: Math.max(0, newIndex) });
+        },
+
+        clearQueue: () => {
+          const { activePlayingIds } = get();
+          activePlayingIds.forEach((id) => get().stopSound(id));
+          set({ queue: [], currentQueueIndex: 0 });
         },
 
         playNext: async () => {

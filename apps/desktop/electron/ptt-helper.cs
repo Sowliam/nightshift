@@ -3,66 +3,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 
-// Global push-to-talk listener.
-// GetAsyncKeyState and low-level hooks are blocked by Windows UIPI while an
-// elevated game is in front, which is why PTT only worked as Administrator.
-// Raw Input with RIDEV_INPUTSINK is delivered to our own hidden window, so it
-// still arrives when a higher-integrity game has focus, without consuming the key.
-class Program
+class PttRawInputForm : Form
 {
-    const int WM_INPUT = 0x00FF;
-    const int WM_CLOSE = 0x0010;
-    const int WM_APP_QUIT = 0x8001;
-    const uint RID_INPUT = 0x10000003;
-    const uint RIDEV_INPUTSINK = 0x00000100;
-    const uint RIM_TYPEMOUSE = 0;
-    const uint RIM_TYPEKEYBOARD = 1;
-    const ushort RI_KEY_BREAK = 1;
-
-    const ushort RI_MOUSE_LEFT_BUTTON_DOWN = 0x0001;
-    const ushort RI_MOUSE_LEFT_BUTTON_UP = 0x0002;
-    const ushort RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
-    const ushort RI_MOUSE_RIGHT_BUTTON_UP = 0x0008;
-    const ushort RI_MOUSE_MIDDLE_BUTTON_DOWN = 0x0010;
-    const ushort RI_MOUSE_MIDDLE_BUTTON_UP = 0x0020;
-    const ushort RI_MOUSE_BUTTON_4_DOWN = 0x0040;
-    const ushort RI_MOUSE_BUTTON_4_UP = 0x0080;
-    const ushort RI_MOUSE_BUTTON_5_DOWN = 0x0100;
-    const ushort RI_MOUSE_BUTTON_5_UP = 0x0200;
-
-    const int VK_LBUTTON = 0x01;
-    const int VK_RBUTTON = 0x02;
-    const int VK_MBUTTON = 0x04;
-    const int VK_XBUTTON1 = 0x05;
-    const int VK_XBUTTON2 = 0x06;
-    const int VK_SHIFT = 0x10;
-    const int VK_LSHIFT = 0xA0;
-    const int VK_RSHIFT = 0xA1;
-    const int VK_CONTROL = 0x11;
-    const int VK_LCONTROL = 0xA2;
-    const int VK_RCONTROL = 0xA3;
-    const int VK_MENU = 0x12;
-    const int VK_LMENU = 0xA4;
-    const int VK_RMENU = 0xA5;
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    struct WNDCLASSEX
-    {
-        public int cbSize;
-        public int style;
-        public IntPtr lpfnWndProc;
-        public int cbClsExtra;
-        public int cbWndExtra;
-        public IntPtr hInstance;
-        public IntPtr hIcon;
-        public IntPtr hCursor;
-        public IntPtr hbrBackground;
-        public string lpszMenuName;
-        public string lpszClassName;
-        public IntPtr hIconSm;
-    }
-
     [StructLayout(LayoutKind.Sequential)]
     struct RAWINPUTDEVICE
     {
@@ -82,45 +26,36 @@ class Program
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct MSG
+    struct RAWKEYBOARD
     {
-        public IntPtr hwnd;
-        public uint message;
-        public IntPtr wParam;
-        public IntPtr lParam;
-        public uint time;
-        public int ptX;
-        public int ptY;
+        public ushort MakeCode;
+        public ushort Flags;
+        public ushort Reserved;
+        public ushort VKey;
+        public uint Message;
+        public uint ExtraInformation;
     }
 
-    delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern IntPtr CreateWindowEx(
-        uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
-        int x, int y, int nWidth, int nHeight,
-        IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
-
-    [DllImport("user32.dll")]
-    static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    static extern bool DestroyWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-
-    [DllImport("user32.dll")]
-    static extern bool TranslateMessage(ref MSG lpMsg);
-
-    [DllImport("user32.dll")]
-    static extern IntPtr DispatchMessage(ref MSG lpMsg);
-
-    [DllImport("user32.dll")]
-    static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Explicit)]
+    struct RAWMOUSE
+    {
+        [FieldOffset(0)]
+        public ushort usFlags;
+        [FieldOffset(4)]
+        public uint ulButtons;
+        [FieldOffset(4)]
+        public ushort usButtonFlags;
+        [FieldOffset(6)]
+        public ushort usButtonData;
+        [FieldOffset(8)]
+        public uint ulRawButtons;
+        [FieldOffset(12)]
+        public int lLastX;
+        [FieldOffset(16)]
+        public int lLastY;
+        [FieldOffset(20)]
+        public uint ulExtraInformation;
+    }
 
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] pRawInputDevices, uint uiNumDevices, uint cbSize);
@@ -128,29 +63,40 @@ class Program
     [DllImport("user32.dll", SetLastError = true)]
     static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr GetModuleHandle(string lpModuleName);
-
     [DllImport("user32.dll")]
     static extern short GetAsyncKeyState(int vKey);
 
-    private static readonly WndProcDelegate WndProcKeeper = WndProc;
-    private static IntPtr hwnd = IntPtr.Zero;
-    private static readonly object consoleLock = new object();
+    const int RIDEV_INPUTSINK = 0x00000100;
+    const int WM_INPUT = 0x00FF;
+    const uint RID_INPUT = 0x10000003;
 
-    private static volatile int currentVKey = 32;
-    private static volatile bool isEnabled = false;
-    private static volatile bool isDown = false;
-    private static volatile bool isRecording = false;
-    private static bool rawInputReady = false;
+    // Mouse raw input flags
+    const ushort RI_MOUSE_RIGHT_BUTTON_DOWN = 0x0004;
+    const ushort RI_MOUSE_RIGHT_BUTTON_UP   = 0x0008;
+    const ushort RI_MOUSE_MIDDLE_BUTTON_DOWN = 0x0010;
+    const ushort RI_MOUSE_MIDDLE_BUTTON_UP   = 0x0020;
+    const ushort RI_MOUSE_BUTTON_4_DOWN     = 0x0040;
+    const ushort RI_MOUSE_BUTTON_4_UP       = 0x0080;
+    const ushort RI_MOUSE_BUTTON_5_DOWN     = 0x0100;
+    const ushort RI_MOUSE_BUTTON_5_UP       = 0x0200;
+
+    public static volatile int targetVKey = 32; // Default VK_SPACE (32)
+    public static volatile bool isEnabled = false;
+    public static volatile bool isRecording = false;
+    public static volatile bool isPttActive = false;
+
+    // Release hangover delay in milliseconds (like Discord/TeamSpeak PTT Release Delay)
+    private const int RELEASE_DELAY_MS = 150;
+    private static System.Threading.Timer releaseTimer = null;
+    private static readonly object lockObj = new object();
 
     private static readonly string logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ptt_debug.log");
 
-    private static void Log(string msg)
+    public static void Log(string msg)
     {
         try
         {
-            string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] [PTT-Helper PID:{1}] {2}\r\n",
+            string line = string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] [PTT-RawInput PID:{1}] {2}\r\n",
                 DateTime.Now, System.Diagnostics.Process.GetCurrentProcess().Id, msg);
             File.AppendAllText(logFile, line);
         }
@@ -162,229 +108,238 @@ class Program
         return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
-    private static void WriteLine(string line)
+    public PttRawInputForm()
     {
-        lock (consoleLock)
+        this.WindowState = FormWindowState.Minimized;
+        this.ShowInTaskbar = false;
+        this.FormBorderStyle = FormBorderStyle.None;
+        this.Opacity = 0;
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+
+        // Register both Keyboard and Mouse for background Raw Input (RIDEV_INPUTSINK)
+        RAWINPUTDEVICE[] rid = new RAWINPUTDEVICE[2];
+
+        // 1. Keyboard
+        rid[0].usUsagePage = 0x01; // Generic Desktop Controls
+        rid[0].usUsage = 0x06;     // Keyboard
+        rid[0].dwFlags = RIDEV_INPUTSINK;
+        rid[0].hwndTarget = this.Handle;
+
+        // 2. Mouse
+        rid[1].usUsagePage = 0x01; // Generic Desktop Controls
+        rid[1].usUsage = 0x02;     // Mouse
+        rid[1].dwFlags = RIDEV_INPUTSINK;
+        rid[1].hwndTarget = this.Handle;
+
+        bool success = RegisterRawInputDevices(rid, (uint)rid.Length, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)));
+        Log(string.Format("RegisterRawInputDevices result: {0}, Handle: 0x{1:X}", success, this.Handle.ToInt64()));
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_INPUT)
         {
-            Console.WriteLine(line);
-            Console.Out.Flush();
-        }
-    }
+            uint dwSize = 0;
+            uint headerSize = (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER));
+            GetRawInputData(m.LParam, RID_INPUT, IntPtr.Zero, ref dwSize, headerSize);
 
-    private static bool SameKey(int incoming, int target)
-    {
-        if (incoming == target) return true;
-        if (target == VK_SHIFT && (incoming == VK_LSHIFT || incoming == VK_RSHIFT)) return true;
-        if (target == VK_LSHIFT && (incoming == VK_SHIFT || incoming == VK_RSHIFT)) return true;
-        if (target == VK_RSHIFT && (incoming == VK_SHIFT || incoming == VK_LSHIFT)) return true;
-        if (target == VK_CONTROL && (incoming == VK_LCONTROL || incoming == VK_RCONTROL)) return true;
-        if (target == VK_LCONTROL && (incoming == VK_CONTROL || incoming == VK_RCONTROL)) return true;
-        if (target == VK_RCONTROL && (incoming == VK_CONTROL || incoming == VK_LCONTROL)) return true;
-        if (target == VK_MENU && (incoming == VK_LMENU || incoming == VK_RMENU)) return true;
-        if (target == VK_LMENU && (incoming == VK_MENU || incoming == VK_RMENU)) return true;
-        if (target == VK_RMENU && (incoming == VK_MENU || incoming == VK_LMENU)) return true;
-        return false;
-    }
-
-    private static void EmitPtt(bool active, string source)
-    {
-        if (active == isDown) return;
-        isDown = active;
-        string pttLine = string.Format("PTT:{0}:{1}", active ? "1" : "0", CurrentTimestamp());
-        WriteLine(pttLine);
-        Log(string.Format("PTT changed -> {0} via {1}: {2}", active ? "DOWN" : "UP", source, pttLine));
-    }
-
-    private static void ConsiderKey(int vk, bool down, string source)
-    {
-        if (vk <= 0 || vk == 255) return;
-
-        if (isRecording)
-        {
-            if (vk == VK_LBUTTON) return;
-            isRecording = false;
-            string recLine = string.Format("RECORDED:{0}:{1}", vk, CurrentTimestamp());
-            WriteLine(recLine);
-            Log("Recorded key: " + recLine);
-            return;
-        }
-
-        if (!isEnabled || currentVKey <= 0) return;
-        if (!SameKey(vk, currentVKey)) return;
-        EmitPtt(down, source);
-    }
-
-    private static void ConsiderMouseFlags(ushort flags)
-    {
-        if ((flags & RI_MOUSE_LEFT_BUTTON_DOWN) != 0) ConsiderKey(VK_LBUTTON, true, "raw-mouse");
-        if ((flags & RI_MOUSE_LEFT_BUTTON_UP) != 0) ConsiderKey(VK_LBUTTON, false, "raw-mouse");
-        if ((flags & RI_MOUSE_RIGHT_BUTTON_DOWN) != 0) ConsiderKey(VK_RBUTTON, true, "raw-mouse");
-        if ((flags & RI_MOUSE_RIGHT_BUTTON_UP) != 0) ConsiderKey(VK_RBUTTON, false, "raw-mouse");
-        if ((flags & RI_MOUSE_MIDDLE_BUTTON_DOWN) != 0) ConsiderKey(VK_MBUTTON, true, "raw-mouse");
-        if ((flags & RI_MOUSE_MIDDLE_BUTTON_UP) != 0) ConsiderKey(VK_MBUTTON, false, "raw-mouse");
-        if ((flags & RI_MOUSE_BUTTON_4_DOWN) != 0) ConsiderKey(VK_XBUTTON1, true, "raw-mouse");
-        if ((flags & RI_MOUSE_BUTTON_4_UP) != 0) ConsiderKey(VK_XBUTTON1, false, "raw-mouse");
-        if ((flags & RI_MOUSE_BUTTON_5_DOWN) != 0) ConsiderKey(VK_XBUTTON2, true, "raw-mouse");
-        if ((flags & RI_MOUSE_BUTTON_5_UP) != 0) ConsiderKey(VK_XBUTTON2, false, "raw-mouse");
-    }
-
-    private static void HandleRawInput(IntPtr lParam)
-    {
-        uint headerSize = (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER));
-        uint size = 0;
-        GetRawInputData(lParam, RID_INPUT, IntPtr.Zero, ref size, headerSize);
-        if (size == 0 || size > 1024) return;
-
-        IntPtr buffer = Marshal.AllocHGlobal((int)size);
-        try
-        {
-            uint filled = size;
-            uint read = GetRawInputData(lParam, RID_INPUT, buffer, ref filled, headerSize);
-            if (read == uint.MaxValue || read == 0) return;
-
-            uint type = (uint)Marshal.ReadInt32(buffer);
-            int data = Marshal.SizeOf(typeof(RAWINPUTHEADER));
-            if (type == RIM_TYPEKEYBOARD)
+            if (dwSize > 0)
             {
-                ushort flags = (ushort)Marshal.ReadInt16(buffer, data + 2);
-                ushort vkey = (ushort)Marshal.ReadInt16(buffer, data + 6);
-                bool up = (flags & RI_KEY_BREAK) != 0;
-                ConsiderKey(vkey, !up, "raw-keyboard");
-            }
-            else if (type == RIM_TYPEMOUSE)
-            {
-                ushort buttonFlags = (ushort)Marshal.ReadInt16(buffer, data + 4);
-                if (buttonFlags != 0) ConsiderMouseFlags(buttonFlags);
-            }
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(buffer);
-        }
-    }
-
-    private static IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
-    {
-        if (msg == WM_INPUT)
-        {
-            try { HandleRawInput(lParam); }
-            catch (Exception ex) { Log("WM_INPUT exception: " + ex.Message); }
-            return IntPtr.Zero;
-        }
-        if (msg == WM_APP_QUIT || msg == WM_CLOSE)
-        {
-            DestroyWindow(hWnd);
-            return IntPtr.Zero;
-        }
-        if (msg == 0x0002) // WM_DESTROY
-        {
-            PostQuit();
-            return IntPtr.Zero;
-        }
-        return DefWindowProc(hWnd, msg, wParam, lParam);
-    }
-
-    [DllImport("user32.dll")]
-    static extern void PostQuitMessage(int nExitCode);
-
-    private static void PostQuit()
-    {
-        PostQuitMessage(0);
-    }
-
-    private static bool StartRawInputWindow()
-    {
-        IntPtr hInstance = GetModuleHandle(null);
-        WNDCLASSEX wc = new WNDCLASSEX();
-        wc.cbSize = Marshal.SizeOf(typeof(WNDCLASSEX));
-        wc.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(WndProcKeeper);
-        wc.hInstance = hInstance;
-        wc.lpszClassName = "NightshiftPttRawInput";
-
-        ushort atom = RegisterClassEx(ref wc);
-        if (atom == 0)
-        {
-            Log("RegisterClassEx failed: " + Marshal.GetLastWin32Error());
-            return false;
-        }
-
-        // Hidden real window. Message-only windows do not receive RIDEV_INPUTSINK.
-        hwnd = CreateWindowEx(
-            0x00000080, // WS_EX_TOOLWINDOW
-            wc.lpszClassName,
-            "Nightshift PTT",
-            0,
-            0, 0, 0, 0,
-            IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
-
-        if (hwnd == IntPtr.Zero)
-        {
-            Log("CreateWindowEx failed: " + Marshal.GetLastWin32Error());
-            return false;
-        }
-
-        RAWINPUTDEVICE[] devices = new RAWINPUTDEVICE[2];
-        devices[0].usUsagePage = 0x01;
-        devices[0].usUsage = 0x06; // keyboard
-        devices[0].dwFlags = RIDEV_INPUTSINK;
-        devices[0].hwndTarget = hwnd;
-        devices[1].usUsagePage = 0x01;
-        devices[1].usUsage = 0x02; // mouse
-        devices[1].dwFlags = RIDEV_INPUTSINK;
-        devices[1].hwndTarget = hwnd;
-
-        bool ok = RegisterRawInputDevices(devices, (uint)devices.Length, (uint)Marshal.SizeOf(typeof(RAWINPUTDEVICE)));
-        if (!ok)
-        {
-            Log("RegisterRawInputDevices failed: " + Marshal.GetLastWin32Error());
-            return false;
-        }
-
-        rawInputReady = true;
-        Log("Raw Input sink registered. PTT works in foreground games without administrator.");
-        return true;
-    }
-
-    private static void PollFallback()
-    {
-        while (true)
-        {
-            try
-            {
-                if (isRecording)
+                IntPtr buffer = Marshal.AllocHGlobal((int)dwSize);
+                try
                 {
-                    for (int vk = 1; vk <= 254; vk++)
+                    if (GetRawInputData(m.LParam, RID_INPUT, buffer, ref dwSize, headerSize) == dwSize)
                     {
-                        if (vk == VK_LBUTTON) continue;
-                        short state = GetAsyncKeyState(vk);
-                        if ((state & 0x8000) != 0)
+                        RAWINPUTHEADER header = (RAWINPUTHEADER)Marshal.PtrToStructure(buffer, typeof(RAWINPUTHEADER));
+                        IntPtr dataPtr = new IntPtr(buffer.ToInt64() + headerSize);
+
+                        if (header.dwType == 1) // RIM_TYPEKEYBOARD
                         {
-                            ConsiderKey(vk, true, "fallback-poll");
-                            Thread.Sleep(200);
-                            break;
+                            RAWKEYBOARD kb = (RAWKEYBOARD)Marshal.PtrToStructure(dataPtr, typeof(RAWKEYBOARD));
+                            ushort vkey = kb.VKey;
+                            bool isUp = (kb.Flags & 1) != 0; // RI_KEY_BREAK = 1 (KeyUp), RI_KEY_MAKE = 0 (KeyDown)
+                            HandleRawKeyEvent(vkey, !isUp);
+                        }
+                        else if (header.dwType == 0) // RIM_TYPEMOUSE
+                        {
+                            RAWMOUSE mouse = (RAWMOUSE)Marshal.PtrToStructure(dataPtr, typeof(RAWMOUSE));
+                            HandleRawMouseEvent(mouse.usButtonFlags);
                         }
                     }
                 }
-                else if (isEnabled && currentVKey > 0)
+                finally
                 {
-                    short rawState = GetAsyncKeyState(currentVKey);
-                    ConsiderKey(currentVKey, (rawState & 0x8000) != 0, "fallback-poll");
+                    Marshal.FreeHGlobal(buffer);
                 }
             }
-            catch (Exception ex)
-            {
-                Log("Fallback poll exception: " + ex.Message);
-            }
-            Thread.Sleep(10);
+        }
+        base.WndProc(ref m);
+    }
+
+    private static void HandleRawKeyEvent(int vk, bool isDown)
+    {
+        if (vk <= 0 || vk > 255) return;
+
+        // 1. Key Recording Mode
+        if (isRecording && isDown)
+        {
+            if (vk == 1) return; // Skip Left Click
+            isRecording = false;
+            string recLine = string.Format("RECORDED:{0}:{1}", vk, CurrentTimestamp());
+            Console.WriteLine(recLine);
+            Console.Out.Flush();
+            Log("Key recorded (RawInput): " + recLine);
+            return;
+        }
+
+        // 2. Push to Talk Active Monitoring
+        if (!isEnabled || targetVKey <= 0) return;
+
+        if (vk == targetVKey)
+        {
+            SetPttPhysicalState(isDown, "Keyboard VK=" + vk);
         }
     }
 
+    private static void HandleRawMouseEvent(ushort btnFlags)
+    {
+        if (btnFlags == 0) return;
+
+        int vk = 0;
+        bool isDown = false;
+        bool hasEvent = false;
+
+        if ((btnFlags & RI_MOUSE_BUTTON_4_DOWN) != 0) { vk = 5; isDown = true; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_BUTTON_4_UP) != 0) { vk = 5; isDown = false; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_BUTTON_5_DOWN) != 0) { vk = 6; isDown = true; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_BUTTON_5_UP) != 0) { vk = 6; isDown = false; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN) != 0) { vk = 4; isDown = true; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_MIDDLE_BUTTON_UP) != 0) { vk = 4; isDown = false; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) != 0) { vk = 2; isDown = true; hasEvent = true; }
+        else if ((btnFlags & RI_MOUSE_RIGHT_BUTTON_UP) != 0) { vk = 2; isDown = false; hasEvent = true; }
+
+        if (!hasEvent) return;
+
+        // 1. Key Recording Mode
+        if (isRecording && isDown)
+        {
+            isRecording = false;
+            string recLine = string.Format("RECORDED:{0}:{1}", vk, CurrentTimestamp());
+            Console.WriteLine(recLine);
+            Console.Out.Flush();
+            Log("Mouse button recorded (RawInput): " + recLine);
+            return;
+        }
+
+        // 2. Push to Talk Active Monitoring
+        if (!isEnabled || targetVKey <= 0) return;
+
+        if (vk == targetVKey)
+        {
+            SetPttPhysicalState(isDown, "Mouse VK=" + vk);
+        }
+    }
+
+    private static void SetPttPhysicalState(bool isDown, string source)
+    {
+        lock (lockObj)
+        {
+            if (isDown)
+            {
+                // Cancel any pending release timer immediately
+                if (releaseTimer != null)
+                {
+                    releaseTimer.Dispose();
+                    releaseTimer = null;
+                }
+
+                if (!isPttActive)
+                {
+                    isPttActive = true;
+                    string pttLine = string.Format("PTT:1:{0}", CurrentTimestamp());
+                    Console.WriteLine(pttLine);
+                    Console.Out.Flush();
+                    Log(string.Format("PTT ACTIVATED ({0}) -> {1}", source, pttLine));
+                }
+            }
+            else
+            {
+                // Key released: apply release hangover delay (150ms) to prevent audio cut-offs
+                if (isPttActive && releaseTimer == null)
+                {
+                    releaseTimer = new System.Threading.Timer(OnReleaseTimeout, null, RELEASE_DELAY_MS, Timeout.Infinite);
+                }
+            }
+        }
+    }
+
+    private static void OnReleaseTimeout(object state)
+    {
+        lock (lockObj)
+        {
+            if (releaseTimer != null)
+            {
+                releaseTimer.Dispose();
+                releaseTimer = null;
+            }
+
+            // Double check physical state via GetAsyncKeyState to ensure it wasn't re-pressed
+            if (isEnabled && targetVKey > 0)
+            {
+                short asyncState = GetAsyncKeyState(targetVKey);
+                if ((asyncState & 0x8000) != 0)
+                {
+                    // Still held physically
+                    return;
+                }
+            }
+
+            if (isPttActive)
+            {
+                isPttActive = false;
+                string pttLine = string.Format("PTT:0:{0}", CurrentTimestamp());
+                Console.WriteLine(pttLine);
+                Console.Out.Flush();
+                Log("PTT DEACTIVATED (Release timeout) -> " + pttLine);
+            }
+        }
+    }
+
+    public static void ForceDeactivate()
+    {
+        lock (lockObj)
+        {
+            if (releaseTimer != null)
+            {
+                releaseTimer.Dispose();
+                releaseTimer = null;
+            }
+            if (isPttActive)
+            {
+                isPttActive = false;
+                string pttLine = string.Format("PTT:0:{0}", CurrentTimestamp());
+                Console.WriteLine(pttLine);
+                Console.Out.Flush();
+                Log("PTT FORCE DEACTIVATED -> " + pttLine);
+            }
+        }
+    }
+}
+
+class Program
+{
+    [STAThread]
     static void Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
         Console.InputEncoding = Encoding.UTF8;
-        Log(string.Format("Native PTT helper started. BaseDirectory: {0}", AppDomain.CurrentDomain.BaseDirectory));
+        PttRawInputForm.Log(string.Format("RawInput PTT helper started. BaseDirectory: {0}", AppDomain.CurrentDomain.BaseDirectory));
 
+        // Background thread to read commands from Electron Main via stdin
         Thread readerThread = new Thread(() =>
         {
             try
@@ -393,15 +348,15 @@ class Program
                 while ((line = Console.ReadLine()) != null)
                 {
                     line = line.Trim();
-                    Log("Stdin received: " + line);
+                    PttRawInputForm.Log("Stdin command: " + line);
 
                     if (line.StartsWith("SET_KEY:", StringComparison.OrdinalIgnoreCase))
                     {
                         int vk;
                         if (int.TryParse(line.Substring(8).Trim(), out vk))
                         {
-                            currentVKey = vk;
-                            Log(string.Format("Configured VK: {0}", vk));
+                            PttRawInputForm.targetVKey = vk;
+                            PttRawInputForm.Log(string.Format("Configured target VK: {0}", vk));
                         }
                     }
                     else if (line.StartsWith("ENABLE:", StringComparison.OrdinalIgnoreCase))
@@ -409,67 +364,55 @@ class Program
                         bool en;
                         if (bool.TryParse(line.Substring(7).Trim(), out en))
                         {
-                            isEnabled = en;
-                            Log(string.Format("Enabled state: {0}", en));
-                            if (!en && isDown)
+                            PttRawInputForm.isEnabled = en;
+                            PttRawInputForm.Log(string.Format("Enabled state: {0}", en));
+                            if (!en)
                             {
-                                isDown = false;
-                                string outLine = string.Format("PTT:0:{0}", CurrentTimestamp());
-                                WriteLine(outLine);
-                                Log("PTT forced off: " + outLine);
+                                PttRawInputForm.ForceDeactivate();
                             }
                         }
                     }
                     else if (line.Equals("START_RECORD", StringComparison.OrdinalIgnoreCase))
                     {
-                        isRecording = true;
-                        Log("Recording mode started");
+                        PttRawInputForm.isRecording = true;
+                        PttRawInputForm.Log("Recording mode started");
                     }
                     else if (line.Equals("STOP_RECORD", StringComparison.OrdinalIgnoreCase))
                     {
-                        isRecording = false;
-                        Log("Recording mode stopped");
+                        PttRawInputForm.isRecording = false;
+                        PttRawInputForm.Log("Recording mode stopped");
                     }
                     else if (line.Equals("PING", StringComparison.OrdinalIgnoreCase))
                     {
-                        WriteLine("PONG");
-                        Log("Responded PONG");
+                        Console.WriteLine("PONG");
+                        Console.Out.Flush();
+                        PttRawInputForm.Log("Responded PONG");
                     }
                     else if (line.Equals("GET_STATE", StringComparison.OrdinalIgnoreCase))
                     {
-                        string st = string.Format("STATE:vk={0}:enabled={1}:down={2}:rec={3}:raw={4}",
-                            currentVKey, isEnabled, isDown, isRecording, rawInputReady);
-                        WriteLine(st);
-                        Log("Responded: " + st);
+                        string st = string.Format("STATE:vk={0}:enabled={1}:down={2}:rec={3}",
+                            PttRawInputForm.targetVKey, PttRawInputForm.isEnabled, PttRawInputForm.isPttActive, PttRawInputForm.isRecording);
+                        Console.WriteLine(st);
+                        Console.Out.Flush();
+                        PttRawInputForm.Log("Responded: " + st);
                     }
                     else if (line.Equals("QUIT", StringComparison.OrdinalIgnoreCase))
                     {
-                        Log("Exiting on QUIT command");
-                        if (hwnd != IntPtr.Zero) PostMessage(hwnd, WM_APP_QUIT, IntPtr.Zero, IntPtr.Zero);
-                        else Environment.Exit(0);
+                        PttRawInputForm.Log("Exiting on QUIT command");
+                        Application.Exit();
+                        Environment.Exit(0);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log("Reader thread exception: " + ex.Message);
+                PttRawInputForm.Log("Stdin reader exception: " + ex.Message);
             }
         });
         readerThread.IsBackground = true;
         readerThread.Start();
 
-        if (!StartRawInputWindow())
-        {
-            Log("Raw Input unavailable. Falling back to GetAsyncKeyState. Elevated games will not receive PTT unless Nightshift is run as administrator.");
-            PollFallback();
-            return;
-        }
-
-        MSG msg;
-        while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
-        {
-            TranslateMessage(ref msg);
-            DispatchMessage(ref msg);
-        }
+        // Run Windows message pump on main STA thread for Raw Input
+        Application.Run(new PttRawInputForm());
     }
 }

@@ -1,10 +1,12 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, powerSaveBlocker } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, powerSaveBlocker, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import { uIOhook, UiohookKey, UiohookKeyboardEvent, UiohookMouseEvent } from 'uiohook-napi';
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 const isDev = process.env.ELECTRON_DEV === 'true' || !app.isPackaged;
 
 // Global Push-to-Talk state
@@ -469,7 +471,13 @@ async function createWindow() {
   });
 
   ipcMain.handle('window-close', () => {
-    mainWindow?.close();
+    // Hide to system tray on Close (X) button like Discord/TeamSpeak
+    mainWindow?.hide();
+  });
+
+  ipcMain.handle('app-quit', () => {
+    isQuitting = true;
+    app.quit();
   });
 
   ipcMain.handle('get-app-version', () => {
@@ -628,8 +636,87 @@ async function createWindow() {
     await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      // Hide window to system tray instead of closing or taskbar minimize
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+function createTray() {
+  if (tray) return;
+
+  const candidateIcons = [
+    path.join(__dirname, '../public/logo.png'),
+    path.join(__dirname, '../dist/logo.png'),
+    path.join(process.resourcesPath || '', 'public/logo.png'),
+    path.join(__dirname, 'logo.png'),
+  ];
+  const iconPath = candidateIcons.find((p) => fs.existsSync(p)) || '';
+  let trayIcon: Electron.NativeImage;
+  try {
+    if (iconPath) {
+      trayIcon = nativeImage.createFromPath(iconPath);
+      if (!trayIcon.isEmpty()) {
+        trayIcon = trayIcon.resize({ width: 16, height: 16 });
+      } else {
+        trayIcon = nativeImage.createEmpty();
+      }
+    } else {
+      trayIcon = nativeImage.createEmpty();
+    }
+  } catch {
+    trayIcon = nativeImage.createEmpty();
+  }
+
+  tray = new Tray(trayIcon);
+  tray.setToolTip('NIGHTSHIFT Voice & Gaming');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open NIGHTSHIFT',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit NIGHTSHIFT',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isVisible()) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  tray.on('double-click', () => {
+    if (!mainWindow) return;
+    mainWindow.show();
+    mainWindow.focus();
   });
 }
 
@@ -641,11 +728,13 @@ app.whenReady().then(() => {
     pttLog(`Failed to start powerSaveBlocker: ${err}`);
   }
   createWindow();
+  createTray();
   initGlobalPttHook();
   initNativePttHelper();
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   try {
     if (pttHelperProcess) {
       pttHelperProcess.stdin?.write('QUIT\n');
@@ -656,13 +745,16 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (isQuitting && process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  } else if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });

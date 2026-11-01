@@ -21,7 +21,7 @@ import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
-import { getApiBase } from '../lib/api';
+import { api, getApiBase } from '../lib/api';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -1127,7 +1127,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       });
 
       try {
-        await room.connect(url, token);
+        await room.connect(url, token, {
+          rtcConfig: {
+            iceCandidatePoolSize: 10,
+          },
+        });
 
         // In web browsers, ensure WebRTC audio playback is activated (handles autoplay policy)
         try {
@@ -1260,6 +1264,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (activeCustomScreenTrack) {
         activeCustomScreenTrack.stop();
         activeCustomScreenTrack = null;
+      }
+
+      const activeChannel = useServerStore.getState().activeVoiceChannelId;
+      if (activeChannel) {
+        api.leaveVoiceChannel(activeChannel).catch(() => {});
       }
 
       if (room) {

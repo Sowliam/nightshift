@@ -256,12 +256,28 @@ export class SoundboardAudioEngine {
         this.loadAbortControllers.set(playbackSessionId, abortCtrl);
 
         try {
-          const fullUrl = item.audioUrl.startsWith('http')
-            ? item.audioUrl
-            : `${api.getBaseUrl()}${item.audioUrl.startsWith('/') ? '' : '/'}${item.audioUrl}`;
+          let fullUrl = item.audioUrl;
+          if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+            const base = api.getBaseUrl().replace(/\/$/, '');
+            const path = item.audioUrl.startsWith('/') ? item.audioUrl : `/${item.audioUrl}`;
+            fullUrl = `${base}${path}`;
+          }
           const res = await fetch(fullUrl, { signal: abortCtrl.signal });
           if (res.ok) {
             rawData = await res.arrayBuffer();
+            // Cache downloaded cloud song to local storage so playback is instant for future plays
+            try {
+              const localCacheItem: SoundboardItem = {
+                ...item,
+                audioUrl: fullUrl,
+                source: 'cloud',
+              };
+              await soundboardStorage.saveSound(localCacheItem, rawData.slice(0));
+            } catch (cacheErr) {
+              console.warn('Could not cache cloud sound locally:', cacheErr);
+            }
+          } else {
+            console.warn(`Failed to fetch cloud sound (${res.status}) from ${fullUrl}`);
           }
         } catch (fetchErr: any) {
           if (fetchErr.name === 'AbortError') {

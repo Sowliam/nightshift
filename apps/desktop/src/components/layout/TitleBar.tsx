@@ -6,7 +6,7 @@ import { ConnectionState } from 'livekit-client';
 
 export const TitleBar: React.FC = () => {
   const [isElectron, setIsElectron] = useState(false);
-  const { connectionState, disconnect } = useLiveKitStore();
+  const { connectionState } = useLiveKitStore();
   const { servers, activeServerId, channels, activeChannelId, activeVoiceChannelId } =
     useServerStore();
 
@@ -29,9 +29,6 @@ export const TitleBar: React.FC = () => {
   };
 
   const handleClose = () => {
-    try {
-      disconnect();
-    } catch {}
     window.nightshift?.close();
   };
 

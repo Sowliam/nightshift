@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { nanoid } from 'nanoid';
+import { customAlphabet } from 'nanoid';
+const generateInviteCode = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 8);
 import {
   CreateServerSchema,
   CreateChannelSchema,
@@ -488,7 +489,7 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
       ? new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
       : null;
 
-    const code = nanoid(8);
+    const code = generateInviteCode();
 
     const invite = await prisma.serverInvite.create({
       data: {
@@ -598,10 +599,19 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
     const rawCode = parseResult.data.code;
     const code = extractInviteCode(rawCode);
 
-    const invite = await prisma.serverInvite.findUnique({
+    let invite = await prisma.serverInvite.findUnique({
       where: { code },
       include: { server: true },
     });
+
+    if (!invite) {
+      // Case-insensitive lookup fallback
+      const allActive = await prisma.serverInvite.findMany({
+        where: { isValid: true },
+        include: { server: true },
+      });
+      invite = allActive.find((inv) => inv.code.toLowerCase() === code.toLowerCase()) || null;
+    }
 
     if (!invite || !invite.isValid) {
       return reply.status(404).send({ error: 'This invitation code is invalid or has been revoked.' });

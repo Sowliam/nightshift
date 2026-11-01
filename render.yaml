@@ -19,6 +19,6 @@ services:
       - key: LIVEKIT_API_SECRET
         sync: false
       - key: DATABASE_URL
-        value: file:./nightshift.db
+        sync: false
     domains:
       - renderSubdomainPolicy: enabled

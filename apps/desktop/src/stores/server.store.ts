@@ -249,6 +249,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   joinByInvite: async (code: string) => {
+    set({ error: null });
     try {
       const server = await api.joinServerByInvite(code);
       await get().fetchServers();

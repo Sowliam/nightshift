@@ -14,6 +14,7 @@ export interface NightshiftDesktopApi {
   minimize: () => Promise<void>;
   maximize: () => Promise<void>;
   close: () => Promise<void>;
+  quit: () => Promise<void>;
   getVersion: () => Promise<string>;
   getScreenSources: () => Promise<DesktopScreenSource[]>;
   setGlobalPttKey: (key: string, enabled: boolean) => Promise<boolean>;
@@ -30,6 +31,7 @@ const api: NightshiftDesktopApi = {
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),
+  quit: () => ipcRenderer.invoke('app-quit'),
   getVersion: () => ipcRenderer.invoke('get-app-version'),
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   setGlobalPttKey: (key: string, enabled: boolean) => ipcRenderer.invoke('set-global-ptt-key', key, enabled),

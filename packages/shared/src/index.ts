@@ -289,6 +289,9 @@ export function extractInviteCode(input: string): string {
   if (!input) return '';
   let clean = input.trim();
 
+  // Strip prefixes like "Private Code: ", "Code: ", "Invite: ", or Persian "کد: "
+  clean = clean.replace(/^(private\s*code|invite\s*code|code|invite|کد|کد دعوت)[\s:=]+/i, '').trim();
+
   if (clean.includes('#invite=')) {
     clean = clean.split('#invite=')[1].split('&')[0];
   } else if (clean.includes('?invite=')) {

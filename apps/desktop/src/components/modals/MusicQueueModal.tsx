@@ -58,15 +58,15 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   const loadCloudSounds = useSoundboardStore((s) => s.loadCloudSounds);
   const playCloudSound = useSoundboardStore((s) => s.playCloudSound);
 
-  const playSound = useSoundboardStore((s) => s.playSound);
   const togglePlayPause = useSoundboardStore((s) => s.togglePlayPause);
-  const stopSound = useSoundboardStore((s) => s.stopSound);
   const playNext = useSoundboardStore((s) => s.playNext);
   const playPrevious = useSoundboardStore((s) => s.playPrevious);
   const toggleShuffle = useSoundboardStore((s) => s.toggleShuffle);
   const toggleRepeat = useSoundboardStore((s) => s.toggleRepeat);
   const seekSound = useSoundboardStore((s) => s.seekSound);
   const setQueue = useSoundboardStore((s) => s.setQueue);
+  const addToQueue = useSoundboardStore((s) => s.addToQueue);
+  const removeFromQueue = useSoundboardStore((s) => s.removeFromQueue);
 
   const [activeTab, setActiveTab] = useState<'queue' | 'uploads' | 'playlists'>('queue');
 
@@ -141,15 +141,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
   };
 
   const handleRemoveFromQueue = (indexToRemove: number) => {
-    const newQueue = queue.filter((_, idx) => idx !== indexToRemove);
-    let nextIndex = currentQueueIndex;
-    if (indexToRemove < currentQueueIndex) {
-      nextIndex = Math.max(0, currentQueueIndex - 1);
-    } else if (indexToRemove === currentQueueIndex) {
-      if (currentSoundId) stopSound(currentSoundId);
-      nextIndex = Math.min(newQueue.length - 1, currentQueueIndex);
-    }
-    setQueue(newQueue, nextIndex);
+    removeFromQueue(indexToRemove);
   };
 
   return (
@@ -467,9 +459,7 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => {
-                                if (!queue.includes(cloudItem.id)) {
-                                  setQueue([...queue, cloudItem.id], currentQueueIndex >= 0 ? currentQueueIndex : 0);
-                                }
+                                addToQueue(cloudItem.id);
                               }}
                               className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/5 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
                               title="Add to current playback queue"
@@ -584,7 +574,6 @@ export const MusicQueueModal: React.FC<MusicQueueModalProps> = ({ isOpen: propIs
                                 togglePlayPause(item.id);
                               } else {
                                 setQueue(queue, index);
-                                playSound(item.id);
                               }
                             }}
                             className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${isItemPlaying

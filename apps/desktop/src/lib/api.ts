@@ -134,7 +134,7 @@ class ApiClient {
     return headers;
   }
 
-  private async fetchWithHandling(url: string, init?: RequestInit): Promise<Response> {
+  private async fetchWithHandling(url: string, init?: RequestInit, retries = 2): Promise<Response> {
     const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (isHttps && url.startsWith('http://')) {
       throw new Error(
@@ -142,52 +142,66 @@ class ApiClient {
       );
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 75000);
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 75000);
 
-    try {
-      const res = await fetch(url, {
-        ...init,
-        signal: init?.signal || controller.signal,
-      });
-      clearTimeout(timeoutId);
+      try {
+        const res = await fetch(url, {
+          ...init,
+          signal: init?.signal || controller.signal,
+        });
+        clearTimeout(timeoutId);
 
-      const renderRouting = res.headers.get('x-render-routing');
-      if (res.status === 404 && (renderRouting === 'blocked-render-subdomain' || (url.includes('.onrender.com') && !url.includes('/api/health')))) {
-        // If it's a blocked subdomain on Render
-        if (renderRouting === 'blocked-render-subdomain') {
+        // If Cloudflare/Render returned 502/503/504 because backend is waking up, retry once after a short wait
+        if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+
+        const renderRouting = res.headers.get('x-render-routing');
+        if (res.status === 404 && (renderRouting === 'blocked-render-subdomain' || (url.includes('.onrender.com') && !url.includes('/api/health')))) {
+          if (renderRouting === 'blocked-render-subdomain') {
+            throw new Error(
+              `Render Error: Render is blocking requests to this URL (x-render-routing: blocked-render-subdomain). In your Render Dashboard: 1) Verify the service is not Suspended, 2) In Settings -> Custom Domains, ensure 'Render Subdomain' is Enabled, 3) Confirm the exact URL.`
+            );
+          }
+        }
+
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('text/html') && url.includes('/api/')) {
           throw new Error(
-            `Render Error: Render is blocking requests to this URL (x-render-routing: blocked-render-subdomain). In your Render Dashboard: 1) Verify the service is not Suspended, 2) In Settings -> Custom Domains, ensure 'Render Subdomain' is Enabled, 3) Confirm the exact URL.`
+            `Backend connection error: Received HTML instead of API JSON. Please configure your Backend API URL (Render or Railway) in Settings or click "Change URL" above.`
           );
         }
-      }
+        return res;
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (attempt < retries && err.name !== 'AbortError' && !err.message?.includes('Browser Blocked')) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          continue;
+        }
 
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('text/html') && url.includes('/api/')) {
+        if (err.name === 'AbortError') {
+          throw new Error(
+            `Backend connection timed out (75s). Please check your Render Dashboard: Ensure the service status is 'Live' and not Crashed/Suspended.`
+          );
+        }
+        if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection') || err.message.includes('Render Error'))) {
+          throw err;
+        }
+        if (isHttps && url.startsWith('http://')) {
+          throw new Error(
+            'Browser security blocked connection to http:// backend. Please change Backend URL to your HTTPS deployment.'
+          );
+        }
         throw new Error(
-          `Backend connection error: Received HTML instead of API JSON. Please configure your Backend API URL (Render or Railway) in Settings or click "Change URL" above.`
+          `Cannot reach backend server. The server may be waking up or offline. Please wait a moment and try again.`
         );
       }
-      return res;
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        throw new Error(
-          `Backend connection timed out (75s). Please check your Render Dashboard: Ensure the service status is 'Live' and not Crashed/Suspended.`
-        );
-      }
-      if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection') || err.message.includes('Render Error'))) {
-        throw err;
-      }
-      if (isHttps && url.startsWith('http://')) {
-        throw new Error(
-          'Browser security blocked connection to http:// backend. Please change Backend URL to your HTTPS deployment.'
-        );
-      }
-      throw new Error(
-        `Cannot reach backend server at ${this.getBaseUrl()}. Please ensure your backend is online and the URL is correct.`
-      );
     }
+
+    throw new Error(`Cannot reach backend server at ${this.getBaseUrl()}. Please ensure your backend is online.`);
   }
 
   private async parseError(res: Response, defaultMessage: string): Promise<Error> {
@@ -449,6 +463,19 @@ class ApiClient {
     }
 
     return res.json();
+  }
+
+  async leaveVoiceChannel(channelId: string): Promise<boolean> {
+    try {
+      const res = await this.fetchWithHandling(`${this.getBaseUrl()}/api/channels/${channelId}/leave`, {
+        method: 'POST',
+        headers: this.getHeaders(true),
+        body: JSON.stringify({}),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   // --- Members & Moderation ---
