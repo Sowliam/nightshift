@@ -15,6 +15,7 @@ export interface NightshiftDesktopApi {
   onKeyRecorded?: (callback: (key: string) => void) => () => void;
   getPttDebugLog?: () => Promise<string>;
   logPtt?: (msg: string) => void;
+  measurePing?: (targetHost: string, port?: number) => Promise<number>;
 }
 
 declare global {

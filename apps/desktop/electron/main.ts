@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session, powerSaveBlocker, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import net from 'net';
 import { spawn, ChildProcess } from 'child_process';
 import { uIOhook, UiohookKey, UiohookKeyboardEvent, UiohookMouseEvent } from 'uiohook-napi';
 
@@ -483,6 +484,45 @@ async function createWindow() {
   ipcMain.handle('get-app-version', () => {
     return app.getVersion();
   });
+
+  // Measure real network TCP ping (matches ICMP RTT without HTTP/TLS overhead)
+  ipcMain.handle('measure-ping', async (_event, targetHost: string, port = 443) => {
+    return new Promise<number>((resolve) => {
+      try {
+        const host = (targetHost || '')
+          .replace(/^https?:\/\//, '')
+          .replace(/^wss?:\/\//, '')
+          .split('/')[0]
+          .split(':')[0]
+          .trim();
+
+        if (!host) {
+          resolve(0);
+          return;
+        }
+
+        const startTime = performance.now();
+        const socket = net.createConnection({ host, port: Number(port) || 443, timeout: 3500 }, () => {
+          const rtt = Math.round(performance.now() - startTime);
+          socket.destroy();
+          resolve(rtt);
+        });
+
+        socket.on('error', () => {
+          socket.destroy();
+          resolve(0);
+        });
+
+        socket.on('timeout', () => {
+          socket.destroy();
+          resolve(0);
+        });
+      } catch {
+        resolve(0);
+      }
+    });
+  });
+
 
   // Desktop Screen and Window capture sources handler
   ipcMain.handle('get-screen-sources', async () => {

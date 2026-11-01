@@ -24,6 +24,7 @@ export interface NightshiftDesktopApi {
   onKeyRecorded: (callback: (key: string) => void) => () => void;
   getPttDebugLog?: () => Promise<string>;
   logPtt?: (msg: string) => void;
+  measurePing?: (targetHost: string, port?: number) => Promise<number>;
 }
 
 const api: NightshiftDesktopApi = {
@@ -53,6 +54,7 @@ const api: NightshiftDesktopApi = {
   },
   getPttDebugLog: () => ipcRenderer.invoke('get-ptt-debug-log'),
   logPtt: (msg: string) => ipcRenderer.send('ptt-renderer-log', msg),
+  measurePing: (targetHost: string, port?: number) => ipcRenderer.invoke('measure-ping', targetHost, port),
 };
 
 contextBridge.exposeInMainWorld('nightshift', api);

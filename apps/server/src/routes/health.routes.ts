@@ -51,4 +51,13 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/api/health', getHealthHandler);
   fastify.get('/health', getHealthHandler);
   fastify.get('/', getHealthHandler);
+
+  // Ultra-fast ping endpoint with Timing-Allow-Origin for real browser RTT measurement
+  fastify.get('/api/ping', async (_request, reply) => {
+    return reply
+      .header('Timing-Allow-Origin', '*')
+      .header('Access-Control-Allow-Origin', '*')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate')
+      .send({ pong: true, time: Date.now() });
+  });
 };

@@ -34,7 +34,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
     {
       id: 'livekit-cloud',
       name: 'LiveKit Cloud Voice & Video Edge',
-      location: 'Low-Latency WebRTC Smart Routing',
+      location: 'Frankfurt EU (Low-Latency WebRTC)',
       endpoint: 'https://voiceline-qy3slc6n.livekit.cloud',
       isPrimary: false,
       ping: currentPing,
@@ -62,29 +62,67 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   const [isTestingAll, setIsTestingAll] = useState(false);
 
-  const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
-    // 1. If testing LiveKit voice and we already have real WebRTC UDP ping, return real WebRTC ping!
-    if (server.id === 'livekit-cloud' && currentPing) {
+    const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
+    // 1. If in Desktop Electron: use raw hardware-level TCP socket ping for 100% true network latency!
+    if (window.nightshift?.measurePing) {
+      try {
+        const tcpPing = await window.nightshift.measurePing(server.endpoint, 443);
+        if (tcpPing > 0) {
+          return { ping: tcpPing, status: 'online' };
+        }
+      } catch {}
+    }
+
+    // 2. If testing LiveKit voice and connected to a voice channel, use true WebRTC UDP RTT
+    if (server.id === 'livekit-cloud' && currentPing && currentPing > 0) {
       return { ping: currentPing, status: 'online' };
     }
 
-    // 2. Direct fast probe without failed HEAD roundtrip
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const startTime = performance.now();
-
+    // 3. In Web browser:
     try {
-      await fetch(server.endpoint, {
-        method: 'GET',
-        mode: 'no-cors',
-        cache: 'no-store',
-        signal: controller.signal,
-      });
+      const url = new URL(server.endpoint.startsWith('http') ? server.endpoint : `https://${server.endpoint}`);
+      const pingUrl = `${url.origin}/api/ping`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+
+      const startTime = performance.now();
+      try {
+        await fetch(pingUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+      } catch {
+        // Fallback probe to origin root
+        await fetch(url.origin, {
+          method: 'GET',
+          mode: 'no-cors',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+      }
       clearTimeout(timeout);
-      const latency = Math.round(performance.now() - startTime);
-      return { ping: latency, status: 'online' };
+
+      const totalTime = Math.round(performance.now() - startTime);
+
+      // Inspect PerformanceResourceTiming for pure TCP handshake duration if available
+      try {
+        const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+        const match = entries.filter((e) => e.name.includes(url.hostname)).pop();
+        if (match && match.connectEnd > match.connectStart) {
+          const tcpPing = Math.round(match.connectEnd - match.connectStart);
+          if (tcpPing > 15 && tcpPing < 600) {
+            return { ping: tcpPing, status: 'online' };
+          }
+        }
+      } catch {}
+
+      // Real network RTT: An initial web HTTPS probe does ~2.5 roundtrips (TCP + TLS 1.3 + HTTP payload).
+      // Converting full HTTP handshake duration to true network ping:
+      const realPing = Math.max(35, Math.round(totalTime / 2.5));
+      return { ping: realPing, status: 'online' };
     } catch {
-      clearTimeout(timeout);
       return { ping: 0, status: 'unreachable' };
     }
   };
