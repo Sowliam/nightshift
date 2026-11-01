@@ -346,17 +346,15 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
             <div
               key={p.identity}
               onContextMenu={openUserMenu}
-              className={`relative rounded-2xl bg-bg-elevated border flex flex-col items-center justify-center overflow-hidden transition-all duration-200 cursor-context-menu ${
-                count === 1
+              className={`relative rounded-2xl bg-bg-elevated border flex flex-col items-center justify-center overflow-hidden transition-all duration-200 cursor-context-menu ${count === 1
                   ? 'w-full max-w-xl h-[340px] md:h-[400px] shadow-card'
                   : 'w-full h-full min-h-[160px] shadow-subtle'
-              } ${
-                isPlayingSound
+                } ${isPlayingSound
                   ? 'border-accent-bright/70 ring-2 ring-accent-bright/40 shadow-[0_0_20px_rgba(82,183,136,0.3)]'
                   : p.isSpeaking
-                  ? 'border-online ring-2 ring-online/50 shadow-[0_0_16px_rgba(82,183,136,0.25)]'
-                  : 'border-border-subtle hover:border-border-strong'
-              }`}
+                    ? 'border-online ring-2 ring-online/50 shadow-[0_0_16px_rgba(82,183,136,0.25)]'
+                    : 'border-border-subtle hover:border-border-strong'
+                }`}
             >
               {/* Top-Left Now Playing Sound / Music Badge */}
               {isPlayingSound && (
@@ -394,13 +392,11 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
               {/* Center Avatar with Speaking Glow */}
               <div className="relative">
                 <div
-                  className={`rounded-full flex items-center justify-center font-black tracking-wider transition-all duration-150 select-none overflow-hidden ${
-                    count === 1 ? 'w-24 h-24 text-2xl' : count <= 4 ? 'w-20 h-20 text-xl' : 'w-14 h-14 text-sm'
-                  } ${
-                    p.isSpeaking
+                  className={`rounded-full flex items-center justify-center font-black tracking-wider transition-all duration-150 select-none overflow-hidden ${count === 1 ? 'w-24 h-24 text-2xl' : count <= 4 ? 'w-20 h-20 text-xl' : 'w-14 h-14 text-sm'
+                    } ${p.isSpeaking
                       ? 'bg-highlight text-highlight-text ring-4 ring-online shadow-[0_0_20px_rgba(82,183,136,0.4)]'
                       : 'bg-bg-main border border-border-subtle text-highlight'
-                  }`}
+                    }`}
                 >
                   {p.avatarUrl ? (
                     <img

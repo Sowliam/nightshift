@@ -17,11 +17,22 @@ export const NavigationRail: React.FC<NavigationRailProps> = ({
   onOpenServers,
 }) => {
   const { user } = useAuthStore();
-  const { currentPing, isLocallySpeaking, localParticipant, activeSpeakers } = useLiveKitStore();
+  const {
+    currentPing,
+    isLocallySpeaking,
+    localParticipant,
+    activeSpeakers,
+    connectionState,
+    isMuted,
+    isDeafened,
+  } = useLiveKitStore();
 
+  const isInVoice = connectionState === 'connected';
   const isSpeakingNow =
-    isLocallySpeaking ||
-    (localParticipant && (activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking));
+    isInVoice &&
+    !isMuted &&
+    !isDeafened &&
+    (isLocallySpeaking || (localParticipant && (activeSpeakers.has(localParticipant.identity) || localParticipant.isSpeaking)));
 
   const getInitials = (name: string) => {
     return name

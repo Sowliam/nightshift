@@ -80,10 +80,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
       } catch {}
     }
 
-    // 2. If testing LiveKit voice and connected to a voice channel, use true WebRTC UDP RTT
-    if (server.id === 'livekit-cloud' && currentPing && currentPing > 0) {
-      return { ping: currentPing, status: 'online' };
-    }
+    // 2. In Web browser or fallback probe:
 
     // 3. In Web browser:
     try {
@@ -141,14 +138,9 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
       updated[i].status = 'testing';
       setServers([...updated]);
 
-      if (updated[i].id === 'livekit-cloud' && currentPing) {
-        updated[i].ping = currentPing;
-        updated[i].status = 'online';
-      } else {
-        const result = await pingServer(updated[i]);
-        updated[i].ping = result.status === 'online' ? result.ping : null;
-        updated[i].status = result.status;
-      }
+      const result = await pingServer(updated[i]);
+      updated[i].ping = result.status === 'online' ? result.ping : null;
+      updated[i].status = result.status;
 
       setServers([...updated]);
     }

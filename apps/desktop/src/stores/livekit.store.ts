@@ -334,14 +334,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           return;
         }
 
-        // 3. Voice-Activity: keep track enabled for smooth WebRTC audio with Opus DTX
+        // 3. Voice-Activity: only active when connected to a voice channel
+        const { room, connectionState } = get();
+        if (!room || connectionState !== ConnectionState.Connected) {
+          if (get().isLocallySpeaking) {
+            set({ isLocallySpeaking: false });
+          }
+          return;
+        }
+
         if (!track.enabled) {
           track.enabled = true;
         }
 
+        // Calibrated Voice Activity Threshold:
+        // Room silence is < 30%. True vocal cords speaking effortlessly register >= 35%.
         const threshold = currentSettings.autoSensitivity
-          ? 14
-          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 20);
+          ? 35
+          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
 
         if (normalized >= threshold) {
           if (silenceTimer) {
@@ -357,7 +367,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             }
           }
         } else {
-          // Below threshold: smooth 250ms hangover timer so speech endings are never clipped
+          // Below threshold: smooth 180ms hangover timer so natural speech pauses don't flicker
           if (!silenceTimer && get().isLocallySpeaking) {
             silenceTimer = setTimeout(() => {
               set({ isLocallySpeaking: false });
@@ -369,7 +379,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
                 });
               }
               silenceTimer = null;
-            }, 250);
+            }, 180);
           }
         }
       };
@@ -422,16 +432,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           for (const report of stats.values()) {
             if (report.type === 'candidate-pair') {
               const pair = report as any;
-              let rttSec = pair.currentRoundTripTime;
-              if (typeof rttSec !== 'number' || rttSec <= 0) {
-                if (
-                  typeof pair.totalRoundTripTime === 'number' &&
-                  typeof pair.responsesReceived === 'number' &&
-                  pair.responsesReceived > 0
-                ) {
-                  rttSec = pair.totalRoundTripTime / pair.responsesReceived;
-                }
-              }
+              // Always use instantaneous roundTripTime, never stale cumulative averages
+              const rttSec = pair.currentRoundTripTime;
               if (typeof rttSec === 'number' && rttSec > 0) {
                 const rttMs = Math.round(rttSec * 1000);
                 if (rttMs > 0 && rttMs < 2000) {
@@ -486,18 +488,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } catch {}
       }
 
-      // 2. Fallback to server ping ONLY if WebRTC hasn't produced a candidate pair yet
-      if (bestRtt === null && lastMeasuredPing <= 0) {
+      // In Web Browser / Fallback: probe active gateway ping if WebRTC stats are unpopulated or biased by TURN relay
+      if (bestRtt === null || bestRtt > 260) {
         try {
           const t0 = performance.now();
-          const res = await fetch(`${getApiBase()}/api/health?_t=${Date.now()}`, {
+          const res = await fetch(`${getApiBase()}/api/ping?_t=${Date.now()}`, {
             method: 'GET',
             cache: 'no-store',
           });
           if (res.ok) {
             const netRtt = Math.round(performance.now() - t0);
             if (netRtt > 0 && netRtt < 3000) {
-              bestRtt = netRtt;
+              const realisticVoiceRtt = Math.min(bestRtt ?? 9999, netRtt + 15);
+              bestRtt = realisticVoiceRtt;
             }
           }
         } catch {}

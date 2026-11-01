@@ -94,11 +94,17 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
               {/* Log in Front Card */}
               <div className="flip-card__front">
                 <div className="title">Log in</div>
-                <form onSubmit={(e) => handleAuthSubmit(e, 'login')} className="flip-card__form">
+                <form onSubmit={(e) => handleAuthSubmit(e, 'login')} className="flip-card__form" noValidate method="post" action="#">
                   <input
+                    id="auth-login-username"
                     type="text"
                     placeholder="Username"
                     name="username"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    disabled={mode !== 'login'}
                     value={username}
                     onChange={(e) => {
                       setUsername(e.target.value);
@@ -110,9 +116,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                   />
                   <div className="relative w-[250px]">
                     <input
+                      id="auth-login-password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Password"
                       name="password"
+                      autoComplete="current-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      disabled={mode !== 'login'}
                       value={password}
                       onChange={(e) => {
                         setPassword(e.target.value);
@@ -136,7 +148,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                       {errorMsg}
                     </div>
                   )}
-                  <button type="submit" disabled={isSubmitting} className="flip-card__btn">
+                  <button type="submit" disabled={isSubmitting || mode !== 'login'} className="flip-card__btn">
                     {isSubmitting ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
@@ -149,10 +161,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
               {/* Sign up Back Card */}
               <div className="flip-card__back">
                 <div className="title">Sign up</div>
-                <form onSubmit={(e) => handleAuthSubmit(e, 'register')} className="flip-card__form">
+                <form onSubmit={(e) => handleAuthSubmit(e, 'register')} className="flip-card__form" noValidate method="post" action="#">
                   <input
+                    id="auth-register-displayname"
                     type="text"
                     placeholder="Name"
+                    name="name"
+                    autoComplete="name"
+                    disabled={mode !== 'register'}
                     value={displayName}
                     onChange={(e) => {
                       setDisplayName(e.target.value);
@@ -163,9 +179,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                     required
                   />
                   <input
+                    id="auth-register-username"
                     type="text"
                     placeholder="Username"
                     name="username"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    disabled={mode !== 'register'}
                     value={username}
                     onChange={(e) => {
                       setUsername(e.target.value);
@@ -176,9 +198,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                   />
                   <div className="relative w-[250px]">
                     <input
+                      id="auth-register-password"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Password"
                       name="password"
+                      autoComplete="new-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      disabled={mode !== 'register'}
                       value={password}
                       onChange={(e) => {
                         setPassword(e.target.value);
@@ -199,9 +227,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                   </div>
                   <div className="relative w-[250px]">
                     <input
+                      id="auth-register-confirm-password"
                       type={showConfirmPassword ? 'text' : 'password'}
                       placeholder="Confirm Password"
                       name="confirmPassword"
+                      autoComplete="new-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      disabled={mode !== 'register'}
                       value={confirmPassword}
                       onChange={(e) => {
                         setConfirmPassword(e.target.value);
@@ -225,7 +259,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
                       {errorMsg}
                     </div>
                   )}
-                  <button type="submit" disabled={isSubmitting} className="flip-card__btn">
+                  <button type="submit" disabled={isSubmitting || mode !== 'register'} className="flip-card__btn">
                     {isSubmitting ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
