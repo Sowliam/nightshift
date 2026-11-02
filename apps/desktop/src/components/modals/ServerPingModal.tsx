@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Globe, RefreshCw, Zap, Shield, CheckCircle2, Check } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { getApiBase, setApiBase } from '../../lib/api';
 
 interface ServerPingModalProps {
   isOpen: boolean;
@@ -17,12 +18,26 @@ interface ServerRegion {
   status: 'idle' | 'testing' | 'online' | 'unreachable';
 }
 
+const RENDER_ORIGIN = 'https://nightshift-server-cfch.onrender.com';
 const CLOUDFLARE_PROXY = 'https://nightshift-api.gemesowl.workers.dev';
 
 export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClose }) => {
   const { currentPing } = useLiveKitStore();
+  const [activeBackend, setActiveBackend] = useState<string>(() => getApiBase());
+  const [switchFeedback, setSwitchFeedback] = useState<string | null>(null);
+
+  const isRenderActive = activeBackend.includes('onrender.com');
 
   const [servers, setServers] = useState<ServerRegion[]>([
+    {
+      id: 'render-backend',
+      name: 'Render Origin Core Backend',
+      location: 'Frankfurt EU (Core API & DB - Direct)',
+      endpoint: RENDER_ORIGIN,
+      type: 'gateway',
+      ping: null,
+      status: 'idle',
+    },
     {
       id: 'cloudflare-gateway',
       name: 'Cloudflare Edge Proxy (Iran Gateway)',
@@ -53,6 +68,16 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
   ]);
 
   const [isTestingAll, setIsTestingAll] = useState(false);
+
+  const handleSelectGateway = (target: 'render-backend' | 'cloudflare-gateway') => {
+    const selectedUrl = target === 'render-backend' ? RENDER_ORIGIN : CLOUDFLARE_PROXY;
+    setApiBase(selectedUrl);
+    setActiveBackend(selectedUrl);
+
+    const name = target === 'render-backend' ? 'Render Core (Direct EU)' : 'Cloudflare Proxy (Anti-Filter)';
+    setSwitchFeedback(`Switched active route to ${name}`);
+    setTimeout(() => setSwitchFeedback(null), 3000);
+  };
 
   const pingServer = async (server: ServerRegion): Promise<{ ping: number; status: 'online' | 'unreachable' }> => {
     // 1. If this is LiveKit and we already have a real-time WebRTC ping from an active call, prioritize it
@@ -156,6 +181,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   useEffect(() => {
     if (isOpen) {
+      setActiveBackend(getApiBase());
       testAllServers();
     }
   }, [isOpen]);
@@ -212,7 +238,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                 Network Ping & Server Status
               </h3>
               <p className="text-xs text-text-secondary">
-                Live low-latency routing and edge connection metrics
+                Select your preferred route or let automatic failover handle it
               </p>
             </div>
           </div>
@@ -229,7 +255,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
         <div className="p-6 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-bold tracking-wider text-text-secondary uppercase">
-              Active Network Gateways
+              Route & Server Gateways
             </span>
             <button
               onClick={testAllServers}
@@ -241,22 +267,46 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
             </button>
           </div>
 
+          {switchFeedback && (
+            <div className="px-3 py-1.5 rounded-lg bg-online/15 border border-online/30 text-online text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
+              <Check className="w-3.5 h-3.5" />
+              <span>{switchFeedback}</span>
+            </div>
+          )}
+
           <div className="space-y-2">
             {servers.map((server) => {
               const isGateway = server.type === 'gateway';
+              const isConnected =
+                (server.id === 'render-backend' && isRenderActive) ||
+                (server.id === 'cloudflare-gateway' && !isRenderActive) ||
+                (server.id === 'livekit-cloud');
 
               return (
                 <div
                   key={server.id}
-                  className="p-3.5 rounded-xl border border-border-subtle bg-bg-elevated/40 transition-all flex items-center justify-between"
+                  onClick={() => {
+                    if (isGateway) {
+                      handleSelectGateway(server.id as 'render-backend' | 'cloudflare-gateway');
+                    }
+                  }}
+                  className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
+                    isGateway ? 'cursor-pointer hover:border-accent/70 hover:shadow-md' : ''
+                  } ${
+                    isConnected && isGateway
+                      ? 'bg-bg-elevated border-accent shadow-sm ring-1 ring-accent/30'
+                      : isConnected && server.id === 'livekit-cloud'
+                      ? 'bg-bg-elevated border-online/40'
+                      : 'bg-bg-elevated/40 border-border-subtle'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                        isGateway
+                        isConnected && isGateway
+                          ? 'bg-highlight text-highlight-text font-bold shadow-sm'
+                          : isConnected && server.id === 'livekit-cloud'
                           ? 'bg-online/20 text-online font-bold'
-                          : server.id === 'livekit-cloud'
-                          ? 'bg-highlight/20 text-highlight font-bold'
                           : 'bg-bg-secondary text-text-secondary border border-border-subtle'
                       }`}
                     >
@@ -268,10 +318,10 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                         <span className="text-xs font-semibold text-text-primary">
                           {server.name}
                         </span>
-                        {isGateway && (
+                        {isGateway && isConnected && (
                           <span className="text-[10px] font-bold text-online uppercase bg-online/15 border border-online/30 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                             <Check className="w-2.5 h-2.5" />
-                            Connected
+                            Active Route
                           </span>
                         )}
                         {server.id === 'livekit-cloud' && (
@@ -291,6 +341,25 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
                   <div className="flex items-center gap-2.5">
                     {getPingBadge(server.ping, server.status)}
+                    {isGateway && (
+                      isConnected ? (
+                        <div className="px-2.5 py-1 rounded-lg bg-online/15 text-online text-xs font-bold border border-online/30 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Active</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectGateway(server.id as 'render-backend' | 'cloudflare-gateway');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-accent text-bg-main hover:brightness-110 text-xs font-bold transition-all active:scale-95 shadow-sm cursor-pointer"
+                        >
+                          Select
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               );
@@ -302,9 +371,9 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
             <Shield className="w-4 h-4 text-accent shrink-0 mt-0.5" />
             <div className="leading-relaxed text-[11px]">
               <span className="text-text-primary font-medium block">
-                Automatic Low-Latency Anti-Filter Routing
+                Automatic Dual-Gateway Resilient Failover
               </span>
-              Voice and API channels are automatically routed through Cloudflare's Anycast edge network and LiveKit Frankfurt SFU for sub-80ms low-latency connection.
+              NIGHTSHIFT automatically fails over between Render Direct EU and Cloudflare Anti-Filter Gateway if either network experiences latency or ISP restrictions. Voice channels run on LiveKit Frankfurt SFU.
             </div>
           </div>
         </div>

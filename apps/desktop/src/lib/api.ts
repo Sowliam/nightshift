@@ -40,8 +40,8 @@ export const getApiBase = (): string => {
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       const cleanCustom = custom.trim().replace(/\/$/, '');
-      // Purge onrender.com, vercel, or same-origin from localStorage to always use fast unblocked Cloudflare edge proxy
-      if (cleanCustom.includes('onrender.com') || cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
+      // Only purge if pointing to frontend domain or same-origin
+      if (cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
         localStorage.removeItem('nightshift_api_url');
         return DEFAULT_PRODUCTION_API;
       } else {
@@ -135,6 +135,16 @@ class ApiClient {
     return headers;
   }
 
+  private getAlternateUrl(currentUrl: string): string | null {
+    if (currentUrl.includes('nightshift-server-cfch.onrender.com')) {
+      return currentUrl.replace('nightshift-server-cfch.onrender.com', 'nightshift-api.gemesowl.workers.dev');
+    }
+    if (currentUrl.includes('nightshift-api.gemesowl.workers.dev')) {
+      return currentUrl.replace('nightshift-api.gemesowl.workers.dev', 'nightshift-server-cfch.onrender.com');
+    }
+    return null;
+  }
+
   private async fetchWithHandling(url: string, init?: RequestInit, retries = 2): Promise<Response> {
     const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
     if (isHttps && url.startsWith('http://')) {
@@ -143,62 +153,94 @@ class ApiClient {
       );
     }
 
+    let activeTargetUrl = url;
+
     for (let attempt = 0; attempt <= retries; attempt++) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 75000);
+      // 10s timeout per attempt so users never get stuck indefinitely
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       try {
-        const res = await fetch(url, {
+        const res = await fetch(activeTargetUrl, {
           ...init,
           signal: init?.signal || controller.signal,
         });
         clearTimeout(timeoutId);
 
-        // If Cloudflare/Render returned 502/503/504 because backend is waking up, retry once after a short wait
+        // If Cloudflare/Render returned 502/503/504 because backend is waking up or failing, auto-failover
         if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries) {
-          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          const alternate = this.getAlternateUrl(activeTargetUrl);
+          if (alternate && alternate !== activeTargetUrl) {
+            activeTargetUrl = alternate;
+          }
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
           continue;
         }
 
         const renderRouting = res.headers.get('x-render-routing');
-        if (res.status === 404 && (renderRouting === 'blocked-render-subdomain' || (url.includes('.onrender.com') && !url.includes('/api/health')))) {
+        if (res.status === 404 && (renderRouting === 'blocked-render-subdomain' || (activeTargetUrl.includes('.onrender.com') && !activeTargetUrl.includes('/api/health')))) {
           if (renderRouting === 'blocked-render-subdomain') {
-            throw new Error(
-              `Render Error: Render is blocking requests to this URL (x-render-routing: blocked-render-subdomain). In your Render Dashboard: 1) Verify the service is not Suspended, 2) In Settings -> Custom Domains, ensure 'Render Subdomain' is Enabled, 3) Confirm the exact URL.`
-            );
+            const alternate = this.getAlternateUrl(activeTargetUrl);
+            if (alternate && alternate !== activeTargetUrl && attempt < retries) {
+              activeTargetUrl = alternate;
+              continue;
+            }
           }
         }
 
         const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('text/html') && url.includes('/api/')) {
-          throw new Error(
-            `Backend connection error: Received HTML instead of API JSON. Please configure your Backend API URL (Render or Railway) in Settings or click "Change URL" above.`
-          );
+        if (res.ok && contentType.includes('text/html') && activeTargetUrl.includes('/api/')) {
+          const alternate = this.getAlternateUrl(activeTargetUrl);
+          if (alternate && alternate !== activeTargetUrl && attempt < retries) {
+            activeTargetUrl = alternate;
+            continue;
+          }
         }
+
+        // If failover to alternate endpoint succeeded, persist working backend
+        if (activeTargetUrl !== url) {
+          try {
+            const newBase = new URL(activeTargetUrl).origin;
+            setApiBase(newBase);
+          } catch {}
+        }
+
         return res;
       } catch (err: any) {
         clearTimeout(timeoutId);
-        if (attempt < retries && err.name !== 'AbortError' && !err.message?.includes('Browser Blocked')) {
-          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+
+        // Immediate automatic failover to alternate gateway on connection error or timeout
+        const alternate = this.getAlternateUrl(activeTargetUrl);
+        if (alternate && alternate !== activeTargetUrl && attempt < retries) {
+          activeTargetUrl = alternate;
+          continue;
+        }
+
+        if (attempt < retries && !err.message?.includes('Browser Blocked')) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
           continue;
         }
 
         if (err.name === 'AbortError') {
-          throw new Error(
-            `Backend connection timed out (75s). Please check your Render Dashboard: Ensure the service status is 'Live' and not Crashed/Suspended.`
-          );
+          // If timed out, try alternate endpoint once before giving up
+          if (alternate && alternate !== activeTargetUrl) {
+            try {
+              const fallbackRes = await fetch(alternate, { ...init });
+              if (fallbackRes.ok) {
+                try {
+                  setApiBase(new URL(alternate).origin);
+                } catch {}
+                return fallbackRes;
+              }
+            } catch {}
+          }
+          throw new Error('Backend connection timed out. Please wait a moment and try again.');
         }
+
         if (err.message && (err.message.includes('Browser Blocked') || err.message.includes('Backend connection') || err.message.includes('Render Error'))) {
           throw err;
         }
-        if (isHttps && url.startsWith('http://')) {
-          throw new Error(
-            'Browser security blocked connection to http:// backend. Please change Backend URL to your HTTPS deployment.'
-          );
-        }
-        throw new Error(
-          `Cannot reach backend server. The server may be waking up or offline. Please wait a moment and try again.`
-        );
+        throw new Error('Cannot reach backend server. The server may be waking up or offline. Please wait a moment and try again.');
       }
     }
 
