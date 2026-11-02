@@ -32,6 +32,9 @@ export const ParticipantPanel: React.FC<{ isMobile?: boolean }> = ({ isMobile })
   const {
     activeSpeakers,
     isLocallySpeaking,
+    localParticipant,
+    isMuted,
+    isDeafened,
     activeSoundboardPlayers,
     currentPing,
     participantPings,
@@ -178,7 +181,6 @@ export const ParticipantPanel: React.FC<{ isMobile?: boolean }> = ({ isMobile })
 
   const renderMemberItem = (member: ServerMemberDto, isOnline: boolean) => {
     const isMe = member.userId === user?.id;
-    const isSpeakingNow = (isMe && isLocallySpeaking) || activeSpeakers.has(member.userId);
     const hasModPermissions = canModerate(member);
     const isBot = isBotUser(member);
     const subtitle = getMemberSubtitle(member);
@@ -187,6 +189,12 @@ export const ParticipantPanel: React.FC<{ isMobile?: boolean }> = ({ isMobile })
     const isInVoice = isMe
       ? isConnectedToVoice
       : isConnectedToVoice && remoteParticipants.some((p) => p.identity === member.userId || p.name === member.username || p.identity === member.username);
+
+    const isSpeakingNow = isInVoice && (
+      isMe
+        ? !isMuted && !isDeafened && (isLocallySpeaking || !!localParticipant?.isSpeaking || activeSpeakers.has(member.userId))
+        : (activeSpeakers.has(member.userId) || (member.username ? activeSpeakers.has(member.username) : false))
+    );
 
     const memberPing = isMe
       ? currentPing

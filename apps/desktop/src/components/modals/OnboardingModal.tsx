@@ -94,7 +94,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
               {/* Log in Front Card */}
               <div className="flip-card__front">
                 <div className="title">Log in</div>
-                <form onSubmit={(e) => handleAuthSubmit(e, 'login')} className="flip-card__form" noValidate method="post" action="#">
+                <form onSubmit={(e) => handleAuthSubmit(e, 'login')} className="flip-card__form" noValidate>
                   <input
                     id="auth-login-username"
                     type="text"
@@ -161,7 +161,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen }) => {
               {/* Sign up Back Card */}
               <div className="flip-card__back">
                 <div className="title">Sign up</div>
-                <form onSubmit={(e) => handleAuthSubmit(e, 'register')} className="flip-card__form" noValidate method="post" action="#">
+                <form onSubmit={(e) => handleAuthSubmit(e, 'register')} className="flip-card__form" noValidate>
                   <input
                     id="auth-register-displayname"
                     type="text"

@@ -98,7 +98,7 @@ function loadPersistedSettings() {
     isSelfMuted: false,
     isSelfDeafened: false,
     soundEffectsEnabled: true,
-    soundVolume: 70,
+    soundVolume: 25,
     pttSoundEnabled: true,
     joinLeaveSoundEnabled: true,
     muteSoundEnabled: true,
@@ -114,7 +114,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
   // Initialize SoundService with persisted preferences
   sounds.updatePreferences({
     masterEnabled: initial.soundEffectsEnabled ?? true,
-    masterVolume: initial.soundVolume ?? 70,
+    masterVolume: initial.soundVolume ?? 25,
     pttSound: initial.pttSoundEnabled ?? true,
     joinLeaveSound: initial.joinLeaveSoundEnabled ?? true,
     muteSound: initial.muteSoundEnabled ?? true,
@@ -166,7 +166,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     isSelfMuted: initial.isSelfMuted ?? false,
     isSelfDeafened: initial.isSelfDeafened ?? false,
     soundEffectsEnabled: initial.soundEffectsEnabled ?? true,
-    soundVolume: initial.soundVolume ?? 70,
+    soundVolume: initial.soundVolume ?? 25,
     pttSoundEnabled: initial.pttSoundEnabled ?? true,
     joinLeaveSoundEnabled: initial.joinLeaveSoundEnabled ?? true,
     muteSoundEnabled: initial.muteSoundEnabled ?? true,

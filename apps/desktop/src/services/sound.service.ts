@@ -13,12 +13,13 @@ export interface SoundPreferences {
 class SoundService {
   private ctx: AudioContext | null = null;
   private isEnabled: boolean = true;
-  private masterGain: number = 0.5;
+  private masterGain: number = 0.25;
   private cues = new Map<string, Promise<AudioBuffer>>();
+  private lastCueTrigger = new Map<string, number>();
 
   private prefs: SoundPreferences = {
     masterEnabled: true,
-    masterVolume: 70,
+    masterVolume: 25,
     pttSound: true,
     joinLeaveSound: true,
     muteSound: true,
@@ -106,6 +107,14 @@ class SoundService {
 
   private playCue(name: string, force: boolean = false) {
     if (!this.isEnabled && !force) return;
+
+    // Deduplication debounce guard: prevent duplicate rapid cue playback within 180ms
+    const now = Date.now();
+    const lastTime = this.lastCueTrigger.get(name) || 0;
+    if (!force && now - lastTime < 180) {
+      return;
+    }
+    this.lastCueTrigger.set(name, now);
 
     // Primary: Instant native HTML5 Audio element (bulletproof across all browsers without WebAudio suspended time bugs)
     try {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   Room,
   RoomEvent,
+  ParticipantEvent,
   Track,
   Participant,
   LocalParticipant,
@@ -234,19 +235,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
 
-      // Clean, studio-grade vocal pass:
-      // Gentle 75 Hz high-pass strips desk thumps and sub-bass DC rumble without cutting vocal warmth or speech clarity
+      // Human vocal-band pass (200 Hz - 3400 Hz) eliminates hum, rumble, and high-frequency hiss
       const highpass = localAudioContext.createBiquadFilter();
       highpass.type = 'highpass';
-      highpass.frequency.setValueAtTime(75, localAudioContext.currentTime);
+      highpass.frequency.setValueAtTime(200, localAudioContext.currentTime);
       highpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
+
+      const lowpass = localAudioContext.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(3400, localAudioContext.currentTime);
+      lowpass.Q.setValueAtTime(0.7, localAudioContext.currentTime);
 
       localAnalyser = localAudioContext.createAnalyser();
       localAnalyser.fftSize = 512;
       localAnalyser.smoothingTimeConstant = 0.2;
 
       localAudioSource.connect(highpass);
-      highpass.connect(localAnalyser);
+      highpass.connect(lowpass);
+      lowpass.connect(localAnalyser);
 
       // Terminate analyser through a ScriptProcessor connected to a silent GainNode.
       // This forces the Web Audio thread to process audio callbacks continuously via hardware
@@ -288,11 +294,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const rms = Math.sqrt(sumSquares / timeBuffer.length);
         const db = 20 * Math.log10(Math.max(0.00001, rms));
 
-        // Calibrated Decibel Curve:
-        // Room silence / breath: < -50 dB -> 0%
-        // Whispers: -40 dB -> ~33%
-        // Normal voice: -26 dB to -14 dB -> 80% - 100%
-        const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
+        // Calibrated Decibel Curve for voice speech:
+        // Ambient room silence / laptop fan: < -45 dB -> 0%
+        // Normal speaking voice: -26 dB to -12 dB -> 50% - 100%
+        const normalized = Math.max(0, Math.min(100, Math.round(((db + 45) / 25) * 100)));
 
         const currentSettings = useSettingsStore.getState();
         const isPtt = currentSettings.inputMode === 'push-to-talk';
@@ -350,8 +355,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         // Calibrated Voice Activity Threshold:
         // Room silence is < 30%. True vocal cords speaking effortlessly register >= 35%.
         const threshold = currentSettings.autoSensitivity
-          ? 35
-          : (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 35);
+          ? 28
+          : Math.max(15, (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 28));
 
         if (normalized >= threshold) {
           if (silenceTimer) {
@@ -933,10 +938,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         const speakingSet = new Set<string>();
         speakers.forEach((s) => speakingSet.add(s.identity));
-        if (get().isLocallySpeaking && room.localParticipant) {
+        if (get().isLocallySpeaking && !get().isMuted && !get().isDeafened && room.localParticipant) {
           speakingSet.add(room.localParticipant.identity);
         }
         set({ activeSpeakers: speakingSet });
+      });
+
+      room.localParticipant.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
+        if (!get().isMuted && !get().isDeafened) {
+          set((state) => {
+            const updated = new Set(state.activeSpeakers);
+            if (speaking || get().isLocallySpeaking) {
+              updated.add(room.localParticipant.identity);
+            } else {
+              updated.delete(room.localParticipant.identity);
+            }
+            return { activeSpeakers: updated };
+          });
+        }
       });
 
       room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
@@ -1384,11 +1403,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
         set({ isMuted: newMuted });
         useSettingsStore.getState().setSelfMuted(newMuted);
-        if (newMuted) {
-          sounds.playMute();
-        } else {
-          sounds.playUnmute();
-        }
       } catch (err: any) {
         console.error('Failed to toggle microphone state:', err);
       }
@@ -1603,13 +1617,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         useSettingsStore.getState().setDeafened(true);
         useSettingsStore.getState().setSelfDeafened(true);
         useSettingsStore.getState().setSelfMuted(true);
-        sounds.playDeafen();
       } else {
         // Undeafen: restore deafened state
         set({ isDeafened: false });
         useSettingsStore.getState().setDeafened(false);
         useSettingsStore.getState().setSelfDeafened(false);
-        sounds.playUndeafen();
       }
 
       if (room) {

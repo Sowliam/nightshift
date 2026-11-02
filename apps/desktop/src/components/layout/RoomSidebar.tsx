@@ -84,7 +84,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     participantPings,
   } = useLiveKitStore();
 
-  const { setSelfMuted, setSelfDeafened } = useSettingsStore();
+  // useSettingsStore state managed directly
   const localMutedUsers = useSettingsStore((s) => s.localMutedUsers);
 
   const { user } = useAuthStore();
@@ -169,9 +169,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
       }
 
       setJoiningVoiceChannel(channelId);
+      setActiveVoiceChannel(channelId);
 
       const joinData = await api.joinVoiceChannel(channelId);
-      setActiveVoiceChannel(channelId);
       const ok = await connect(joinData.livekitUrl, joinData.token);
       setJoiningVoiceChannel(null);
       if (ok) {
@@ -188,6 +188,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     } catch (err: any) {
       console.error('Failed to join voice channel:', err);
       setJoiningVoiceChannel(null);
+      setActiveVoiceChannel(null);
       alert(err.message || 'Failed to join voice channel');
     } finally {
       isJoiningRef.current = false;
@@ -526,14 +527,12 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
                 <div className="space-y-1">
                   {voiceChannels.map((c) => {
-                    const isConnected =
-                      connectionState === ConnectionState.Connected &&
-                      (activeVoiceChannelId === c.id ||
-                        (!activeVoiceChannelId && activeChannelId === c.id) ||
-                        (!activeVoiceChannelId && voiceChannels.length === 1));
-                    const isConnecting = joiningVoiceChannelId === c.id;
+                    const isCurrentVoice = (activeVoiceChannelId === c.id || joiningVoiceChannelId === c.id);
+                    const isConnected = connectionState === ConnectionState.Connected && activeVoiceChannelId === c.id;
+                    const isConnecting = joiningVoiceChannelId === c.id || (activeVoiceChannelId === c.id && connectionState === ConnectionState.Connecting);
+                    const isLocalSpeaking = isConnected && !isMuted && !isDeafened && (isLocallySpeaking || !!localParticipant?.isSpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)));
                     const channelParticipants = c.voiceParticipants || [];
-                    const participantCount = isConnected ? 1 + remoteParticipants.length : channelParticipants.length;
+                    const participantCount = isCurrentVoice ? 1 + remoteParticipants.length : channelParticipants.length;
 
                     return (
                       <div key={c.id} className="space-y-0.5">
@@ -558,7 +557,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {participantCount > 0 && !isConnected && (
+                            {participantCount > 0 && !isCurrentVoice && (
                               <span className="px-1.5 py-0.5 rounded-full bg-bg-elevated border border-border-subtle text-[10px] font-mono text-text-secondary group-hover:text-text-primary">
                                 {participantCount}
                               </span>
@@ -573,14 +572,14 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                         </div>
 
                         {/* Discord-style Participants List: Rendered directly underneath this voice channel */}
-                        {isConnected ? (
+                        {isCurrentVoice ? (
                           <div className="ml-3 pl-2.5 border-l-2 border-border-subtle my-1.5 space-y-1">
                             {/* 1. Local Participant (Current User) */}
                             <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-bg-elevated/80 group transition-all text-sm">
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <div
                                   className={`relative w-8 h-8 rounded-full bg-highlight flex items-center justify-center text-xs font-black text-highlight-text shrink-0 shadow-sm transition-all overflow-hidden ${
-                                    (isLocallySpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)))
+                                    isLocalSpeaking
                                       ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
                                       : ''
                                   }`}
@@ -794,7 +793,6 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
             <button
               onClick={() => {
                 toggleMute();
-                setSelfMuted(!isMuted);
               }}
               className={`call-btn call-btn-xs ${isMuted ? 'is-active-danger' : ''}`}
               title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}
@@ -818,7 +816,6 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
             <button
               onClick={() => {
                 toggleDeafen();
-                setSelfDeafened(!isDeafened);
               }}
               className={`call-btn call-btn-xs ${isDeafened ? 'is-active-danger' : ''}`}
               title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
