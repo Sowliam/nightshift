@@ -16,3 +16,4 @@ $thumb.Dispose()
 $bmp.Dispose()
 
 Write-Host "Created icon.ico successfully! Size:" (Get-Item $icoPath).Length
+

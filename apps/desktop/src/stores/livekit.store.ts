@@ -892,7 +892,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       room.on(RoomEvent.ParticipantConnected, (_participant) => {
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
-        sounds.playJoin();
+        sounds.playUserConnected();
         useRoomStore.getState().fetchRooms();
 
         // If local user is currently playing music, announce it to the newcomer once their data channel is ready
@@ -925,7 +925,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             activeSoundboardPlayers: updatedSoundboard,
           };
         });
-        sounds.playDisconnect();
+        sounds.playUserDisconnected();
         updateScreenShareState(room);
         useRoomStore.getState().fetchRooms();
       });

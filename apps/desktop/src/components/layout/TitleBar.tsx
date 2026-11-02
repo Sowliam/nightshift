@@ -3,6 +3,7 @@ import { Minus, Square, X } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useServerStore } from '../../stores/server.store';
 import { ConnectionState } from 'livekit-client';
+import { getAssetUrl } from '../../lib/assets';
 
 export const TitleBar: React.FC = () => {
   const [isElectron, setIsElectron] = useState(false);
@@ -58,7 +59,7 @@ export const TitleBar: React.FC = () => {
       <div className="flex items-center gap-3 app-region-no-drag">
         <div className="flex items-center gap-2">
           <img
-            src="/logo.png"
+            src={getAssetUrl('logo.png')}
             className="w-5 h-5 object-contain"
             alt="Nightshift Logo"
           />

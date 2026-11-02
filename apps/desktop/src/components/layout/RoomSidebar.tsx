@@ -28,6 +28,7 @@ import { VoiceConnectedPanel } from '../voice/VoiceConnectedPanel';
 import { UserContextMenu, UserContextMenuTarget } from '../common/UserContextMenu';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { PingIndicator } from '../common/PingIndicator';
+import { getAssetUrl } from '../../lib/assets';
 
 interface RoomSidebarProps {
   onOpenInvite: () => void;
@@ -338,7 +339,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-bg-elevated border border-border-strong flex items-center justify-center p-1 shadow-sm shrink-0">
                 <img
-                  src="/logo.png"
+                  src={getAssetUrl('logo.png')}
                   className="w-full h-full object-contain"
                   alt="Nightshift Logo"
                 />

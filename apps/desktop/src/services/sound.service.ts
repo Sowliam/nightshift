@@ -1,4 +1,5 @@
 // Soft CC0 UI cues (SFXMint). Played quietly through a lowpass so they stay warm, not sharp.
+import { getAssetUrl } from '../lib/assets';
 
 export interface SoundPreferences {
   masterEnabled: boolean;
@@ -84,12 +85,17 @@ class SoundService {
     }
   }
 
+  private getCueUrl(name: string): string {
+    return getAssetUrl(`sounds/ui/${name}.mp3`);
+  }
+
   private loadCue(ctx: AudioContext, name: string) {
     let pending = this.cues.get(name);
     if (!pending) {
-      pending = fetch(`/sounds/ui/${name}.mp3`)
+      const url = this.getCueUrl(name);
+      pending = fetch(url)
         .then((res) => {
-          if (!res.ok) throw new Error(`Missing cue ${name}`);
+          if (!res.ok) throw new Error(`Missing cue ${name} at ${url}`);
           return res.arrayBuffer();
         })
         .then((data) => ctx.decodeAudioData(data));
@@ -103,7 +109,8 @@ class SoundService {
 
     // Primary: Instant native HTML5 Audio element (bulletproof across all browsers without WebAudio suspended time bugs)
     try {
-      const audio = new Audio(`/sounds/ui/${name}.mp3`);
+      const url = this.getCueUrl(name);
+      const audio = new Audio(url);
       audio.volume = Math.max(0, Math.min(1, this.masterGain * 0.7));
       const playPromise = audio.play();
       if (playPromise !== undefined) {
@@ -185,6 +192,16 @@ class SoundService {
   public playDisconnect() {
     if (!this.prefs.joinLeaveSound) return;
     this.playCue('leave');
+  }
+
+  public playUserConnected() {
+    if (!this.prefs.joinLeaveSound) return;
+    this.playCue('userconnected');
+  }
+
+  public playUserDisconnected() {
+    if (!this.prefs.joinLeaveSound) return;
+    this.playCue('userdisconnected');
   }
 
   // 7. Push-To-Talk Activate Click (Super subtle 880Hz blip)
@@ -283,7 +300,7 @@ class SoundService {
     else this.playPttDeactivate(true);
   }
 
-  public previewCue(name: 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen') {
+  public previewCue(name: 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen' | 'userconnected' | 'userdisconnected') {
     this.playCue(name, true);
   }
 

@@ -1161,13 +1161,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         Plays a sound when you or another user joins or leaves a voice channel.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                       <button
                         type="button"
                         onClick={() => sounds.previewCue('join')}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                        title="Self Join Voice Channel"
                       >
-                        Preview
+                        Join (Me)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('leave')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                        title="Self Leave Voice Channel"
+                      >
+                        Leave (Me)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('userconnected')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-emerald-400 hover:text-emerald-300 border border-border-subtle transition-colors cursor-pointer"
+                        title="Another user connects to voice"
+                      >
+                        User Connected
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('userdisconnected')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-rose-400 hover:text-rose-300 border border-border-subtle transition-colors cursor-pointer"
+                        title="Another user disconnects from voice"
+                      >
+                        User Disconnected
                       </button>
                       <button
                         type="button"
@@ -1200,13 +1225,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         Plays a sound when toggling microphone mute or headset deafen.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                       <button
                         type="button"
                         onClick={() => sounds.previewCue('mute')}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
                       >
-                        Preview
+                        Mute
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('unmute')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Unmute
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('deafen')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Deafen
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sounds.previewCue('undeafen')}
+                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                      >
+                        Undeafen
                       </button>
                       <button
                         type="button"

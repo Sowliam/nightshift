@@ -106,3 +106,4 @@ $hBmp.Save($headerPath, [System.Drawing.Imaging.ImageFormat]::Bmp)
 $hBmp.Dispose()
 
 Write-Host "Created installerSidebar.bmp and installerHeader.bmp successfully."
+
