@@ -40,9 +40,10 @@ export const getApiBase = (): string => {
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       const cleanCustom = custom.trim().replace(/\/$/, '');
-      // If user had previously stored onrender, vercel origin, or same-origin, upgrade them to the real unblocked proxy backend
-      if (cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
+      // Purge onrender.com, vercel, or same-origin from localStorage to always use fast unblocked Cloudflare edge proxy
+      if (cleanCustom.includes('onrender.com') || cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
         localStorage.removeItem('nightshift_api_url');
+        return DEFAULT_PRODUCTION_API;
       } else {
         return cleanCustom;
       }

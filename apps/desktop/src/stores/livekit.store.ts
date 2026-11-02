@@ -58,7 +58,7 @@ interface LiveKitState {
   error: string | null;
 
   connect: (url: string, token: string) => Promise<boolean>;
-  disconnect: () => Promise<void>;
+  disconnect: (notifyServer?: boolean | any) => Promise<void>;
   toggleMute: () => Promise<void>;
   toggleDeafen: () => Promise<void>;
   startScreenShare: (sourceId?: string, options?: ScreenShareOptions) => Promise<boolean>;
@@ -819,7 +819,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     error: null,
 
     connect: async (url: string, token: string) => {
-      await get().disconnect();
+      await get().disconnect(false);
 
       set({ connectionState: ConnectionState.Connecting, error: null });
 
@@ -1175,9 +1175,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       try {
         await room.connect(url, token, {
-          rtcConfig: {
-            iceCandidatePoolSize: 10,
-          },
+          autoSubscribe: true,
         });
 
         // In web browsers, ensure WebRTC audio playback is activated (handles autoplay policy)
@@ -1188,13 +1186,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         }
 
         const settings = useSettingsStore.getState();
-        if (settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default') {
-          try {
-            await room.switchActiveDevice('audioinput', settings.audioInputDeviceId);
-          } catch (e) {
-            console.warn('Could not switch to preferred input device:', e);
-          }
-        }
 
         // Ensure microphone track is acquired and published to LiveKit
         const isPtt = settings.inputMode === 'push-to-talk';
@@ -1283,7 +1274,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     },
 
-    disconnect: async () => {
+    disconnect: async (notifyServer: boolean | any = true) => {
+      const shouldNotify = typeof notifyServer === 'boolean' ? notifyServer : true;
       clearReconnectWatchdog();
       try {
         sessionStorage.removeItem('nightshift_active_voice_session');
@@ -1313,13 +1305,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         activeCustomScreenTrack = null;
       }
 
-      const activeChannel = useServerStore.getState().activeVoiceChannelId;
-      if (activeChannel) {
-        api.leaveVoiceChannel(activeChannel).catch(() => {});
+      if (shouldNotify) {
+        const activeChannel = useServerStore.getState().activeVoiceChannelId;
+        if (activeChannel) {
+          api.leaveVoiceChannel(activeChannel).catch(() => {});
+        }
       }
 
       if (room) {
-        sounds.playDisconnect();
+        if (shouldNotify) {
+          sounds.playDisconnect();
+        }
         try {
           await room.disconnect(true);
         } catch (e) {
