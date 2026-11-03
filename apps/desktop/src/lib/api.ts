@@ -40,8 +40,8 @@ export const getApiBase = (): string => {
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       const cleanCustom = custom.trim().replace(/\/$/, '');
-      // Only purge if pointing to frontend domain or same-origin
-      if (cleanCustom === window.location.origin || cleanCustom.includes('vercel.app')) {
+      // Purge if pointing to onrender.com (filtered in Iran) or frontend same-origin
+      if (cleanCustom === window.location.origin || cleanCustom.includes('vercel.app') || cleanCustom.includes('onrender.com')) {
         localStorage.removeItem('nightshift_api_url');
         return DEFAULT_PRODUCTION_API;
       } else {
@@ -51,10 +51,13 @@ export const getApiBase = (): string => {
 
     // 3. Explicit VITE_API_URL from environment if not default localhost
     if (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('localhost:3001')) {
-      return import.meta.env.VITE_API_URL.replace(/\/$/, '');
+      const envUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
+      if (!envUrl.includes('onrender.com')) {
+        return envUrl;
+      }
     }
 
-    // 4. Default to live Render cloud backend for production web, electron, and cross-user invites
+    // 4. Default to Cloudflare Anti-Filter Gateway (accessible inside Iran without VPN)
     return DEFAULT_PRODUCTION_API;
   }
   return (import.meta.env.VITE_API_URL || DEFAULT_PRODUCTION_API).replace(/\/$/, '');
@@ -136,12 +139,11 @@ class ApiClient {
   }
 
   private getAlternateUrl(currentUrl: string): string | null {
+    // If accidentally on onrender.com (filtered in Iran), recover to Cloudflare anti-filter proxy
     if (currentUrl.includes('nightshift-server-cfch.onrender.com')) {
       return currentUrl.replace('nightshift-server-cfch.onrender.com', 'nightshift-api.gemesowl.workers.dev');
     }
-    if (currentUrl.includes('nightshift-api.gemesowl.workers.dev')) {
-      return currentUrl.replace('nightshift-api.gemesowl.workers.dev', 'nightshift-server-cfch.onrender.com');
-    }
+    // NEVER switch from Cloudflare Worker to onrender.com because onrender.com is filtered in Iran!
     return null;
   }
 
@@ -197,8 +199,8 @@ class ApiClient {
           }
         }
 
-        // If failover to alternate endpoint succeeded, persist working backend
-        if (activeTargetUrl !== url) {
+        // If failover back to Cloudflare anti-filter proxy succeeded, persist it
+        if (activeTargetUrl !== url && activeTargetUrl.includes('workers.dev')) {
           try {
             const newBase = new URL(activeTargetUrl).origin;
             setApiBase(newBase);
@@ -227,9 +229,11 @@ class ApiClient {
             try {
               const fallbackRes = await fetch(alternate, { ...init });
               if (fallbackRes.ok) {
-                try {
-                  setApiBase(new URL(alternate).origin);
-                } catch {}
+                if (alternate && alternate.includes('workers.dev')) {
+                  try {
+                    setApiBase(new URL(alternate).origin);
+                  } catch {}
+                }
                 return fallbackRes;
               }
             } catch {}
