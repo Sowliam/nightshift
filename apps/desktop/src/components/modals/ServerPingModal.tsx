@@ -94,8 +94,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
     }
 
-
-
     // 2. If in Desktop Electron: use raw hardware-level TCP socket ping for 100% true network latency!
 
     if (window.nightshift?.measurePing) {
@@ -125,8 +123,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
       } catch {}
 
     }
-
-
 
     // 3. For LiveKit in Web Browser: probe direct handshake without waiting for non-existent /api/ping
 
@@ -158,8 +154,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
     }
 
-
-
     // 4. In Web browser for API gateways:
 
     try {
@@ -168,13 +162,9 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
       const pingUrl = url.origin + '/api/ping';
 
-
-
       const controller = new AbortController();
 
       const timeout = setTimeout(() => controller.abort(), 2500);
-
-
 
       const startTime = performance.now();
 
@@ -208,11 +198,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
       clearTimeout(timeout);
 
-
-
       const totalTime = Math.round(performance.now() - startTime);
-
-
 
       try {
 
@@ -234,8 +220,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
       } catch {}
 
-
-
       const realPing = Math.max(30, Math.round(totalTime / 2));
 
       return { ping: realPing, status: 'online' };
@@ -248,15 +232,11 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   };
 
-
-
   const testAllServers = async () => {
 
     setIsTestingAll(true);
 
     const updated = [...servers];
-
-
 
     for (let i = 0; i < updated.length; i++) {
 
@@ -264,15 +244,11 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
       setServers([...updated]);
 
-
-
       const result = await pingServer(updated[i]);
 
       updated[i].ping = result.status === 'online' ? result.ping : null;
 
       updated[i].status = result.status;
-
-
 
       setServers([...updated]);
 
@@ -281,8 +257,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
     setIsTestingAll(false);
 
   };
-
-
 
   useEffect(() => {
 
@@ -296,11 +270,7 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   }, [isOpen]);
 
-
-
   if (!isOpen) return null;
-
-
 
   const getPingBadge = (ping: number | null, status: string) => {
 
@@ -372,8 +342,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
   };
 
-
-
   return (
 
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 select-none">
@@ -410,8 +378,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
           </div>
 
-
-
           <button
 
             onClick={onClose}
@@ -425,8 +391,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
           </button>
 
         </div>
-
-
 
         {/* Server List */}
 
@@ -458,8 +422,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
           </div>
 
-
-
           {switchFeedback && (
 
             <div className="px-3 py-1.5 rounded-lg bg-online/15 border border-online/30 text-online text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
@@ -472,8 +434,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
           )}
 
-
-
           <div className="space-y-2">
 
             {servers.map((server) => {
@@ -481,14 +441,10 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
               const isGateway = server.type === 'gateway';
 
               const isConnected =
-
-                (server.id === 'render-backend' && isRenderActive) ||
-
-                (server.id === 'cloudflare-gateway' && !isRenderActive) ||
-
+                (server.id === 'vercel-gateway' && (activeBackend.includes('vercel.app') || (!activeBackend.includes('workers.dev') && !activeBackend.includes('onrender.com')))) ||
+                (server.id === 'cloudflare-gateway' && activeBackend.includes('workers.dev')) ||
+                (server.id === 'render-backend' && activeBackend.includes('onrender.com')) ||
                 (server.id === 'livekit-cloud');
-
-
 
               return (
 
@@ -550,8 +506,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
                     </div>
 
-
-
                     <div className="flex flex-col">
 
                       <div className="flex items-center gap-1.5">
@@ -601,8 +555,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
                     </div>
 
                   </div>
-
-
 
                   <div className="flex items-center gap-2.5">
 
@@ -656,8 +608,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
 
           </div>
 
-
-
           {/* Network Notes */}
 
           <div className="p-3.5 rounded-xl bg-bg-elevated/40 border border-border-subtle/60 text-xs text-text-secondary flex items-start gap-2.5 mt-4">
@@ -679,8 +629,6 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
           </div>
 
         </div>
-
-
 
         {/* Footer */}
 
@@ -715,4 +663,3 @@ export const ServerPingModal: React.FC<ServerPingModalProps> = ({ isOpen, onClos
   );
 
 };
-
