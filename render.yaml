@@ -18,6 +18,18 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
+      - key: LIVEKIT_URL_2
+        value: wss://nightshift-2-97ar462d.livekit.cloud
+      - key: LIVEKIT_API_KEY_2
+        sync: false
+      - key: LIVEKIT_API_SECRET_2
+        sync: false
+      - key: LIVEKIT_URL_3
+        value: wss://nightshift-3-zwh3gynw.livekit.cloud
+      - key: LIVEKIT_API_KEY_3
+        sync: false
+      - key: LIVEKIT_API_SECRET_3
+        sync: false
       - key: DATABASE_URL
         sync: false
     domains:

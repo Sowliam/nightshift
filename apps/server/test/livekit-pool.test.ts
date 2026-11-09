@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { getLiveKitPoolStatus, rotateLiveKitSlot } from '../src/services/livekit.service.js';
 
 describe('LiveKit Multi-Account Pool & Auto-Rotation', () => {
-  it('pool status accurately exposes accounts and active slot', () => {
+  it('pool status accurately exposes all 3 accounts and active slot', () => {
     const status = getLiveKitPoolStatus();
     expect(status).toBeDefined();
-    expect(status.totalAccounts).toBeGreaterThanOrEqual(1);
+    expect(status.totalAccounts).toBe(3);
     expect(status.activeSlot).toBeGreaterThanOrEqual(1);
-    expect(Array.isArray(status.accounts)).toBe(true);
+    expect(status.accounts.length).toBe(3);
 
     const activeAcc = status.accounts.find((a) => a.isActive);
     expect(activeAcc).toBeDefined();
