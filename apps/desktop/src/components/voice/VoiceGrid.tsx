@@ -464,10 +464,17 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
                   {hasCustomVolume && !p.isLocal && (
                     <div
                       className="px-1.5 py-0.5 rounded-lg bg-bg-main/80 border border-border-subtle text-[10px] font-mono text-text-secondary flex items-center gap-0.5"
-                      title={`Volume set to ${customVolume}%`}
+                      title={`Volume set to ${customVolume}% (${customVolume > 100 ? '+' : ''}${(20 * Math.log10(customVolume / 100)).toFixed(1)} dB)`}
                     >
                       <Volume2 className="w-3 h-3 text-highlight" />
-                      <span>{customVolume}%</span>
+                      <span>
+                        {customVolume}%
+                        {customVolume !== 100 && (
+                          <span className="text-[9px] text-text-muted/80 ml-0.5">
+                            ({customVolume > 100 ? '+' : ''}{(20 * Math.log10(customVolume / 100)).toFixed(1)}dB)
+                          </span>
+                        )}
+                      </span>
                     </div>
                   )}
 

@@ -83,6 +83,7 @@ interface LiveKitState {
   testContinuousAudio: (durationMs?: number) => Promise<{ success: boolean; packetsSent: number; bytesSent: number; error?: string }>;
   testUiPtt: (durationMs?: number) => Promise<{ success: boolean; packetsSent: number; bytesSent: number; error?: string }>;
   setParticipantVolume: (identity: string, volumePercent: number) => void;
+  setMasterOutputVolume: (volumePercent: number) => void;
   toggleMuteForMyself: (identity: string) => void;
   broadcastChatMessage: (roomId: string, message: MessageDto) => Promise<void>;
   broadcastChatDeleted: (roomId: string, messageId: string) => Promise<void>;
@@ -642,12 +643,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
   class RemoteAudioGainEngine {
     private ctx: AudioContext | null = null;
+    private masterGain: GainNode | null = null;
+    private limiter: DynamicsCompressorNode | null = null;
     private nodes = new Map<string, { gain: GainNode; source: MediaStreamAudioSourceNode }>();
     private pending = new Map<string, { track: MediaStreamTrack; volume: number; muted: boolean; element: HTMLMediaElement | null }>();
 
     constructor() {
       const unlockAudio = () => {
-        const ctx = this.getAudioContext();
+        const ctx = this.ensureAudioContext();
         const flush = () => this.flushPending();
         if (ctx && ctx.state === 'suspended') {
           ctx.resume().then(flush).catch(flush);
@@ -662,7 +665,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     }
 
-    private getAudioContext(): AudioContext | null {
+    public ensureAudioContext(): AudioContext | null {
       if (!this.ctx || this.ctx.state === 'closed') {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioCtx) return null;
@@ -672,7 +675,42 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           return null;
         }
       }
+      if (this.ctx && !this.masterGain) {
+        try {
+          this.masterGain = this.ctx.createGain();
+          const masterVol = useSettingsStore.getState().outputVolume ?? 100;
+          this.masterGain.gain.setValueAtTime(Math.max(0, masterVol / 100), this.ctx.currentTime);
+
+          // Transparent broadcast limiter to prevent clipping when boosted
+          this.limiter = this.ctx.createDynamicsCompressor();
+          this.limiter.threshold.setValueAtTime(-1.0, this.ctx.currentTime); // -1 dBFS
+          this.limiter.knee.setValueAtTime(3.0, this.ctx.currentTime);
+          this.limiter.ratio.setValueAtTime(20.0, this.ctx.currentTime);
+          this.limiter.attack.setValueAtTime(0.003, this.ctx.currentTime);
+          this.limiter.release.setValueAtTime(0.05, this.ctx.currentTime);
+
+          this.masterGain.connect(this.limiter);
+          this.limiter.connect(this.ctx.destination);
+        } catch (e) {
+          console.warn('[RemoteAudioGainEngine] Error initializing master nodes:', e);
+        }
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
       return this.ctx;
+    }
+
+    public isRouted(trackKey: string): boolean {
+      return this.nodes.has(trackKey);
+    }
+
+    // Helper to calculate linear gain from volume percentage (100% = calibrated baseline presence)
+    private calcGain(volumePercent: number, isMuted: boolean): number {
+      if (isMuted || volumePercent <= 0) return 0;
+      // 1.35x (+2.6 dB) clean presence boost so voices at 100% are loud, present, and never faint
+      const presenceMultiplier = 1.35;
+      return Math.max(0, (volumePercent / 100) * presenceMultiplier);
     }
 
     private applyElement(element: HTMLMediaElement | null, volumePercent: number, isMuted: boolean, takenByGraph: boolean) {
@@ -703,8 +741,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     private flushOne(trackKey: string): boolean {
       const item = this.pending.get(trackKey);
       if (!item || !item.track) return false;
-      const ctx = this.ctx;
-      if (!ctx || ctx.state !== 'running') {
+      const ctx = this.ensureAudioContext();
+      if (!ctx) {
         this.applyElement(item.element, item.volume, item.muted, false);
         return false;
       }
@@ -714,10 +752,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const source = ctx.createMediaStreamSource(stream);
         const gain = ctx.createGain();
         const now = ctx.currentTime;
-        const gainVal = item.muted ? 0 : Math.max(0, item.volume / 100);
+        const gainVal = this.calcGain(item.volume, item.muted);
         gain.gain.setValueAtTime(gainVal, now);
         source.connect(gain);
-        gain.connect(ctx.destination);
+
+        if (this.masterGain) {
+          gain.connect(this.masterGain);
+        } else {
+          gain.connect(ctx.destination);
+        }
+
         this.nodes.set(trackKey, { gain, source });
         this.applyElement(item.element, item.volume, item.muted, true);
         return true;
@@ -750,9 +794,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       return this.flushOne(trackKey);
     }
 
+    public setMasterOutputVolume(volumePercent: number): void {
+      const ctx = this.ensureAudioContext();
+      if (!ctx || !this.masterGain) return;
+      const now = ctx.currentTime;
+      const gainVal = Math.max(0, volumePercent / 100);
+      try {
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.setValueAtTime(gainVal, now);
+      } catch {}
+    }
+
     public updateSoundboardVolume(identity: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.ctx;
-      const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
+      const ctx = this.ensureAudioContext();
+      const gainVal = isMuted ? 0 : Math.max(0, (volumePercent / 100) * 1.2);
       const prefix = `${identity}_soundboard`;
       this.pending.forEach((item, key) => {
         if (key.startsWith(prefix) || key.includes(prefix) || (key.startsWith(identity) && !key.includes('_mic_'))) {
@@ -791,7 +846,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
 
     public updateVolume(trackKey: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.ctx;
+      const ctx = this.ensureAudioContext();
       const pendingItem = this.pending.get(trackKey);
       if (pendingItem) {
         pendingItem.volume = volumePercent;
@@ -801,9 +856,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         }
       }
       if (!ctx) return;
-      const entry = this.nodes.get(trackKey);
-      const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
+      const gainVal = this.calcGain(volumePercent, isMuted);
       const now = ctx.currentTime;
+      const entry = this.nodes.get(trackKey);
       if (entry) {
         try {
           entry.gain.gain.cancelScheduledValues(now);
@@ -873,9 +928,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         if ((pub.track as any)?.attachedElements) {
           (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
             try {
-              const v = deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100));
-              el.volume = v;
-              el.muted = v === 0;
+              if (remoteAudioGainEngine.isRouted(trackKey)) {
+                el.volume = 0;
+                el.muted = true;
+              } else {
+                const v = deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100));
+                el.volume = v;
+                el.muted = v === 0;
+              }
             } catch {}
           });
         }
@@ -917,7 +977,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         adaptiveStream: false, // Ensure full original stream resolution is never downscaled
         dynacast: false,
         audioCaptureDefaults: {
-          autoGainControl: false,
+          autoGainControl: true,
           echoCancellation: true,
           noiseSuppression: true,
           channelCount: 1,
@@ -1339,7 +1399,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           await room.localParticipant.setMicrophoneEnabled(true, {
             echoCancellation: isEchoCancelled,
             noiseSuppression: isNoiseSuppressed,
-            autoGainControl: false,
+            autoGainControl: true,
             channelCount: 1,
             deviceId:
               settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
@@ -1357,7 +1417,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             await room.localParticipant.setMicrophoneEnabled(true, {
               echoCancellation: isEchoCancelled,
               noiseSuppression: isNoiseSuppressed,
-              autoGainControl: false,
+              autoGainControl: true,
               channelCount: 1,
               deviceId:
                 settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
@@ -1552,7 +1612,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           await room.localParticipant.setMicrophoneEnabled(true, {
             echoCancellation: settings.echoCancellation,
             noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: false,
+            autoGainControl: true,
             channelCount: 1,
             deviceId:
               settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
@@ -1632,7 +1692,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const micConstraints = {
             echoCancellation: settings.echoCancellation,
             noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: false,
+            autoGainControl: true,
             deviceId:
               settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
                 ? settings.audioInputDeviceId
@@ -2189,7 +2249,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const constraints: MediaTrackConstraints = {
         echoCancellation: isEchoCancelled,
         noiseSuppression: isNoiseSuppressed,
-        autoGainControl: false,
+        autoGainControl: true,
         channelCount: 1,
       };
 
@@ -2247,8 +2307,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               if ((pub.track as any).attachedElements) {
                 (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
                   try {
-                    el.volume = targetVol;
-                    el.muted = targetVol === 0;
+                    if (!remoteAudioGainEngine.isRouted(trackKey)) {
+                      el.volume = targetVol;
+                      el.muted = targetVol === 0;
+                    }
                   } catch {}
                 });
               }
@@ -2256,6 +2318,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           }
         });
       }
+    },
+
+    setMasterOutputVolume: (volumePercent: number) => {
+      useSettingsStore.getState().setOutputVolume(volumePercent);
+      remoteAudioGainEngine.setMasterOutputVolume(volumePercent);
     },
 
     setParticipantSoundboardVolume: (identity: string, volumePercent: number) => {

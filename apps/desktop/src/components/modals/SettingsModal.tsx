@@ -56,6 +56,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setPushToTalkKey,
     setInputDevice,
     setOutputDevice,
+    outputVolume,
+    setOutputVolume,
     // Sound effects customization
     soundEffectsEnabled,
     soundVolume,
@@ -72,7 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   } = useSettingsStore();
 
   const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
-  const { setAudioInputDevice, setAudioOutputDevice, applyAudioProcessingSettings } = useLiveKitStore();
+  const { setAudioInputDevice, setAudioOutputDevice, applyAudioProcessingSettings, setMasterOutputVolume } = useLiveKitStore();
 
   const [voiceDraft, setVoiceDraft] = useState<{
     audioInputDeviceId: string;
@@ -258,7 +260,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               : undefined,
           echoCancellation: shownVoice.echoCancellation,
           noiseSuppression: shownVoice.noiseSuppression !== 'none',
-          autoGainControl: false,
+          autoGainControl: true,
         },
       };
 
@@ -639,35 +641,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
 
                 {/* Output Volume & Test Sound */}
-                <div className={`p-3.5 rounded-xl bg-bg-elevated border transition-colors flex items-center justify-between ${
+                <div className={`p-3.5 rounded-xl bg-bg-elevated border transition-colors flex flex-col gap-3 ${
                   isSpeakerTesting ? 'border-emerald-500/50 shadow-md shadow-emerald-500/10' : 'border-border-subtle'
                 }`}>
-                  <div className="flex items-center gap-3">
-                    <Volume2 className={`w-5 h-5 transition-transform ${isSpeakerTesting ? 'text-emerald-400 scale-110' : 'text-highlight'}`} />
-                    <div>
-                      <div className="text-xs font-bold text-text-primary">Output Volume & Speaker Test</div>
-                      <div className="text-[11px] text-text-muted">Test sound playback on your selected speaker</div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Volume2 className={`w-5 h-5 transition-transform ${isSpeakerTesting ? 'text-emerald-400 scale-110' : 'text-highlight'}`} />
+                      <div>
+                        <div className="text-xs font-bold text-text-primary">Master Output Volume</div>
+                        <div className="text-[11px] text-text-muted">Master volume for all voices and sound effects</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-highlight">
+                        {outputVolume}% {outputVolume === 100 ? '(0 dB)' : outputVolume > 100 ? `(+${(20 * Math.log10(outputVolume / 100)).toFixed(1)} dB)` : `(${(20 * Math.log10(Math.max(1, outputVolume) / 100)).toFixed(1)} dB)`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleTestSpeaker}
+                        disabled={isSpeakerTesting}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer ${
+                          isSpeakerTesting
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-highlight hover:bg-white text-highlight-text'
+                        }`}
+                      >
+                        {isSpeakerTesting ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                            Playing...
+                          </>
+                        ) : (
+                          'Play Test Sound'
+                        )}
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleTestSpeaker}
-                    disabled={isSpeakerTesting}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
-                      isSpeakerTesting
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-highlight hover:bg-white text-highlight-text'
-                    }`}
-                  >
-                    {isSpeakerTesting ? (
-                      <>
-                        <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                        Playing Chime...
-                      </>
-                    ) : (
-                      'Play Test Sound'
-                    )}
-                  </button>
+
+                  <div className="flex flex-col gap-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="200"
+                      step="1"
+                      value={outputVolume}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setOutputVolume(val);
+                        setMasterOutputVolume(val);
+                      }}
+                      className="w-full h-1.5 bg-bg-main rounded-lg accent-highlight cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[9px] text-text-muted px-0.5 font-mono">
+                      <span>0% (-∞ dB)</span>
+                      <span className="font-bold text-text-secondary">100% (0 dB)</span>
+                      <span>200% (+6.0 dB)</span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* 1. Input Profile Section (Matching Screenshot) */}

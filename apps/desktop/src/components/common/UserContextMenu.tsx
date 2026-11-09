@@ -271,13 +271,21 @@ export const UserContextMenu: React.FC<UserContextMenuProps> = ({
               <span className="text-text-secondary font-medium">Voice (Mic) Volume</span>
               <div className="flex items-center gap-1.5">
                 <span className="font-mono text-[10px] font-bold text-text-primary">
-                  {isLocallyMuted ? '0%' : `${userVolume}%`}
+                  {isLocallyMuted
+                    ? 'MUTED'
+                    : userVolume === 0
+                      ? '0% (-∞ dB)'
+                      : userVolume === 100
+                        ? '100% (0 dB)'
+                        : userVolume > 100
+                          ? `${userVolume}% (+${(20 * Math.log10(userVolume / 100)).toFixed(1)} dB)`
+                          : `${userVolume}% (${(20 * Math.log10(userVolume / 100)).toFixed(1)} dB)`}
                 </span>
                 {userVolume !== 100 && (
                   <button
                     onClick={handleResetVolume}
                     className="p-0.5 rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                    title="Reset to 100%"
+                    title="Reset to 100% (0 dB)"
                   >
                     <RotateCcw className="w-3 h-3" />
                   </button>
@@ -289,7 +297,7 @@ export const UserContextMenu: React.FC<UserContextMenuProps> = ({
               <input
                 type="range"
                 min="0"
-                max="200"
+                max="300"
                 step="1"
                 disabled={isLocallyMuted}
                 value={isLocallyMuted ? 0 : userVolume}
@@ -299,10 +307,11 @@ export const UserContextMenu: React.FC<UserContextMenuProps> = ({
               />
             </div>
 
-            <div className="flex justify-between text-[8px] text-text-muted px-0.5">
+            <div className="flex justify-between text-[8px] text-text-muted px-0.5 font-mono">
               <span>0%</span>
-              <span className="font-bold text-text-secondary">100%</span>
-              <span>200%</span>
+              <span className="font-bold text-text-secondary">100% (0 dB)</span>
+              <span>200% (+6 dB)</span>
+              <span className="text-highlight font-bold">300% (+9.5 dB)</span>
             </div>
           </div>
 
