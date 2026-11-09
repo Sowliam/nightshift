@@ -531,7 +531,20 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                     const isConnected = connectionState === ConnectionState.Connected && activeVoiceChannelId === c.id;
                     const isConnecting = joiningVoiceChannelId === c.id || (activeVoiceChannelId === c.id && connectionState === ConnectionState.Connecting);
                     const isLocalSpeaking = isConnected && !isMuted && !isDeafened && (isLocallySpeaking || !!localParticipant?.isSpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)));
-                    const channelParticipants = c.voiceParticipants || [];
+                    const channelParticipants = (c.voiceParticipants || []).filter((vp) => {
+                      const isSelf =
+                        vp.identity === user?.id ||
+                        vp.identity === user?.username ||
+                        vp.identity === localParticipant?.identity;
+                      if (isSelf && activeVoiceChannelId !== c.id) return false;
+                      if (
+                        connectionState === ConnectionState.Connected &&
+                        remoteParticipants.some((p) => p.identity === vp.identity)
+                      ) {
+                        return false;
+                      }
+                      return true;
+                    });
                     const participantCount = isCurrentVoice ? 1 + remoteParticipants.length : channelParticipants.length;
 
                     return (
@@ -791,6 +804,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Mic Toggle Button */}
             <button
+              type="button"
               onClick={() => {
                 toggleMute();
               }}

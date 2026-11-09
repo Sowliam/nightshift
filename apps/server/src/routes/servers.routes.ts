@@ -16,7 +16,7 @@ import {
   VoiceParticipantDto,
 } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
-import { getLiveKitRoomParticipants } from '../services/livekit.service.js';
+import { getLiveKitRoomParticipants, removeLiveKitParticipant } from '../services/livekit.service.js';
 
 export const serversRoutes: FastifyPluginAsync = async (fastify) => {
   // 1. List all servers current user belongs to
@@ -244,6 +244,39 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
         };
       })
     );
+
+    // A person can only stand in one voice channel. If LiveKit still lists them
+    // in an older room, keep the latest join and drop the rest.
+    const newest = new Map<string, { channelId: string; joinedAt: number }>();
+    for (const dto of channelDtos) {
+      if (dto.type !== 'voice' || !dto.voiceParticipants) continue;
+      for (const person of dto.voiceParticipants) {
+        const joinedAt = (person as { joinedAt?: number }).joinedAt || 0;
+        const prev = newest.get(person.identity);
+        if (!prev || joinedAt >= prev.joinedAt) {
+          newest.set(person.identity, { channelId: dto.id, joinedAt });
+        }
+      }
+    }
+
+    const staleRemovals: Promise<unknown>[] = [];
+    for (const dto of channelDtos) {
+      if (dto.type !== 'voice' || !dto.voiceParticipants) continue;
+      const kept = [];
+      for (const person of dto.voiceParticipants) {
+        const home = newest.get(person.identity);
+        if (home && home.channelId !== dto.id) {
+          staleRemovals.push(removeLiveKitParticipant(`ns_${serverId}_${dto.id}`, person.identity));
+          continue;
+        }
+        kept.push({ identity: person.identity, name: person.name });
+      }
+      dto.voiceParticipants = kept;
+      dto.participantCount = kept.length;
+    }
+    if (staleRemovals.length > 0) {
+      Promise.all(staleRemovals).catch(() => {});
+    }
 
     return reply.status(200).send({ channels: channelDtos });
   });

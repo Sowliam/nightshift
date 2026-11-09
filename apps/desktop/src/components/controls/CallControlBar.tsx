@@ -64,6 +64,7 @@ export const CallControlBar: React.FC<CallControlBarProps> = ({
     >
       {/* 1. Mic Mute / Unmute (with layered crossfade and hover bounce) */}
       <button
+        type="button"
         onClick={toggleMute}
         className={`call-btn ${isMuted ? 'is-active-danger' : ''}`}
         title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}

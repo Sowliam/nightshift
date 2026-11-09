@@ -549,6 +549,13 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     if (!targetId) return;
 
     try {
+      if (
+        activeVoiceChannelId &&
+        activeVoiceChannelId !== targetId &&
+        connectionState !== ConnectionState.Disconnected
+      ) {
+        await disconnect();
+      }
       setJoiningVoiceChannel(targetId);
       const joinData = await api.joinVoiceChannel(targetId);
       setActiveVoiceChannel(targetId);

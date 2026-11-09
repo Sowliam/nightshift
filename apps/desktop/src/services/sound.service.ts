@@ -1,4 +1,4 @@
-// Soft CC0 UI cues (SFXMint). Played quietly through a lowpass so they stay warm, not sharp.
+// Soft CC0 UI cues (SFXMint). Played as the original file, full length.
 import { getAssetUrl } from '../lib/assets';
 
 export interface SoundPreferences {
@@ -15,6 +15,7 @@ class SoundService {
   private isEnabled: boolean = true;
   private masterGain: number = 0.25;
   private cues = new Map<string, Promise<AudioBuffer>>();
+  private players = new Map<string, HTMLAudioElement>();
   private lastCueTrigger = new Map<string, number>();
 
   private prefs: SoundPreferences = {
@@ -79,9 +80,10 @@ class SoundService {
   }
 
   public async unlock(): Promise<void> {
-    if (this.ctx && this.ctx.state === 'suspended') {
+    const ctx = this.getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
       try {
-        await this.ctx.resume();
+        await ctx.resume();
       } catch {}
     }
   }
@@ -115,21 +117,33 @@ class SoundService {
       return;
     }
     this.lastCueTrigger.set(name, now);
+    this.playCueElement(name);
+  }
 
-    // Primary: Instant native HTML5 Audio element (bulletproof across all browsers without WebAudio suspended time bugs)
+  private playCueElement(name: string) {
+    if (typeof document === 'undefined') {
+      this.playCueWebAudio(name, true);
+      return;
+    }
+
+    let audio = this.players.get(name);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.preload = 'auto';
+      audio.src = this.getCueUrl(name);
+      audio.setAttribute('playsinline', 'true');
+      audio.style.display = 'none';
+      document.body.appendChild(audio);
+      this.players.set(name, audio);
+    }
+
+    audio.volume = Math.max(0, Math.min(1, this.masterGain * 0.7));
     try {
-      const url = this.getCueUrl(name);
-      const audio = new Audio(url);
-      audio.volume = Math.max(0, Math.min(1, this.masterGain * 0.7));
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          // Fallback to Web Audio if HTML5 audio fails
-          this.playCueWebAudio(name, force);
-        });
-      }
-    } catch {
-      this.playCueWebAudio(name, force);
+      audio.currentTime = 0;
+    } catch {}
+    const playPromise = audio.play();
+    if (playPromise) {
+      playPromise.catch(() => this.playCueWebAudio(name, true));
     }
   }
 
@@ -143,23 +157,12 @@ class SoundService {
         .then((buffer) => {
           const src = ctx.createBufferSource();
           src.buffer = buffer;
-          const filter = ctx.createBiquadFilter();
-          filter.type = 'lowpass';
-          filter.frequency.value = 1100;
-          filter.Q.value = 0.4;
           const gain = ctx.createGain();
           const now = ctx.currentTime;
-          const peak = Math.min(0.4, Math.max(0.04, this.masterGain * 0.32));
-          const audible = Math.min(buffer.duration, 0.9);
-          gain.gain.setValueAtTime(0.0001, now);
-          gain.gain.linearRampToValueAtTime(peak, now + 0.04);
-          gain.gain.setValueAtTime(peak, now + Math.max(0.08, audible - 0.14));
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + audible);
-          src.connect(filter);
-          filter.connect(gain);
+          gain.gain.setValueAtTime(Math.max(0.04, Math.min(1, this.masterGain * 0.7)), now);
+          src.connect(gain);
           gain.connect(ctx.destination);
           src.start(now);
-          src.stop(now + audible + 0.02);
         })
         .catch(() => {
           this.cues.delete(name);

@@ -72,7 +72,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   } = useSettingsStore();
 
   const { user, updateDisplayName, updateAvatar, logout } = useAuthStore();
-  const { setAudioInputDevice, setAudioOutputDevice } = useLiveKitStore();
+  const { setAudioInputDevice, setAudioOutputDevice, applyAudioProcessingSettings } = useLiveKitStore();
+
+  const [voiceDraft, setVoiceDraft] = useState<{
+    audioInputDeviceId: string;
+    audioOutputDeviceId: string;
+    inputProfile: typeof inputProfile;
+    autoSensitivity: boolean;
+    sensitivityThreshold: number;
+    noiseSuppression: typeof noiseSuppression;
+    echoCancellation: boolean;
+    pushToTalk: boolean;
+    pushToTalkKey: string;
+  } | null>(null);
+
+  const savedVoice = {
+    audioInputDeviceId,
+    audioOutputDeviceId,
+    inputProfile,
+    autoSensitivity,
+    sensitivityThreshold,
+    noiseSuppression,
+    echoCancellation,
+    pushToTalk,
+    pushToTalkKey,
+  };
+  const shownVoice = voiceDraft ?? savedVoice;
+  const voiceDirty = !!voiceDraft && (
+    voiceDraft.audioInputDeviceId !== audioInputDeviceId ||
+    voiceDraft.audioOutputDeviceId !== audioOutputDeviceId ||
+    voiceDraft.inputProfile !== inputProfile ||
+    voiceDraft.autoSensitivity !== autoSensitivity ||
+    voiceDraft.sensitivityThreshold !== sensitivityThreshold ||
+    voiceDraft.noiseSuppression !== noiseSuppression ||
+    voiceDraft.echoCancellation !== echoCancellation ||
+    voiceDraft.pushToTalk !== pushToTalk ||
+    voiceDraft.pushToTalkKey !== pushToTalkKey
+  );
+
+  const patchVoice = (partial: Partial<NonNullable<typeof voiceDraft>>) => {
+    setVoiceDraft((prev) => ({ ...(prev ?? savedVoice), ...partial }));
+  };
+
+  const discardVoice = () => {
+    setVoiceDraft({ ...savedVoice });
+  };
+
+  const saveVoice = async () => {
+    if (!voiceDraft) return;
+    setInputDevice(voiceDraft.audioInputDeviceId);
+    setOutputDevice(voiceDraft.audioOutputDeviceId);
+    setInputProfile(voiceDraft.inputProfile);
+    setAutoSensitivity(voiceDraft.autoSensitivity);
+    setSensitivityThreshold(voiceDraft.sensitivityThreshold);
+    setNoiseSuppression(voiceDraft.noiseSuppression);
+    setEchoCancellation(voiceDraft.echoCancellation);
+    setPushToTalk(voiceDraft.pushToTalk);
+    setPushToTalkKey(voiceDraft.pushToTalkKey);
+    await setAudioInputDevice(voiceDraft.audioInputDeviceId);
+    await setAudioOutputDevice(voiceDraft.audioOutputDeviceId);
+    await applyAudioProcessingSettings();
+    window.nightshift?.setGlobalPttKey?.(voiceDraft.pushToTalkKey, voiceDraft.pushToTalk);
+  };
   const { allowWhileMuted, setAllowWhileMuted } = useSoundboardStore();
 
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -101,8 +162,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           setIsRecordingPttKey(false);
           return;
         }
-        setPushToTalkKey(detectedKey);
-        window.nightshift?.setGlobalPttKey?.(detectedKey, true);
+        setVoiceDraft((prev) => (prev ? { ...prev, pushToTalkKey: detectedKey } : prev));
         setIsRecordingPttKey(false);
       });
     }
@@ -130,8 +190,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       else if (e.code.startsWith('F') && !isNaN(Number(e.code.slice(1)))) keyName = e.code;
       else keyName = e.key.length === 1 ? e.key.toUpperCase() : (e.code || e.key);
 
-      setPushToTalkKey(keyName);
-      window.nightshift?.setGlobalPttKey?.(keyName, true);
+      setVoiceDraft((prev) => (prev ? { ...prev, pushToTalkKey: keyName } : prev));
       setIsRecordingPttKey(false);
     };
 
@@ -148,8 +207,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       else if (e.button === 3) mouseName = 'Mouse 4'; // Back / Thumb 1
       else if (e.button === 4) mouseName = 'Mouse 5'; // Forward / Thumb 2
 
-      setPushToTalkKey(mouseName);
-      window.nightshift?.setGlobalPttKey?.(mouseName, true);
+      setVoiceDraft((prev) => (prev ? { ...prev, pushToTalkKey: mouseName } : prev));
       setIsRecordingPttKey(false);
     };
 
@@ -172,19 +230,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }, [isRecordingPttKey]);
 
   useEffect(() => {
-    if (isOpen) {
-      refreshDevices();
-      if (user) {
-        setDisplayNameInput(user.displayName);
-      }
-      startMicListener();
-    } else {
-      stopMicListener();
+    if (!isOpen) {
+      setVoiceDraft(null);
+      return;
     }
-    return () => {
-      stopMicListener();
-    };
-  }, [isOpen, audioInputDeviceId]);
+    setVoiceDraft({
+      audioInputDeviceId,
+      audioOutputDeviceId,
+      inputProfile,
+      autoSensitivity,
+      sensitivityThreshold,
+      noiseSuppression,
+      echoCancellation,
+      pushToTalk,
+      pushToTalkKey,
+    });
+  }, [isOpen]);
 
   const startMicListener = async () => {
     try {
@@ -192,12 +253,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       const constraints: MediaStreamConstraints = {
         audio: {
           deviceId:
-            audioInputDeviceId && audioInputDeviceId !== 'default'
-              ? { exact: audioInputDeviceId }
+            shownVoice.audioInputDeviceId && shownVoice.audioInputDeviceId !== 'default'
+              ? { exact: shownVoice.audioInputDeviceId }
               : undefined,
-          echoCancellation,
-          noiseSuppression: noiseSuppression !== 'none',
-          autoGainControl: true,
+          echoCancellation: shownVoice.echoCancellation,
+          noiseSuppression: shownVoice.noiseSuppression !== 'none',
+          autoGainControl: false,
         },
       };
 
@@ -292,6 +353,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
     setMicLevel(0);
   };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshDevices();
+      if (user) {
+        setDisplayNameInput(user.displayName);
+      }
+      startMicListener();
+    } else {
+      stopMicListener();
+    }
+    return () => {
+      stopMicListener();
+    };
+  }, [isOpen, shownVoice.audioInputDeviceId, shownVoice.echoCancellation, shownVoice.noiseSuppression]);
 
   const handleToggleMicTest = async () => {
     if (isMicTesting) {
@@ -524,11 +600,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </label>
                     <div className="relative">
                       <select
-                        value={audioInputDeviceId}
-                        onChange={(e) => {
-                          setInputDevice(e.target.value);
-                          setAudioInputDevice(e.target.value);
-                        }}
+                        value={shownVoice.audioInputDeviceId}
+                        onChange={(e) => patchVoice({ audioInputDeviceId: e.target.value })}
                         className="w-full px-3 py-2.5 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
                       >
                         <option value="default">Default Microphone</option>
@@ -549,11 +622,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </label>
                     <div className="relative">
                       <select
-                        value={audioOutputDeviceId}
-                        onChange={(e) => {
-                          setOutputDevice(e.target.value);
-                          setAudioOutputDevice(e.target.value);
-                        }}
+                        value={shownVoice.audioOutputDeviceId}
+                        onChange={(e) => patchVoice({ audioOutputDeviceId: e.target.value })}
                         className="w-full px-3 py-2.5 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
                       >
                         <option value="default">Default Output</option>
@@ -606,14 +676,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                   {/* Option 1: Voice Isolation */}
                   <label
-                    onClick={() => setInputProfile('voice-isolation')}
+                    onClick={() => patchVoice({ inputProfile: 'voice-isolation' })}
                     className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
                   >
                     <input
                       type="radio"
                       name="inputProfile"
-                      checked={inputProfile === 'voice-isolation'}
-                      onChange={() => setInputProfile('voice-isolation')}
+                      checked={shownVoice.inputProfile === 'voice-isolation'}
+                      onChange={() => patchVoice({ inputProfile: 'voice-isolation' })}
                       className="mt-0.5 accent-highlight cursor-pointer"
                     />
                     <div>
@@ -628,14 +698,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                   {/* Option 2: Studio */}
                   <label
-                    onClick={() => setInputProfile('studio')}
+                    onClick={() => patchVoice({ inputProfile: 'studio' })}
                     className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
                   >
                     <input
                       type="radio"
                       name="inputProfile"
-                      checked={inputProfile === 'studio'}
-                      onChange={() => setInputProfile('studio')}
+                      checked={shownVoice.inputProfile === 'studio'}
+                      onChange={() => patchVoice({ inputProfile: 'studio' })}
                       className="mt-0.5 accent-highlight cursor-pointer"
                     />
                     <div>
@@ -650,14 +720,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
                   {/* Option 3: Custom */}
                   <label
-                    onClick={() => setInputProfile('custom')}
+                    onClick={() => patchVoice({ inputProfile: 'custom' })}
                     className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
                   >
                     <input
                       type="radio"
                       name="inputProfile"
-                      checked={inputProfile === 'custom'}
-                      onChange={() => setInputProfile('custom')}
+                      checked={shownVoice.inputProfile === 'custom'}
+                      onChange={() => patchVoice({ inputProfile: 'custom' })}
                       className="mt-0.5 accent-highlight cursor-pointer"
                     />
                     <div>
@@ -685,14 +755,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     {/* Toggle Switch */}
                     <button
                       type="button"
-                      onClick={() => setAutoSensitivity(!autoSensitivity)}
+                      onClick={() => patchVoice({ autoSensitivity: !shownVoice.autoSensitivity })}
                       className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                        autoSensitivity ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                        shownVoice.autoSensitivity ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
                       }`}
                     >
                       <span
                         className={`block w-5 h-5 rounded-full transition-transform ${
-                          autoSensitivity
+                          shownVoice.autoSensitivity
                             ? 'bg-highlight-text translate-x-5'
                             : 'bg-text-muted translate-x-0'
                         }`}
@@ -705,7 +775,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <div className="relative w-full h-3 rounded-full bg-bg-elevated border border-border-subtle overflow-hidden">
                       <div
                         className={`h-full transition-all duration-75 ${
-                          micLevel > (autoSensitivity ? 18 : sensitivityThreshold)
+                          micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold)
                             ? 'bg-emerald-500'
                             : 'bg-highlight/50'
                         }`}
@@ -714,37 +784,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       {/* Threshold Cutoff Line */}
                       <div
                         className="absolute top-0 bottom-0 w-1 bg-amber-400 z-10 shadow-sm transition-all"
-                        style={{ left: `${Math.min(99, Math.max(1, autoSensitivity ? 18 : sensitivityThreshold))}%` }}
-                        title={`Gate Threshold: ${autoSensitivity ? 18 : sensitivityThreshold}%`}
+                        style={{ left: `${Math.min(99, Math.max(1, shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold))}%` }}
+                        title={`Gate Threshold: ${shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold}%`}
                       />
                     </div>
                     <div className="flex justify-between text-[10px]">
-                      <span className="text-text-muted">Mic Input: <b className="text-text-primary">{micLevel}%</b> (Cutoff: {autoSensitivity ? '18% Auto' : `${sensitivityThreshold}%`})</span>
-                      <span className={`font-semibold ${micLevel > (autoSensitivity ? 18 : sensitivityThreshold) ? 'text-emerald-400' : 'text-text-muted'}`}>
-                        {micLevel > (autoSensitivity ? 18 : sensitivityThreshold) ? 'Transmitting Audio (Gate Open)' : 'Gate Closed (Breath Blocked)'}
+                      <span className="text-text-muted">Mic Input: <b className="text-text-primary">{micLevel}%</b> (Cutoff: {shownVoice.autoSensitivity ? '18% Auto' : `${shownVoice.sensitivityThreshold}%`})</span>
+                      <span className={`font-semibold ${micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold) ? 'text-emerald-400' : 'text-text-muted'}`}>
+                        {micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold) ? 'Transmitting Audio (Gate Open)' : 'Gate Closed (Breath Blocked)'}
                       </span>
                     </div>
                   </div>
 
-                  {!autoSensitivity && (
+                  {!shownVoice.autoSensitivity && (
                     <div className="pt-2">
                       <div className="flex justify-between text-xs text-text-secondary mb-1">
                         <span>Manual Sensitivity Threshold</span>
-                        <span className="font-mono font-bold text-highlight">{sensitivityThreshold}%</span>
+                        <span className="font-mono font-bold text-highlight">{shownVoice.sensitivityThreshold}%</span>
                       </div>
                       <input
                         type="range"
                         min="0"
                         max="100"
-                        value={sensitivityThreshold}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setSensitivityThreshold(val);
-                        }}
+                        value={shownVoice.sensitivityThreshold}
+                        onChange={(e) => patchVoice({ sensitivityThreshold: Number(e.target.value) })}
                         className="w-full accent-highlight cursor-pointer"
                       />
                       <div className="text-[10px] text-text-muted mt-1">
-                        Sounds below this threshold (like breathing or room fan) are completely muted.
+                        The green ring follows this level. The microphone stays open so people hear you as soon as you join.
                       </div>
                     </div>
                   )}
@@ -808,12 +875,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </div>
                   <div className="relative">
                     <select
-                      value={noiseSuppression}
-                      onChange={(e) => {
-                        const val = e.target.value as any;
-                        setNoiseSuppression(val);
-                        useLiveKitStore.getState().applyAudioProcessingSettings();
-                      }}
+                      value={shownVoice.noiseSuppression}
+                      onChange={(e) => patchVoice({ noiseSuppression: e.target.value as typeof noiseSuppression })}
                       className="px-4 py-2 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
                     >
                       <option value="krisp">Ultra Voice Isolation (Krisp + Highpass)</option>
@@ -834,18 +897,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      const next = !echoCancellation;
-                      setEchoCancellation(next);
-                      useLiveKitStore.getState().applyAudioProcessingSettings();
-                    }}
+                      onClick={() => patchVoice({ echoCancellation: !shownVoice.echoCancellation })}
                     className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                      echoCancellation ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                      shownVoice.echoCancellation ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
                     }`}
                   >
                     <span
                       className={`block w-5 h-5 rounded-full transition-transform ${
-                        echoCancellation
+                        shownVoice.echoCancellation
                           ? 'bg-highlight-text translate-x-5'
                           : 'bg-text-muted translate-x-0'
                       }`}
@@ -864,14 +923,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </div>
                     <button
                       type="button"
-                      onClick={() => setPushToTalk(!pushToTalk)}
+                      onClick={() => patchVoice({ pushToTalk: !shownVoice.pushToTalk })}
                       className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                        pushToTalk ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                        shownVoice.pushToTalk ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
                       }`}
                     >
                       <span
                         className={`block w-5 h-5 rounded-full transition-transform ${
-                          pushToTalk
+                          shownVoice.pushToTalk
                             ? 'bg-highlight-text translate-x-5'
                             : 'bg-text-muted translate-x-0'
                         }`}
@@ -879,7 +938,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </button>
                   </div>
 
-                  {pushToTalk && (
+                  {shownVoice.pushToTalk && (
                     <div className="space-y-2.5 mt-2">
                       {/* PTT Keybind Shortcut (Auto-record keyboard or mouse button) */}
                       <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
@@ -908,7 +967,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                 <span>Listening...</span>
                               </>
                             ) : (
-                              <span>{pushToTalkKey || 'Space'}</span>
+                              <span>{shownVoice.pushToTalkKey || 'Space'}</span>
                             )}
                           </button>
                           {isRecordingPttKey && (
@@ -1489,6 +1548,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             )}
           </div>
         </div>
+        {voiceDirty && (
+          <div className="shrink-0 border-t border-border-subtle bg-bg-main px-6 py-3 flex items-center justify-between gap-3">
+            <span className="text-xs text-text-secondary">Audio changes are not saved yet.</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={discardVoice}
+                className="px-3.5 py-2 rounded-xl bg-bg-elevated hover:bg-bg-hover border border-border-subtle text-xs font-bold text-text-secondary hover:text-text-primary transition-colors"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={() => { saveVoice().catch(() => {}); }}
+                className="px-3.5 py-2 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

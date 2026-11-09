@@ -22,7 +22,7 @@ import { useChatStore } from './chat.store';
 import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
-import { api, getApiBase } from '../lib/api';
+import { api } from '../lib/api';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -100,6 +100,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let pttQueue: Promise<void> = Promise.resolve();
   let targetPttActive = false;
   let currentPttSeq = 0;
+  let mutedBeforeDeafen = false;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectCountdownInterval: ReturnType<typeof setInterval> | null = null;
@@ -113,6 +114,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let silenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   const cleanupAudioAnalyser = () => {
+    const published = activeLocalMicTrack;
     if (localAudioInterval) {
       clearInterval(localAudioInterval);
       localAudioInterval = null;
@@ -139,18 +141,22 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } catch {}
       localAudioSource = null;
     }
+    // The analyser stream must be a clone. Stopping the published track here
+    // ends the microphone, so nobody hears you until mute/unmute restarts it.
     if (activeAnalyserStream) {
       try {
-        activeAnalyserStream.getTracks().forEach((t) => t.stop());
+        activeAnalyserStream.getTracks().forEach((t) => {
+          if (t !== published) t.stop();
+        });
       } catch {}
       activeAnalyserStream = null;
     }
-    if (activeAnalyserTrack) {
+    if (activeAnalyserTrack && activeAnalyserTrack !== published) {
       try {
         activeAnalyserTrack.stop();
       } catch {}
-      activeAnalyserTrack = null;
     }
+    activeAnalyserTrack = null;
     if (localAudioContext) {
       try {
         localAudioContext.close().catch(() => {});
@@ -159,6 +165,25 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
     activeLocalMicTrack = null;
     set({ isLocallySpeaking: false });
+  };
+
+  const releaseMediaElement = (el: HTMLMediaElement) => {
+    try {
+      el.pause();
+      el.srcObject = null;
+      el.removeAttribute('src');
+    } catch {}
+    try {
+      el.remove();
+    } catch {}
+  };
+
+  const clearAudioContainer = (id: string) => {
+    const container = document.getElementById(id);
+    if (!container) return;
+    container.querySelectorAll('audio, video').forEach((node) => {
+      releaseMediaElement(node as HTMLMediaElement);
+    });
   };
 
   const clearReconnectWatchdog = () => {
@@ -204,6 +229,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   };
 
   const setupAudioAnalyser = async (track: MediaStreamTrack) => {
+    if (!track) return;
+    if (activeLocalMicTrack === track && localAnalyser && activeAnalyserTrack) {
+      if (!get().isMuted && !get().isDeafened && track.enabled === false && useSettingsStore.getState().inputMode !== 'push-to-talk') {
+        track.enabled = true;
+      }
+      return;
+    }
     cleanupAudioAnalyser();
     activeLocalMicTrack = track;
     try {
@@ -213,11 +245,25 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         return;
       }
 
-      // Safe AudioContext constructor: avoid sampleRate error on 44.1kHz audio hardware
+      // Monitor a clone. Tapping the published track from a Web Audio context
+      // (especially a suspended one) silences the WebRTC sender until the next click.
+      let monitor = track;
       try {
-        localAudioContext = new AudioCtx({ sampleRate: 48000 });
-      } catch {
+        const cloned = track.clone();
+        if (cloned && cloned.readyState === 'live') {
+          monitor = cloned;
+          activeAnalyserTrack = cloned;
+        }
+      } catch {}
+
+      try {
         localAudioContext = new AudioCtx();
+      } catch {
+        localAudioContext = null;
+      }
+      if (!localAudioContext) {
+        if (!get().isMuted && !get().isDeafened) track.enabled = true;
+        return;
       }
 
       const resumeAudioContext = () => {
@@ -229,8 +275,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       window.addEventListener('click', resumeAudioContext, { once: true });
       window.addEventListener('keydown', resumeAudioContext, { once: true });
 
-      // Direct live microphone stream: never clone track on Windows/Chromium to avoid dead audio buffers
-      const stream = new MediaStream([track]);
+      const stream = new MediaStream([monitor]);
       activeAnalyserStream = stream;
 
       localAudioSource = localAudioContext.createMediaStreamSource(stream);
@@ -358,7 +403,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           ? 28
           : Math.max(15, (currentSettings.sensitivityThreshold ?? currentSettings.voiceActivationThreshold ?? 28));
 
-        if (normalized >= threshold) {
+        // LiveKit measures the local mic even when nobody else is in the channel.
+        const liveLevel = (room.localParticipant?.audioLevel || 0) * 100;
+        const speakingNow = normalized >= threshold || liveLevel >= 6;
+
+        if (speakingNow) {
           if (silenceTimer) {
             clearTimeout(silenceTimer);
             silenceTimer = null;
@@ -411,15 +460,24 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let lastMeasuredPing = 0;
   let isPingMeasuring = false;
 
+  const rttToMs = (value: unknown): number | null => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+    // Spec values are seconds. A few stacks already return milliseconds.
+    const ms = value > 10 ? value : value * 1000;
+    if (ms <= 0 || ms >= 1500) return null;
+    return Math.round(ms);
+  };
+
   const measurePing = async (room: Room) => {
     if (isPingMeasuring) return;
     isPingMeasuring = true;
     try {
+      let audioRtt: number | null = null;
       let selectedPairRtt: number | null = null;
-      let candidatePairRtt: number | null = null;
-      let remoteRtpRtt: number | null = null;
 
-      // 1. Check WebRTC stats across publisher and subscriber
+      // Voice delay is the audio RTCP round trip. ICE candidate pairs that are
+      // only nominated (not the transport's selected pair) sit near 250-300ms
+      // and were what the meter kept showing.
       const pcManager = (room.engine as any)?.pcManager;
       const candidates = [
         pcManager?.publisher?.getStats ? pcManager.publisher : null,
@@ -434,88 +492,50 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const stats: RTCStatsReport = await transport.getStats();
           if (!stats) continue;
 
+          const selectedIds = new Set<string>();
+          const pairs = new Map<string, any>();
           for (const report of stats.values()) {
-            if (report.type === 'candidate-pair') {
-              const pair = report as any;
-              // Always use instantaneous roundTripTime, never stale cumulative averages
-              const rttSec = pair.currentRoundTripTime;
-              if (typeof rttSec === 'number' && rttSec > 0) {
-                const rttMs = Math.round(rttSec * 1000);
-                if (rttMs > 0 && rttMs < 2000) {
-                  const isSelected = pair.state === 'succeeded' && (pair.nominated === true || pair.selected === true);
-                  if (isSelected) {
-                    if (selectedPairRtt === null || rttMs < selectedPairRtt) {
-                      selectedPairRtt = rttMs;
-                    }
-                  } else if (pair.state === 'succeeded') {
-                    if (candidatePairRtt === null || rttMs < candidatePairRtt) {
-                      candidatePairRtt = rttMs;
-                    }
-                  }
-                }
-              }
-            } else if (report.type === 'remote-inbound-rtp') {
-              const rir = report as any;
-              if (typeof rir.roundTripTime === 'number' && rir.roundTripTime > 0) {
-                const rttMs = Math.round(rir.roundTripTime * 1000);
-                if (rttMs > 0 && rttMs < 2000) {
-                  if (remoteRtpRtt === null || rttMs < remoteRtpRtt) {
-                    remoteRtpRtt = rttMs;
-                  }
-                }
-              }
+            const row = report as any;
+            if (row.type === 'transport' && typeof row.selectedCandidatePairId === 'string') {
+              selectedIds.add(row.selectedCandidatePairId);
+            } else if (row.type === 'candidate-pair' && row.id) {
+              pairs.set(row.id, row);
+            } else if (row.type === 'remote-inbound-rtp' && row.kind !== 'video') {
+              const ms = rttToMs(row.roundTripTime);
+              if (ms !== null && (audioRtt === null || ms < audioRtt)) audioRtt = ms;
             }
           }
-        } catch {}
-      }
-
-      // Best RTT priority: 1) Active Nominated Pair, 2) Remote Inbound RTP, 3) Any Succeeded Pair
-      let bestRtt = selectedPairRtt ?? remoteRtpRtt ?? candidatePairRtt;
-
-      // In Desktop Electron: measure real socket TCP RTT directly to LiveKit Frankfurt edge
-      if (window.nightshift?.measurePing) {
-        try {
-          const roomUrl = (room as any)?.options?.url || (room.engine as any)?.url || 'voiceline-qy3slc6n.livekit.cloud';
-          const tcpHost = String(roomUrl)
-            .replace(/^(wss?|https?):\/\//, '')
-            .split('/')[0]
-            .split(':')[0]
-            .trim();
-          if (tcpHost) {
-            const hwPing = await window.nightshift.measurePing(tcpHost, 443);
-            if (hwPing > 0 && hwPing < 1500) {
-              // Prioritize true hardware TCP latency over delayed/stuck candidate stats
-              if (bestRtt === null || hwPing < bestRtt) {
-                bestRtt = hwPing;
-              }
+          selectedIds.forEach((id) => {
+            const pair = pairs.get(id);
+            const ms = pair ? rttToMs(pair.currentRoundTripTime) : null;
+            if (ms !== null && (selectedPairRtt === null || ms < selectedPairRtt)) {
+              selectedPairRtt = ms;
             }
-          }
-        } catch {}
-      }
-
-      // In Web Browser / Fallback: probe active gateway ping if WebRTC stats are unpopulated or biased by TURN relay
-      if (bestRtt === null || bestRtt > 260) {
-        try {
-          const t0 = performance.now();
-          const res = await fetch(`${getApiBase()}/api/ping?_t=${Date.now()}`, {
-            method: 'GET',
-            cache: 'no-store',
           });
-          if (res.ok) {
-            const netRtt = Math.round(performance.now() - t0);
-            if (netRtt > 0 && netRtt < 3000) {
-              const realisticVoiceRtt = Math.min(bestRtt ?? 9999, netRtt + 15);
-              bestRtt = realisticVoiceRtt;
-            }
-          }
         } catch {}
+      }
+
+      const signalRaw = (room.engine as any)?.client?.rtt;
+      const signalRtt = rttToMs(signalRaw);
+      // Audio RTCP is the voice path. The signal pong is the same LiveKit server
+      // and stays low when an unused ICE pair reports 250-300ms. Prefer the pong
+      // when the audio sample is far above it.
+      let bestRtt = audioRtt ?? signalRtt ?? selectedPairRtt;
+      if (
+        audioRtt !== null &&
+        signalRtt !== null &&
+        audioRtt > signalRtt + 80 &&
+        signalRtt < 180
+      ) {
+        bestRtt = signalRtt;
       }
 
       if (bestRtt !== null) {
-        // Fast convergence: when ping drops, immediately track real low latency
         let smoothed = bestRtt;
         if (lastMeasuredPing > 0) {
-          if (bestRtt < lastMeasuredPing) {
+          if (bestRtt + 30 < lastMeasuredPing) {
+            smoothed = bestRtt;
+          } else if (bestRtt < lastMeasuredPing) {
             smoothed = Math.round(lastMeasuredPing * 0.2 + bestRtt * 0.8);
           } else {
             smoothed = Math.round(lastMeasuredPing * 0.5 + bestRtt * 0.5);
@@ -623,59 +643,125 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   class RemoteAudioGainEngine {
     private ctx: AudioContext | null = null;
     private nodes = new Map<string, { gain: GainNode; source: MediaStreamAudioSourceNode }>();
+    private pending = new Map<string, { track: MediaStreamTrack; volume: number; muted: boolean; element: HTMLMediaElement | null }>();
 
     constructor() {
       const unlockAudio = () => {
-        if (this.ctx && this.ctx.state === 'suspended') {
-          this.ctx.resume().catch(() => {});
+        const ctx = this.getAudioContext();
+        const flush = () => this.flushPending();
+        if (ctx && ctx.state === 'suspended') {
+          ctx.resume().then(flush).catch(flush);
+        } else {
+          flush();
         }
       };
       if (typeof window !== 'undefined') {
-        window.addEventListener('click', unlockAudio, { passive: true });
+        window.addEventListener('pointerdown', unlockAudio, { passive: true });
         window.addEventListener('keydown', unlockAudio, { passive: true });
         window.addEventListener('touchstart', unlockAudio, { passive: true });
       }
     }
 
-    private getAudioContext(): AudioContext {
+    private getAudioContext(): AudioContext | null {
       if (!this.ctx || this.ctx.state === 'closed') {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return null;
         try {
-          this.ctx = new AudioCtx({ sampleRate: 48000 });
-        } catch {
           this.ctx = new AudioCtx();
+        } catch {
+          return null;
         }
-      }
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
       }
       return this.ctx;
     }
 
-    public routeTrack(trackKey: string, mediaStreamTrack: MediaStreamTrack, volumePercent: number, isMuted: boolean): void {
+    private applyElement(element: HTMLMediaElement | null, volumePercent: number, isMuted: boolean, takenByGraph: boolean) {
+      if (!element) return;
       try {
-        this.unrouteTrack(trackKey);
-        if (!mediaStreamTrack) return;
-        const ctx = this.getAudioContext();
-        const stream = new MediaStream([mediaStreamTrack]);
+        if (takenByGraph) {
+          element.muted = true;
+          element.volume = 0;
+          return;
+        }
+        const vol = isMuted ? 0 : Math.max(0, Math.min(1, volumePercent / 100));
+        element.muted = vol === 0;
+        element.volume = vol;
+        if (vol > 0) element.play().catch(() => {});
+      } catch {}
+    }
+
+    private disconnectNode(trackKey: string) {
+      const entry = this.nodes.get(trackKey);
+      if (!entry) return;
+      try {
+        entry.source.disconnect();
+        entry.gain.disconnect();
+      } catch {}
+      this.nodes.delete(trackKey);
+    }
+
+    private flushOne(trackKey: string): boolean {
+      const item = this.pending.get(trackKey);
+      if (!item || !item.track) return false;
+      const ctx = this.ctx;
+      if (!ctx || ctx.state !== 'running') {
+        this.applyElement(item.element, item.volume, item.muted, false);
+        return false;
+      }
+      try {
+        this.disconnectNode(trackKey);
+        const stream = new MediaStream([item.track]);
         const source = ctx.createMediaStreamSource(stream);
         const gain = ctx.createGain();
         const now = ctx.currentTime;
-        const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
-        gain.gain.cancelScheduledValues(now);
+        const gainVal = item.muted ? 0 : Math.max(0, item.volume / 100);
         gain.gain.setValueAtTime(gainVal, now);
         source.connect(gain);
         gain.connect(ctx.destination);
         this.nodes.set(trackKey, { gain, source });
+        this.applyElement(item.element, item.volume, item.muted, true);
+        return true;
       } catch (err) {
         console.warn('Failed to route track through gain engine:', err);
+        this.applyElement(item.element, item.volume, item.muted, false);
+        return false;
       }
     }
 
+    private flushPending() {
+      Array.from(this.pending.keys()).forEach((key) => this.flushOne(key));
+    }
+
+    public routeTrack(
+      trackKey: string,
+      mediaStreamTrack: MediaStreamTrack,
+      volumePercent: number,
+      isMuted: boolean,
+      element?: HTMLMediaElement | null,
+    ): boolean {
+      if (!mediaStreamTrack) return false;
+      const previous = this.pending.get(trackKey);
+      this.pending.set(trackKey, {
+        track: mediaStreamTrack,
+        volume: volumePercent,
+        muted: isMuted,
+        element: element ?? previous?.element ?? null,
+      });
+      return this.flushOne(trackKey);
+    }
+
     public updateSoundboardVolume(identity: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.getAudioContext();
+      const ctx = this.ctx;
       const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
       const prefix = `${identity}_soundboard`;
+      this.pending.forEach((item, key) => {
+        if (key.startsWith(prefix) || key.includes(prefix) || (key.startsWith(identity) && !key.includes('_mic_'))) {
+          item.volume = volumePercent;
+          item.muted = isMuted;
+          if (!ctx || ctx.state !== 'running') this.applyElement(item.element, item.volume, item.muted, false);
+        }
+      });
+      if (!ctx) return;
       const now = ctx.currentTime;
       let matched = false;
 
@@ -705,7 +791,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
 
     public updateVolume(trackKey: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.getAudioContext();
+      const ctx = this.ctx;
+      const pendingItem = this.pending.get(trackKey);
+      if (pendingItem) {
+        pendingItem.volume = volumePercent;
+        pendingItem.muted = isMuted;
+        if (!ctx || ctx.state !== 'running') {
+          this.applyElement(pendingItem.element, volumePercent, isMuted, false);
+        }
+      }
+      if (!ctx) return;
       const entry = this.nodes.get(trackKey);
       const gainVal = isMuted ? 0 : Math.max(0, volumePercent / 100);
       const now = ctx.currentTime;
@@ -730,17 +825,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
 
     public unrouteTrack(trackKey: string): void {
-      const entry = this.nodes.get(trackKey);
-      if (entry) {
-        try {
-          entry.source.disconnect();
-          entry.gain.disconnect();
-        } catch {}
-        this.nodes.delete(trackKey);
-      }
+      this.pending.delete(trackKey);
+      this.disconnectNode(trackKey);
     }
 
     public clear(): void {
+      this.pending.clear();
       this.nodes.forEach((entry) => {
         try {
           entry.source.disconnect();
@@ -827,11 +917,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         adaptiveStream: false, // Ensure full original stream resolution is never downscaled
         dynacast: false,
         audioCaptureDefaults: {
-          autoGainControl: true,
+          autoGainControl: false,
           echoCancellation: true,
           noiseSuppression: true,
           channelCount: 1,
-          sampleRate: 48000,
         },
         publishDefaults: {
           simulcast: false,
@@ -895,7 +984,22 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         setTimeout(requestSoundboardSync, 1200);
       });
 
-      room.on(RoomEvent.ParticipantConnected, (_participant) => {
+      const subscribeVoiceAudio = (participant: RemoteParticipant) => {
+        participant.audioTrackPublications.forEach((pub) => {
+          const isScreen =
+            pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio;
+          try {
+            if (isScreen) {
+              pub.setSubscribed(get().watchedScreenShareIds.has(participant.identity));
+            } else {
+              pub.setSubscribed(true);
+            }
+          } catch {}
+        });
+      };
+
+      room.on(RoomEvent.ParticipantConnected, (participant) => {
+        subscribeVoiceAudio(participant);
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
         sounds.playUserConnected();
         useRoomStore.getState().fetchRooms();
@@ -966,6 +1070,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+        const isScreenMedia =
+          pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio;
+        if (isScreenMedia && !participant.isLocal && !get().watchedScreenShareIds.has(participant.identity)) {
+          try { pub.setSubscribed(false); } catch {}
+          try {
+            track.detach().forEach((el) => {
+              if (el instanceof HTMLMediaElement) {
+                el.pause();
+                el.srcObject = null;
+              }
+              el.remove();
+            });
+          } catch {}
+          return;
+        }
         if (track.kind === Track.Kind.Audio) {
           const trackName = (pub?.trackName || (pub as any)?.name || (track as any)?.name || '').toLowerCase();
           const isSoundboard = trackName === 'soundboard';
@@ -993,19 +1112,20 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
           const element = track.attach();
           element.autoplay = true;
+          element.setAttribute('playsinline', 'true');
           container.appendChild(element);
 
           const trackKey = `${participant.identity}_${isSoundboard ? 'soundboard' : 'mic'}_${track.sid || (track as any).name || pub?.trackName || 'audio'}`;
           const isMutedTotal = isLocallyMuted || get().isDeafened;
           const targetVol = isMutedTotal ? 0 : Math.min(1, Math.max(0, savedVol / 100));
 
-          // Route ALL remote audio through RemoteAudioGainEngine for unified 0-200% volume control and clear playback
-          if (track.mediaStreamTrack) {
-            remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isMutedTotal);
-            // Mute the raw HTML audio element to prevent double playback / phase echo
-            element.muted = true;
-            element.volume = 0;
-          } else {
+          // Keep the <audio> element audible until the gain graph is actually running.
+          // Muting it while AudioContext is still suspended is why voice stayed silent
+          // until the next mute click.
+          const routed = track.mediaStreamTrack
+            ? remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isMutedTotal, element)
+            : false;
+          if (!routed) {
             element.volume = targetVol;
             element.muted = targetVol === 0;
             if (typeof (track as any).setVolume === 'function') {
@@ -1015,7 +1135,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             }
           }
 
-          // Unblock audio playback in browser if needed
           element.play().catch(() => {});
           if (room && !room.canPlaybackAudio) {
             room.startAudio().catch(() => {});
@@ -1054,8 +1173,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               });
             }
           }
-          const detached = track.detach();
-          detached.forEach((el) => el.remove());
+          track.detach().forEach((el) => releaseMediaElement(el));
         } catch {}
         updateScreenShareState(room);
       });
@@ -1074,7 +1192,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         updateScreenShareState(room);
       });
 
-      room.on(RoomEvent.TrackPublished, (_pub, _participant) => {
+      room.on(RoomEvent.TrackPublished, (pub, participant) => {
+        const isScreenMedia =
+          pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio;
+        if (!participant.isLocal) {
+          try {
+            if (isScreenMedia) {
+              pub.setSubscribed(get().watchedScreenShareIds.has(participant.identity));
+            } else if (pub.kind === Track.Kind.Audio) {
+              pub.setSubscribed(true);
+            }
+          } catch {}
+        }
         set({ remoteParticipants: Array.from(room.remoteParticipants.values()) });
         updateScreenShareState(room);
       });
@@ -1175,7 +1304,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       try {
         await room.connect(url, token, {
-          autoSubscribe: true,
+          autoSubscribe: false,
+        });
+
+        room.remoteParticipants.forEach((participant) => {
+          participant.audioTrackPublications.forEach((pub) => {
+            const isScreen =
+              pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio;
+            try {
+              pub.setSubscribed(!isScreen || get().watchedScreenShareIds.has(participant.identity));
+            } catch {}
+          });
         });
 
         // In web browsers, ensure WebRTC audio playback is activated (handles autoplay policy)
@@ -1193,32 +1332,56 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const isEchoCancelled = settings.echoCancellation;
 
         try {
+          const startMuted = isPtt || settings.isSelfMuted;
+          if (startMuted) set({ isMuted: true, isLocallySpeaking: false });
+
           // Always publish the microphone track with hardware audio constraints
           await room.localParticipant.setMicrophoneEnabled(true, {
             echoCancellation: isEchoCancelled,
             noiseSuppression: isNoiseSuppressed,
-            autoGainControl: true,
+            autoGainControl: false,
+            channelCount: 1,
             deviceId:
               settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
                 ? settings.audioInputDeviceId
                 : undefined,
           });
 
-          const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+          let micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
             (p) => p.source === Track.Source.Microphone
           );
-          if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-            setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
-            await get().applyAudioProcessingSettings();
-
-            if (isPtt) {
-              // Push-to-Talk mode: mute the track initially until PTT key is pressed
-              (micPub.track as LocalAudioTrack).mediaStreamTrack.enabled = false;
-              await micPub.mute();
-              set({ isMuted: true, isLocallySpeaking: false });
-            } else {
-              set({ isMuted: false });
-            }
+          let mediaTrack = micPub?.track
+            ? (micPub.track as LocalAudioTrack).mediaStreamTrack
+            : null;
+          if (mediaTrack && mediaTrack.readyState !== 'live') {
+            await room.localParticipant.setMicrophoneEnabled(true, {
+              echoCancellation: isEchoCancelled,
+              noiseSuppression: isNoiseSuppressed,
+              autoGainControl: false,
+              channelCount: 1,
+              deviceId:
+                settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
+                  ? settings.audioInputDeviceId
+                  : undefined,
+            });
+            micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+              (p) => p.source === Track.Source.Microphone
+            );
+            mediaTrack = micPub?.track
+              ? (micPub.track as LocalAudioTrack).mediaStreamTrack
+              : null;
+          }
+          if (mediaTrack) {
+            setupAudioAnalyser(mediaTrack);
+          }
+          if (micPub && startMuted) {
+            if (mediaTrack) mediaTrack.enabled = false;
+            await micPub.mute();
+            set({ isMuted: true, isLocallySpeaking: false });
+          } else if (micPub) {
+            if (mediaTrack && mediaTrack.readyState === 'live') mediaTrack.enabled = true;
+            if (micPub.isMuted) await micPub.unmute();
+            set({ isMuted: false, isLocallySpeaking: false });
           }
         } catch (micErr: any) {
           console.warn('Microphone error:', micErr);
@@ -1282,6 +1445,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } catch {}
 
       const { room } = get();
+      cleanupAudioAnalyser();
+      lastMeasuredPing = 0;
       if (pingInterval) {
         clearInterval(pingInterval);
         pingInterval = null;
@@ -1308,7 +1473,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (shouldNotify) {
         const activeChannel = useServerStore.getState().activeVoiceChannelId;
         if (activeChannel) {
-          api.leaveVoiceChannel(activeChannel).catch(() => {});
+          try {
+            await api.leaveVoiceChannel(activeChannel);
+          } catch {}
         }
       }
 
@@ -1325,14 +1492,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       // Clean up any remaining audio elements in DOM
       try {
-        const audioContainer = document.getElementById('nightshift-voice-audio-container');
-        if (audioContainer) {
-          audioContainer.innerHTML = '';
-        }
-        const sbContainer = document.getElementById('nightshift-soundboard-audio-container');
-        if (sbContainer) {
-          sbContainer.innerHTML = '';
-        }
+        clearAudioContainer('nightshift-voice-audio-container');
+        clearAudioContainer('nightshift-soundboard-audio-container');
       } catch {}
 
       set({
@@ -1370,12 +1531,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       // If user is deafened and clicks to unmute: in Discord, unmuting automatically undeafens as well!
       if (isDeafened) {
-        await get().toggleDeafen();
+        mutedBeforeDeafen = false;
         try {
-          await room.localParticipant.setMicrophoneEnabled(true);
-          set({ isMuted: false });
-          useSettingsStore.getState().setSelfMuted(false);
-          sounds.playUnmute();
+          await get().toggleDeafen();
         } catch (err: any) {
           console.error('Failed to unmute mic:', err);
         }
@@ -1389,12 +1547,42 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           (p) => p.source === Track.Source.Microphone
         );
 
-        if (newMuted) {
+        if (!micPub?.track && !newMuted) {
+          const settings = useSettingsStore.getState();
+          await room.localParticipant.setMicrophoneEnabled(true, {
+            echoCancellation: settings.echoCancellation,
+            noiseSuppression: settings.noiseSuppression !== 'none',
+            autoGainControl: false,
+            channelCount: 1,
+            deviceId:
+              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
+                ? settings.audioInputDeviceId
+                : undefined,
+          });
+          const opened = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+            (p) => p.source === Track.Source.Microphone
+          );
+          const openedTrack = opened?.track
+            ? (opened.track as LocalAudioTrack).mediaStreamTrack
+            : null;
+          if (openedTrack) {
+            openedTrack.enabled = true;
+            setupAudioAnalyser(openedTrack);
+          }
+        } else if (newMuted) {
           if (micPub) await micPub.mute();
-          if (activeLocalMicTrack) activeLocalMicTrack.enabled = false;
-        } else {
-          if (micPub) await micPub.unmute();
-          if (activeLocalMicTrack) activeLocalMicTrack.enabled = true;
+          if (activeLocalMicTrack && activeLocalMicTrack.readyState === 'live') {
+            activeLocalMicTrack.enabled = false;
+          }
+        } else if (micPub) {
+          await micPub.unmute();
+          const live = (micPub.track as LocalAudioTrack | undefined)?.mediaStreamTrack;
+          if (live && live.readyState === 'live') {
+            live.enabled = true;
+            if (live !== activeLocalMicTrack) setupAudioAnalyser(live);
+          } else if (activeLocalMicTrack && activeLocalMicTrack.readyState === 'live') {
+            activeLocalMicTrack.enabled = true;
+          }
         }
 
         set({ isMuted: newMuted });
@@ -1444,7 +1632,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           const micConstraints = {
             echoCancellation: settings.echoCancellation,
             noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: true,
+            autoGainControl: false,
             deviceId:
               settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
                 ? settings.audioInputDeviceId
@@ -1594,30 +1782,42 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     toggleDeafen: async () => {
-      const { room, isDeafened } = get();
+      const { room, isDeafened, isMuted } = get();
       const newDeafened = !isDeafened;
+      const micPub = room?.localParticipant
+        ? Array.from(room.localParticipant.audioTrackPublications.values()).find(
+            (p) => p.source === Track.Source.Microphone
+          )
+        : undefined;
 
       if (newDeafened) {
-        // Deafen ALWAYS mutes the user as well (like Discord: deafen = deafened + muted)
+        mutedBeforeDeafen = isMuted;
         try {
-          if (activeLocalMicTrack) {
-            activeLocalMicTrack.enabled = false;
-          }
-          if (room?.localParticipant) {
-            await room.localParticipant.setMicrophoneEnabled(false);
-          }
+          if (activeLocalMicTrack) activeLocalMicTrack.enabled = false;
+          if (micPub) await micPub.mute();
         } catch (e) {
-          console.warn('Error disabling mic on deafen:', e);
+          console.warn('Error muting mic on deafen:', e);
         }
         set({ isDeafened: true, isMuted: true });
         useSettingsStore.getState().setDeafened(true);
         useSettingsStore.getState().setSelfDeafened(true);
         useSettingsStore.getState().setSelfMuted(true);
       } else {
-        // Undeafen: restore deafened state
-        set({ isDeafened: false });
+        const restoreMuted = mutedBeforeDeafen;
+        set({ isDeafened: false, isMuted: restoreMuted });
         useSettingsStore.getState().setDeafened(false);
         useSettingsStore.getState().setSelfDeafened(false);
+        useSettingsStore.getState().setSelfMuted(restoreMuted);
+        if (!restoreMuted) {
+          try {
+            if (micPub) await micPub.unmute();
+            if (activeLocalMicTrack && activeLocalMicTrack.readyState === 'live') {
+              activeLocalMicTrack.enabled = true;
+            }
+          } catch (e) {
+            console.warn('Error restoring mic on undeafen:', e);
+          }
+        }
       }
 
       if (room) {
@@ -1881,16 +2081,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     startWatchingStream: (identity: string) => {
-      const { room } = get();
-      if (room) {
-        const remote = room.getParticipantByIdentity(identity);
-        if (remote) {
-          const videoPub = remote.getTrackPublication(Track.Source.ScreenShare) as RemoteTrackPublication | undefined;
-          if (videoPub) videoPub.setSubscribed(true);
-          const audioPub = remote.getTrackPublication(Track.Source.ScreenShareAudio) as RemoteTrackPublication | undefined;
-          if (audioPub) audioPub.setSubscribed(true);
-        }
-      }
       const watched = new Set(get().watchedScreenShareIds);
       watched.add(identity);
       const shares = get().availableScreenShares;
@@ -1902,6 +2092,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         screenSharerIdentity: target ? target.participantIdentity : get().screenSharerIdentity,
         screenSharerName: target ? target.participantName : get().screenSharerName,
       });
+      const { room } = get();
+      if (room) {
+        const remote = room.getParticipantByIdentity(identity);
+        if (remote) {
+          const videoPub = remote.getTrackPublication(Track.Source.ScreenShare) as RemoteTrackPublication | undefined;
+          if (videoPub) videoPub.setSubscribed(true);
+          const audioPub = remote.getTrackPublication(Track.Source.ScreenShareAudio) as RemoteTrackPublication | undefined;
+          if (audioPub) audioPub.setSubscribed(true);
+        }
+      }
     },
 
     stopWatchingStream: (identity: string) => {
@@ -1987,31 +2187,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       const isEchoCancelled = settings.echoCancellation;
 
       const constraints: MediaTrackConstraints = {
-        echoCancellation: isEchoCancelled ? { ideal: true } : false,
-        noiseSuppression: isNoiseSuppressed ? { ideal: true } : false,
-        autoGainControl: { ideal: true },
-        channelCount: { ideal: 1 },
-        sampleRate: { ideal: 48000 },
-        ...(isEchoCancelled
-          ? {
-              googEchoCancellation: { ideal: true } as any,
-              googEchoCancellation2: { ideal: true } as any,
-              googDAEchoCancellation: { ideal: true } as any,
-            }
-          : {
-              googEchoCancellation: { ideal: false } as any,
-            }),
-        ...(isNoiseSuppressed
-          ? {
-              googNoiseSuppression: { ideal: true } as any,
-              googNoiseSuppression2: { ideal: true } as any,
-              googHighpassFilter: { ideal: true } as any,
-              googTypingNoiseDetection: { ideal: true } as any,
-            }
-          : {
-              googNoiseSuppression: { ideal: false } as any,
-              googHighpassFilter: { ideal: false } as any,
-            }),
+        echoCancellation: isEchoCancelled,
+        noiseSuppression: isNoiseSuppressed,
+        autoGainControl: false,
+        channelCount: 1,
       };
 
       if (activeLocalMicTrack) {

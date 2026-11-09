@@ -62,6 +62,19 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(403).send({ error: 'You are banned from this server' });
     }
 
+    // One presence per person. Kick them out of every other voice room on this
+    // server before the new token is issued, so a move cannot leave a ghost.
+    const otherVoiceChannels = await prisma.channel.findMany({
+      where: { serverId: channel.serverId, type: 'voice', NOT: { id: channel.id } },
+      select: { id: true },
+    });
+    await Promise.all(
+      otherVoiceChannels.flatMap((other) => [
+        removeLiveKitParticipant(`ns_${channel.serverId}_${other.id}`, user.id),
+        removeLiveKitParticipant(`${channel.serverId}_${other.id}`, user.id),
+      ])
+    );
+
     // LiveKit room key
     const roomKey = `ns_${channel.serverId}_${channel.id}`;
 

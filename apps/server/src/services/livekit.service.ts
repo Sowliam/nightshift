@@ -44,7 +44,7 @@ class LiveKitPoolManager {
   private slots: LiveKitSlotState[] = [];
   private activeSlotIndex = 0;
   private roomSlotMap = new Map<string, number>(); // roomKey -> slot number
-  private participantCache = new Map<string, { data: Array<{ identity: string; name: string }>; timestamp: number }>();
+  private participantCache = new Map<string, { data: Array<{ identity: string; name: string; joinedAt: number }>; timestamp: number }>();
   private readonly CACHE_TTL_MS = 2000;
   private readonly RECHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes to test exhausted accounts
   private readonly HEALTH_CACHE_MS = 15000;
@@ -244,8 +244,11 @@ class LiveKitPoolManager {
       // If the bound slot is marked exhausted, check if anyone is still in the room
       if (existing) {
         const activeParticipants = await this.fetchParticipantsForSlot(existing, roomName);
-        if (activeParticipants.length > 0) {
+        if (activeParticipants && activeParticipants.length > 0) {
           return existing; // Keep existing active call connected
+        }
+        if (!activeParticipants) {
+          return existing;
         }
       }
       // Room is empty; unbind and allocate fresh slot
@@ -276,7 +279,7 @@ class LiveKitPoolManager {
   private async fetchParticipantsForSlot(
     slot: LiveKitSlotState,
     roomName: string
-  ): Promise<Array<{ identity: string; name: string }>> {
+  ): Promise<Array<{ identity: string; name: string; joinedAt: number }> | null> {
     const client = this.getClient(slot);
     let timer: NodeJS.Timeout | null = null;
     try {
@@ -294,16 +297,17 @@ class LiveKitPoolManager {
           if (p.state === 3 || p.state === 'DISCONNECTED') return false;
           return true;
         })
-        .map((p) => ({
+        .map((p: any) => ({
           identity: p.identity,
           name: p.name || p.identity,
+          joinedAt: Number(p.joinedAt || 0),
         }));
     } catch (err: any) {
       if (timer) clearTimeout(timer);
       if (isQuotaError(err)) {
         await this.rotateActiveSlot(err.message);
       }
-      return [];
+      return null;
     }
   }
 
@@ -315,7 +319,7 @@ class LiveKitPoolManager {
     }
   }
 
-  public async getParticipants(roomName: string): Promise<Array<{ identity: string; name: string }>> {
+  public async getParticipants(roomName: string): Promise<Array<{ identity: string; name: string; joinedAt: number }>> {
     const cached = this.participantCache.get(roomName);
     const now = Date.now();
     if (cached && now - cached.timestamp < this.CACHE_TTL_MS) {
@@ -329,9 +333,12 @@ class LiveKitPoolManager {
     if (!slot) return cached?.data || [];
 
     const participants = await this.fetchParticipantsForSlot(slot, roomName);
+    if (!participants) return cached?.data || [];
+
     this.participantCache.set(roomName, { data: participants, timestamp: now });
 
-    // If channel is completely empty, unbind room to allow future joins to use updated active slot
+    // A real empty list can release the slot. A failed lookup must not, or the
+    // next kick lands on the wrong LiveKit account and the user stays behind.
     if (participants.length === 0) {
       this.roomSlotMap.delete(roomName);
     }
@@ -341,22 +348,34 @@ class LiveKitPoolManager {
 
   public async removeParticipant(roomName: string, identity: string): Promise<boolean> {
     const boundSlotNum = this.roomSlotMap.get(roomName);
-    const slot =
-      this.slots.find((s) => s.slot === boundSlotNum) || this.slots[this.activeSlotIndex] || this.slots[0];
+    const ordered = [...this.slots].sort((a, b) => {
+      if (a.slot === boundSlotNum) return -1;
+      if (b.slot === boundSlotNum) return 1;
+      return 0;
+    });
 
-    if (!slot) return false;
-
-    const client = this.getClient(slot);
-    try {
-      await client.removeParticipant(roomName, identity);
-      this.invalidateCache(roomName);
-      return true;
-    } catch (err: any) {
-      if (isQuotaError(err)) {
-        await this.rotateActiveSlot(err.message);
+    let removed = false;
+    for (const slot of ordered) {
+      const client = this.getClient(slot);
+      try {
+        await client.removeParticipant(roomName, identity);
+        removed = true;
+      } catch (err: any) {
+        if (isQuotaError(err)) {
+          await this.rotateActiveSlot(err.message);
+        }
       }
-      return false;
     }
+
+    this.invalidateCache(roomName);
+    const cached = this.participantCache.get(roomName);
+    if (cached) {
+      this.participantCache.set(roomName, {
+        data: cached.data.filter((p) => p.identity !== identity),
+        timestamp: Date.now(),
+      });
+    }
+    return removed;
   }
 
   public async generateToken(
@@ -506,7 +525,7 @@ export function invalidateRoomParticipantCache(roomName?: string) {
 
 export async function getLiveKitRoomParticipants(
   roomName: string
-): Promise<Array<{ identity: string; name: string }>> {
+): Promise<Array<{ identity: string; name: string; joinedAt: number }>> {
   return livekitPool.getParticipants(roomName);
 }
 
