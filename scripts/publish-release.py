@@ -29,13 +29,13 @@ def main():
 
     owner = "Sowliam"
     repo = "nightshift"
-    tag = "v0.1.1"
-    title = "NIGHTSHIFT v0.1.1 - Anti-Filter Edge Gateway & Low-Latency Voice"
+    tag = "v0.1.2"
+    title = "NIGHTSHIFT v0.1.2 - Multi-Account LiveKit Pool & Quota Auto-Failover"
     
-    body = """# 🚀 NIGHTSHIFT v0.1.1 - Anti-Filter Edge Gateway & High-Speed Voice
+    body = """# 🚀 NIGHTSHIFT v0.1.2 - Multi-Account LiveKit Pool & Quota Auto-Failover
 
-Welcome to release **v0.1.1** of **NIGHTSHIFT**! 
-This release introduces seamless connection for users in Iran without requiring any VPN, along with enhanced audio reactivity and performance optimizations.
+Welcome to release **v0.1.2** of **NIGHTSHIFT**! 
+This release introduces an intelligent multi-account LiveKit pool architecture providing 15,000+ monthly voice minutes with automatic failover, auto-recharge detection, and zero-VPN anti-filter access.
 
 ---
 
@@ -43,15 +43,16 @@ This release introduces seamless connection for users in Iran without requiring 
 
 | Asset | Description | Size |
 |---|---|---|
-| **[NIGHTSHIFT-Setup-0.1.1.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.1/NIGHTSHIFT-Setup-0.1.1.exe)** | Interactive Windows Installer with custom directory picker, desktop shortcuts, and modern UI. | ~80 MB |
-| **[NIGHTSHIFT-Portable-0.1.1.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.1/NIGHTSHIFT-Portable-0.1.1.exe)** | Standalone portable executable. Run immediately without installation or admin rights. | ~79 MB |
+| **[NIGHTSHIFT-Setup-0.1.2.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.2/NIGHTSHIFT-Setup-0.1.2.exe)** | Interactive Windows Installer with custom directory picker, desktop shortcuts, and modern UI. | ~80 MB |
+| **[NIGHTSHIFT-Portable-0.1.2.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.2/NIGHTSHIFT-Portable-0.1.2.exe)** | Standalone portable executable. Run immediately without installation or admin rights. | ~79 MB |
 
 ---
 
-### ✨ Highlights & Improvements in v0.1.1
+### ✨ Highlights & Improvements in v0.1.2
 
+- 🔄 **3-Account LiveKit Pool (15,000 Mins/Month):** Automatically switches from Account 1 -> Account 2 -> Account 3 when quota runs out, and automatically loops back to Account 1 when monthly quota renews.
 - 🛡️ **Zero-VPN Anti-Filter Gateway:** Built-in Vercel edge reverse proxy routing that allows seamless connection from Iran without VPN.
-- ⚡ **Instant Sub-300ms Channel Joining:** Removed candidate pool connection delays and eliminated avatar profile flicker when switching channels.
+- ⚡ **Room Affinity & Instant Channel Switching:** Keeps all participants in a channel bound to the same LiveKit instance and cleans up empty channels instantly.
 - 🟢 **Calibrated Speaking Indicator:** Web Audio bandpass filter prevents false-positive mic glows; green border appears only when actively speaking and unmuted.
 - 🔊 **Soundboard Master Volume & Fixes:** Initialized master sound effect volume to 25%, added distinct connection cues, and resolved duplicate button audio clicks.
 - 🎮 **Global In-Game Push-To-Talk (PTT):** Low-level hardware hook allows talking while gaming in full-screen mode.
@@ -112,8 +113,8 @@ This release introduces seamless connection for users in Iran without requiring 
 
     # 3. Upload assets
     files_to_upload = [
-        "NIGHTSHIFT-Setup-0.1.1.exe",
-        "NIGHTSHIFT-Portable-0.1.1.exe"
+        "NIGHTSHIFT-Setup-0.1.2.exe",
+        "NIGHTSHIFT-Portable-0.1.2.exe"
     ]
 
     for filename in files_to_upload:
