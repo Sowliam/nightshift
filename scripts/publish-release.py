@@ -29,13 +29,13 @@ def main():
 
     owner = "Sowliam"
     repo = "nightshift"
-    tag = "v0.1.0"
-    title = "NIGHTSHIFT v0.1.0 - Ultra-Low Latency Voice & Gaming Client"
+    tag = "v0.1.1"
+    title = "NIGHTSHIFT v0.1.1 - Anti-Filter Edge Gateway & Low-Latency Voice"
     
-    body = """# 🚀 NIGHTSHIFT v0.1.0 - Ultra-Low Latency Voice Platform
+    body = """# 🚀 NIGHTSHIFT v0.1.1 - Anti-Filter Edge Gateway & High-Speed Voice
 
-Welcome to the first official desktop release of **NIGHTSHIFT**! 
-Built for competitive gamers, teams, and night owls demanding crisp WebRTC audio and lowest possible ping.
+Welcome to release **v0.1.1** of **NIGHTSHIFT**! 
+This release introduces seamless connection for users in Iran without requiring any VPN, along with enhanced audio reactivity and performance optimizations.
 
 ---
 
@@ -43,25 +43,24 @@ Built for competitive gamers, teams, and night owls demanding crisp WebRTC audio
 
 | Asset | Description | Size |
 |---|---|---|
-| **[NIGHTSHIFT-Setup-0.1.0.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.0/NIGHTSHIFT-Setup-0.1.0.exe)** | Interactive Windows Installer with custom drive & folder selection, desktop shortcuts, and modern UI. | ~80 MB |
-| **[NIGHTSHIFT-Portable-0.1.0.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.0/NIGHTSHIFT-Portable-0.1.0.exe)** | Zero-install standalone executable. Run directly from anywhere without admin rights. | ~79 MB |
+| **[NIGHTSHIFT-Setup-0.1.1.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.1/NIGHTSHIFT-Setup-0.1.1.exe)** | Interactive Windows Installer with custom directory picker, desktop shortcuts, and modern UI. | ~80 MB |
+| **[NIGHTSHIFT-Portable-0.1.1.exe](https://github.com/Sowliam/nightshift/releases/download/v0.1.1/NIGHTSHIFT-Portable-0.1.1.exe)** | Standalone portable executable. Run immediately without installation or admin rights. | ~79 MB |
 
 ---
 
-### ✨ Key Features in v0.1.0
+### ✨ Highlights & Improvements in v0.1.1
 
-- 🎙️ **LiveKit SFU Mesh (Frankfurt EU Core):** High-definition Opus voice channels with sub-80ms routing.
-- ⚡ **Accurate Voice Activity Detection:** Calibrated microphone threshold to prevent ambient noise triggers; speaking indicator glows only during real speech.
-- 🌐 **Real-Time Network Ping Router:** Automatic low-latency gateway switching between Render Core EU and Cloudflare Anti-Filter Proxy.
-- 🎮 **Global In-Game Push-To-Talk (PTT):** Native low-level Windows keyboard & mouse hooks that function seamlessly while running full-screen games.
-- 🔊 **Integrated Interactive Soundboard:** Play local MP3/WAV/OGG sound effects directly inside voice channels with individual volume sliders.
-- 🛡️ **Clean Authentication:** Secure password management compliant with modern browser and security standards.
-- 💻 **Cross-Platform:** Available both as a native Windows desktop app and via the web app.
+- 🛡️ **Zero-VPN Anti-Filter Gateway:** Built-in Vercel edge reverse proxy routing that allows seamless connection from Iran without VPN.
+- ⚡ **Instant Sub-300ms Channel Joining:** Removed candidate pool connection delays and eliminated avatar profile flicker when switching channels.
+- 🟢 **Calibrated Speaking Indicator:** Web Audio bandpass filter prevents false-positive mic glows; green border appears only when actively speaking and unmuted.
+- 🔊 **Soundboard Master Volume & Fixes:** Initialized master sound effect volume to 25%, added distinct connection cues, and resolved duplicate button audio clicks.
+- 🎮 **Global In-Game Push-To-Talk (PTT):** Low-level hardware hook allows talking while gaming in full-screen mode.
+- 🌐 **Web Version Online:** Play directly in modern browsers at [https://dist-three-gray-67.vercel.app](https://dist-three-gray-67.vercel.app).
 
 ---
 
-### 🛠️ Verification & Checksums
-- Windows 10 / 11 64-bit (`x64`)
+### 🛠️ Verification
+- Platform: Windows 10 / 11 64-bit (`x64`)
 - Architecture: Electron 32 + React 18 + LiveKit Client SDK
 """
 
@@ -113,14 +112,13 @@ Built for competitive gamers, teams, and night owls demanding crisp WebRTC audio
 
     # 3. Upload assets
     files_to_upload = [
-        "NIGHTSHIFT-Setup-0.1.0.exe",
-        "NIGHTSHIFT-Portable-0.1.0.exe"
+        "NIGHTSHIFT-Setup-0.1.1.exe",
+        "NIGHTSHIFT-Portable-0.1.1.exe"
     ]
 
     for filename in files_to_upload:
         filepath = os.path.join(os.getcwd(), filename)
         if not os.path.exists(filepath):
-            # Fallback to apps/desktop/release
             filepath = os.path.join(os.getcwd(), "apps", "desktop", "release", filename)
         
         if not os.path.exists(filepath):
@@ -172,4 +170,3 @@ Built for competitive gamers, teams, and night owls demanding crisp WebRTC audio
 
 if __name__ == '__main__':
     main()
-
