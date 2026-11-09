@@ -20,91 +20,100 @@ export interface LiveKitAccountConfig {
   apiSecret: string;
 }
 
+function parseLiveKitSlot(
+  slotNum: number,
+  rawUrl?: string,
+  rawKey?: string,
+  rawSecret?: string,
+  defUrl?: string,
+  defKey?: string,
+  defSecret?: string,
+  defName?: string
+): LiveKitAccountConfig | null {
+  const combined = [rawUrl || '', rawKey || '', rawSecret || ''].join('\n');
+
+  if (!combined.trim() && !defUrl) {
+    return null;
+  }
+
+  // Extract URL (protects against accidental multi-line pastes in single env var)
+  const urlMatch = combined.match(/wss:\/\/[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*(?:\.livekit\.cloud|\.io|\.com)/);
+  const url = cleanStr(urlMatch ? urlMatch[0] : (rawUrl?.startsWith('wss://') ? rawUrl : defUrl));
+
+  // Extract API Key
+  const keyMatch = combined.match(/(?:API_KEY(?:_\d+)?\s*[=:]\s*|\b)(API[a-zA-Z0-9]{10,24})(?=[^a-zA-Z0-9]|$|LIVEKIT)/);
+  const apiKey = cleanStr(keyMatch ? keyMatch[1] : (rawKey || defKey));
+
+  // Extract Secret
+  const secretMatch = combined.match(/(?:API_SECRET(?:_\d+)?\s*[=:]\s*|\b)([a-zA-Z0-9]{36,55})(?=[^a-zA-Z0-9]|$|LIVEKIT)/);
+  const apiSecret = cleanStr(secretMatch ? secretMatch[1] : (rawSecret || defSecret));
+
+  const name = cleanStr(process.env[`LIVEKIT_NAME_${slotNum}`]) || defName || `LiveKit Account ${slotNum}`;
+
+  if (url && apiKey && apiSecret) {
+    return {
+      slot: slotNum,
+      name,
+      url,
+      apiKey,
+      apiSecret,
+    };
+  }
+
+  return null;
+}
+
 function loadLiveKitAccounts(): LiveKitAccountConfig[] {
   const accounts: LiveKitAccountConfig[] = [];
 
   // Slot 1: Primary (defaults to LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET or _1 variant)
-  const slot1Url = cleanStr(
-    process.env.LIVEKIT_URL_1 || process.env.LIVEKIT_URL || 'wss://voiceline-qy3slc6n.livekit.cloud'
+  const slot1 = parseLiveKitSlot(
+    1,
+    process.env.LIVEKIT_URL_1 || process.env.LIVEKIT_URL,
+    process.env.LIVEKIT_API_KEY_1 || process.env.LIVEKIT_API_KEY,
+    process.env.LIVEKIT_API_SECRET_1 || process.env.LIVEKIT_API_SECRET,
+    'wss://voiceline-qy3slc6n.livekit.cloud',
+    'APIr7js7v7NxHjD',
+    'VQkZ672DPv1iqtqY3AmIDef9rtYYeslWjfJjbVjoFfwA',
+    'LiveKit Account 1 (Primary)'
   );
-  const slot1Key = cleanStr(
-    process.env.LIVEKIT_API_KEY_1 || process.env.LIVEKIT_API_KEY || 'APIr7js7v7NxHjD'
-  );
-  const slot1Secret = cleanStr(
-    process.env.LIVEKIT_API_SECRET_1 || process.env.LIVEKIT_API_SECRET || 'VQkZ672DPv1iqtqY3AmIDef9rtYYeslWjfJjbVjoFfwA'
-  );
-  const slot1Name = cleanStr(process.env.LIVEKIT_NAME_1) || 'LiveKit Account 1 (Primary)';
-
-  if (slot1Url && slot1Key && slot1Secret) {
-    accounts.push({
-      slot: 1,
-      name: slot1Name,
-      url: slot1Url,
-      apiKey: slot1Key,
-      apiSecret: slot1Secret,
-    });
-  }
+  if (slot1) accounts.push(slot1);
 
   // Slot 2: Failover Account 1
-  const slot2Url = cleanStr(
-    process.env.LIVEKIT_URL_2 || 'wss://nightshift-2-97ar462d.livekit.cloud'
+  const slot2 = parseLiveKitSlot(
+    2,
+    process.env.LIVEKIT_URL_2,
+    process.env.LIVEKIT_API_KEY_2,
+    process.env.LIVEKIT_API_SECRET_2,
+    'wss://nightshift-2-97ar462d.livekit.cloud',
+    'APIPyT7StXa7h99',
+    '9sgG2Kge12Ffk4WteFy3z8fi1ELEv9MXZy1gqTdUWk5D',
+    'LiveKit Account 2'
   );
-  const slot2Key = cleanStr(
-    process.env.LIVEKIT_API_KEY_2 || 'APIPyT7StXa7h99'
-  );
-  const slot2Secret = cleanStr(
-    process.env.LIVEKIT_API_SECRET_2 || '9sgG2Kge12Ffk4WteFy3z8fi1ELEv9MXZy1gqTdUWk5D'
-  );
-  const slot2Name = cleanStr(process.env.LIVEKIT_NAME_2) || 'LiveKit Account 2';
-
-  if (slot2Url && slot2Key && slot2Secret) {
-    accounts.push({
-      slot: 2,
-      name: slot2Name,
-      url: slot2Url,
-      apiKey: slot2Key,
-      apiSecret: slot2Secret,
-    });
-  }
+  if (slot2) accounts.push(slot2);
 
   // Slot 3: Failover Account 2
-  const slot3Url = cleanStr(
-    process.env.LIVEKIT_URL_3 || 'wss://nightshift-3-zwh3gynw.livekit.cloud'
+  const slot3 = parseLiveKitSlot(
+    3,
+    process.env.LIVEKIT_URL_3,
+    process.env.LIVEKIT_API_KEY_3,
+    process.env.LIVEKIT_API_SECRET_3,
+    'wss://nightshift-3-zwh3gynw.livekit.cloud',
+    'APIERXbAFq3LZZA',
+    'JE0tBzHzvNeQxjkJe5iu40a2AfKcvuMZefjjhUzEfHDC',
+    'LiveKit Account 3'
   );
-  const slot3Key = cleanStr(
-    process.env.LIVEKIT_API_KEY_3 || 'APIERXbAFq3LZZA'
-  );
-  const slot3Secret = cleanStr(
-    process.env.LIVEKIT_API_SECRET_3 || 'JE0tBzHzvNeQxjkJe5iu40a2AfKcvuMZefjjhUzEfHDC'
-  );
-  const slot3Name = cleanStr(process.env.LIVEKIT_NAME_3) || 'LiveKit Account 3';
-
-  if (slot3Url && slot3Key && slot3Secret) {
-    accounts.push({
-      slot: 3,
-      name: slot3Name,
-      url: slot3Url,
-      apiKey: slot3Key,
-      apiSecret: slot3Secret,
-    });
-  }
+  if (slot3) accounts.push(slot3);
 
   // Check slots 4 through 10 for dynamic expansions
   for (let i = 4; i <= 10; i++) {
-    const url = cleanStr(process.env[`LIVEKIT_URL_${i}`]);
-    const apiKey = cleanStr(process.env[`LIVEKIT_API_KEY_${i}`]);
-    const apiSecret = cleanStr(process.env[`LIVEKIT_API_SECRET_${i}`]);
-    const name = cleanStr(process.env[`LIVEKIT_NAME_${i}`]) || `LiveKit Account ${i}`;
-
-    if (url && apiKey && apiSecret) {
-      accounts.push({
-        slot: i,
-        name,
-        url,
-        apiKey,
-        apiSecret,
-      });
-    }
+    const slot = parseLiveKitSlot(
+      i,
+      process.env[`LIVEKIT_URL_${i}`],
+      process.env[`LIVEKIT_API_KEY_${i}`],
+      process.env[`LIVEKIT_API_SECRET_${i}`]
+    );
+    if (slot) accounts.push(slot);
   }
 
   return accounts;
