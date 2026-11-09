@@ -66,8 +66,11 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
     const roomKey = `ns_${channel.serverId}_${channel.id}`;
 
     let token: string;
+    let livekitUrl: string;
     try {
-      token = await generateLiveKitToken(roomKey, user.id, user.displayName);
+      const result = await generateLiveKitToken(roomKey, user.id, user.displayName);
+      token = result.token;
+      livekitUrl = result.livekitUrl;
       invalidateRoomParticipantCache(roomKey);
     } catch (err: any) {
       console.error('Failed to generate LiveKit token:', err);
@@ -114,7 +117,7 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
     const response: VoiceJoinResponse = {
       channel: channelDto,
       server: serverDto,
-      livekitUrl: config.livekit.url,
+      livekitUrl,
       token,
       user: userDto,
     };

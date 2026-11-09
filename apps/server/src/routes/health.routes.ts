@@ -1,7 +1,12 @@
 import { FastifyPluginAsync } from 'fastify';
 import os from 'os';
 import { prisma } from '../lib/prisma.js';
-import { checkLiveKitHealth } from '../services/livekit.service.js';
+import {
+  checkLiveKitHealth,
+  getLiveKitPoolStatus,
+  rotateLiveKitSlot,
+  recheckLiveKitExhaustedSlots,
+} from '../services/livekit.service.js';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { config } from '../config.js';
 
@@ -43,14 +48,33 @@ export const healthRoutes: FastifyPluginAsync = async (fastify) => {
       services: {
         database: dbStatus ? 'healthy' : 'unhealthy',
         livekit: livekitHealth.reachable ? 'connected' : livekitHealth.configured ? 'unreachable' : 'unconfigured',
+        livekitActiveSlot: livekitHealth.activeSlot,
+        livekitTotalSlots: livekitHealth.totalSlots,
         livekitError: livekitHealth.error,
       },
+      livekitPool: livekitHealth.pool,
     };
   };
 
   fastify.get('/api/health', getHealthHandler);
   fastify.get('/health', getHealthHandler);
   fastify.get('/', getHealthHandler);
+
+  // LiveKit Pool Status & Rotation Endpoints
+  fastify.get('/api/livekit/status', async (_request, reply) => {
+    return reply.send(getLiveKitPoolStatus());
+  });
+
+  fastify.post('/api/livekit/rotate', async (request, reply) => {
+    const body = (request.body as { reason?: string }) || {};
+    const slot = await rotateLiveKitSlot(body.reason || 'Manual API trigger');
+    return reply.send({ success: true, activeSlot: slot.slot, name: slot.name });
+  });
+
+  fastify.post('/api/livekit/recheck', async (_request, reply) => {
+    await recheckLiveKitExhaustedSlots();
+    return reply.send({ success: true, pool: getLiveKitPoolStatus() });
+  });
 
   // Ultra-fast ping endpoint with Timing-Allow-Origin for real browser RTT measurement
   fastify.get('/api/ping', async (_request, reply) => {

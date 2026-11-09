@@ -12,7 +12,9 @@ async function start() {
       host: config.host,
     });
     console.log(`[NIGHTSHIFT SERVER] Listening at ${address}`);
-    console.log(`[NIGHTSHIFT SERVER] LiveKit URL: ${config.livekit.url}`);
+    console.log(
+      `[NIGHTSHIFT SERVER] LiveKit Pool: ${config.livekitAccounts.length} account(s) ready (Active URL: ${config.livekit.url})`
+    );
   } catch (err) {
     app.log.error(err);
     process.exit(1);

@@ -12,17 +12,67 @@ const cleanRegion = (val?: string) => {
   return cleaned || 'auto';
 };
 
+export interface LiveKitAccountConfig {
+  slot: number;
+  name: string;
+  url: string;
+  apiKey: string;
+  apiSecret: string;
+}
+
+function loadLiveKitAccounts(): LiveKitAccountConfig[] {
+  const accounts: LiveKitAccountConfig[] = [];
+
+  // Slot 1: Primary (defaults to LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET or _1 variant)
+  const slot1Url = cleanStr(process.env.LIVEKIT_URL_1 || process.env.LIVEKIT_URL || 'wss://voiceline-qy3slc6n.livekit.cloud');
+  const slot1Key = cleanStr(process.env.LIVEKIT_API_KEY_1 || process.env.LIVEKIT_API_KEY);
+  const slot1Secret = cleanStr(process.env.LIVEKIT_API_SECRET_1 || process.env.LIVEKIT_API_SECRET);
+  const slot1Name = cleanStr(process.env.LIVEKIT_NAME_1) || 'LiveKit Account 1 (Primary)';
+
+  if (slot1Url && slot1Key && slot1Secret) {
+    accounts.push({
+      slot: 1,
+      name: slot1Name,
+      url: slot1Url,
+      apiKey: slot1Key,
+      apiSecret: slot1Secret,
+    });
+  }
+
+  // Check slots 2 through 10
+  for (let i = 2; i <= 10; i++) {
+    const url = cleanStr(process.env[`LIVEKIT_URL_${i}`]);
+    const apiKey = cleanStr(process.env[`LIVEKIT_API_KEY_${i}`]);
+    const apiSecret = cleanStr(process.env[`LIVEKIT_API_SECRET_${i}`]);
+    const name = cleanStr(process.env[`LIVEKIT_NAME_${i}`]) || `LiveKit Account ${i}`;
+
+    if (url && apiKey && apiSecret) {
+      accounts.push({
+        slot: i,
+        name,
+        url,
+        apiKey,
+        apiSecret,
+      });
+    }
+  }
+
+  return accounts;
+}
+
 const defaultDbUrl = fs.existsSync('/data') ? 'file:/data/nightshift.db' : 'file:./nightshift.db';
+const livekitAccounts = loadLiveKitAccounts();
 
 export const config = {
   port: parseInt(process.env.PORT || process.env.SERVER_PORT || '3001', 10),
   host: process.env.SERVER_HOST || '0.0.0.0',
   databaseUrl: process.env.DATABASE_URL || defaultDbUrl,
   livekit: {
-    url: process.env.LIVEKIT_URL || 'wss://voiceline-qy3slc6n.livekit.cloud',
-    apiKey: process.env.LIVEKIT_API_KEY || '',
-    apiSecret: process.env.LIVEKIT_API_SECRET || '',
+    url: livekitAccounts[0]?.url || process.env.LIVEKIT_URL || 'wss://voiceline-qy3slc6n.livekit.cloud',
+    apiKey: livekitAccounts[0]?.apiKey || process.env.LIVEKIT_API_KEY || '',
+    apiSecret: livekitAccounts[0]?.apiSecret || process.env.LIVEKIT_API_SECRET || '',
   },
+  livekitAccounts,
   appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:5173',
   r2: {
     accountId: cleanStr(process.env.R2_ACCOUNT_ID),
@@ -43,7 +93,11 @@ export function validateConfig() {
 
   if (missing.length > 0) {
     console.warn(
-      `[CONFIG WARNING] Missing required environment variables: ${missing.join(', ')}. LiveKit real-time communication will not function until configured.`
+      `[CONFIG WARNING] Missing required primary LiveKit credentials: ${missing.join(', ')}. LiveKit real-time communication will not function until configured.`
+    );
+  } else {
+    console.log(
+      `[CONFIG] LiveKit Pool loaded: ${config.livekitAccounts.length} account(s) ready (Primary: ${config.livekit.url})`
     );
   }
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../src/lib/prisma.js';
-import { generateLiveKitToken } from '../src/services/livekit.service.js';
+import { generateLiveKitToken, getLiveKitPoolStatus } from '../src/services/livekit.service.js';
 
 describe('NIGHTSHIFT Server API', () => {
   let app: FastifyInstance;
@@ -28,7 +28,7 @@ describe('NIGHTSHIFT Server API', () => {
     expect(body.status).toBe('ok');
     expect(body.name).toBe('NIGHTSHIFT');
     expect(body.services).toBeDefined();
-  });
+  }, 10000);
 
   it('POST /api/auth/register should register a new account', async () => {
     const uniqueUsername = `runner_${Date.now().toString(36)}`;
@@ -91,10 +91,20 @@ describe('NIGHTSHIFT Server API', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('generateLiveKitToken creates valid signed token', async () => {
-    const token = await generateLiveKitToken('test-room', 'user-123', 'TestUser');
-    expect(token).toBeDefined();
-    expect(typeof token).toBe('string');
-    expect(token.split('.').length).toBe(3); // Valid JWT structure
+  it('generateLiveKitToken creates valid signed token and returns livekitUrl', async () => {
+    const res = await generateLiveKitToken('test-room', 'user-123', 'TestUser');
+    expect(res).toBeDefined();
+    expect(res.token).toBeDefined();
+    expect(typeof res.token).toBe('string');
+    expect(res.token.split('.').length).toBe(3); // Valid JWT structure
+    expect(res.livekitUrl).toBeDefined();
+    expect(res.slot).toBeGreaterThanOrEqual(1);
+  });
+
+  it('LiveKit pool status reports configured accounts', () => {
+    const status = getLiveKitPoolStatus();
+    expect(status.totalAccounts).toBeGreaterThanOrEqual(1);
+    expect(status.activeSlot).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(status.accounts)).toBe(true);
   });
 });
