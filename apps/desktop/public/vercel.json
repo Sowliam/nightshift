@@ -2,6 +2,18 @@
   "cleanUrls": true,
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://nightshift-server-cfch.onrender.com/api/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://nightshift-server-cfch.onrender.com/uploads/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "https://nightshift-server-cfch.onrender.com/health"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

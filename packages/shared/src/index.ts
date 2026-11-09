@@ -272,7 +272,8 @@ export const DEFAULT_VOICE_SETTINGS: UserVoiceSettings = {
 };
 
 // Production deployment constants
-export const DEFAULT_PRODUCTION_API = 'https://nightshift-api.gemesowl.workers.dev';
+export const DEFAULT_PRODUCTION_API = 'https://dist-three-gray-67.vercel.app';
+export const VERCEL_PROXY_API = 'https://dist-three-gray-67.vercel.app';
 export const CLOUDFLARE_PROXY_API = 'https://nightshift-api.gemesowl.workers.dev';
 export const RENDER_DIRECT_API = 'https://nightshift-server-cfch.onrender.com';
 export const DEFAULT_PRODUCTION_WEB = 'https://dist-three-gray-67.vercel.app';

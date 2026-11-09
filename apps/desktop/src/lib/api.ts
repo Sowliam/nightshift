@@ -40,8 +40,8 @@ export const getApiBase = (): string => {
     const custom = localStorage.getItem('nightshift_api_url');
     if (custom && custom.trim()) {
       const cleanCustom = custom.trim().replace(/\/$/, '');
-      // Purge if pointing to onrender.com (filtered in Iran) or frontend same-origin
-      if (cleanCustom === window.location.origin || cleanCustom.includes('vercel.app') || cleanCustom.includes('onrender.com')) {
+      // Purge old blocked domains (onrender.com and workers.dev)
+      if (cleanCustom.includes('onrender.com') || cleanCustom.includes('workers.dev')) {
         localStorage.removeItem('nightshift_api_url');
         return DEFAULT_PRODUCTION_API;
       } else {
@@ -52,12 +52,17 @@ export const getApiBase = (): string => {
     // 3. Explicit VITE_API_URL from environment if not default localhost
     if (import.meta.env.VITE_API_URL && !import.meta.env.VITE_API_URL.includes('localhost:3001')) {
       const envUrl = import.meta.env.VITE_API_URL.replace(/\/$/, '');
-      if (!envUrl.includes('onrender.com')) {
+      if (!envUrl.includes('onrender.com') && !envUrl.includes('workers.dev')) {
         return envUrl;
       }
     }
 
-    // 4. Default to Cloudflare Anti-Filter Gateway (accessible inside Iran without VPN)
+    // 4. In web browser on Vercel: use current origin directly
+    if (window.location.origin && window.location.origin.includes('vercel.app')) {
+      return window.location.origin;
+    }
+
+    // 5. Default to Vercel Anti-Filter Gateway (accessible inside Iran without VPN)
     return DEFAULT_PRODUCTION_API;
   }
   return (import.meta.env.VITE_API_URL || DEFAULT_PRODUCTION_API).replace(/\/$/, '');
@@ -139,11 +144,12 @@ class ApiClient {
   }
 
   private getAlternateUrl(currentUrl: string): string | null {
-    // If accidentally on onrender.com (filtered in Iran), recover to Cloudflare anti-filter proxy
-    if (currentUrl.includes('nightshift-server-cfch.onrender.com')) {
-      return currentUrl.replace('nightshift-server-cfch.onrender.com', 'nightshift-api.gemesowl.workers.dev');
+    // If accidentally on onrender.com or workers.dev (filtered in Iran), recover to Vercel proxy
+    if (currentUrl.includes('nightshift-server-cfch.onrender.com') || currentUrl.includes('workers.dev')) {
+      return currentUrl
+        .replace('nightshift-server-cfch.onrender.com', 'dist-three-gray-67.vercel.app')
+        .replace('nightshift-api.gemesowl.workers.dev', 'dist-three-gray-67.vercel.app');
     }
-    // NEVER switch from Cloudflare Worker to onrender.com because onrender.com is filtered in Iran!
     return null;
   }
 
@@ -200,7 +206,7 @@ class ApiClient {
         }
 
         // If failover back to Cloudflare anti-filter proxy succeeded, persist it
-        if (activeTargetUrl !== url && activeTargetUrl.includes('workers.dev')) {
+        if (activeTargetUrl !== url && activeTargetUrl.includes('vercel.app')) {
           try {
             const newBase = new URL(activeTargetUrl).origin;
             setApiBase(newBase);
@@ -229,7 +235,7 @@ class ApiClient {
             try {
               const fallbackRes = await fetch(alternate, { ...init });
               if (fallbackRes.ok) {
-                if (alternate && alternate.includes('workers.dev')) {
+                if (alternate && alternate.includes('vercel.app')) {
                   try {
                     setApiBase(new URL(alternate).origin);
                   } catch {}
