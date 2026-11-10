@@ -139,7 +139,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     if (!activeServerId) return;
     const interval = setInterval(() => {
       fetchChannels(activeServerId);
-    }, 4000);
+    }, 12000);
     return () => clearInterval(interval);
   }, [activeServerId, fetchChannels]);
 

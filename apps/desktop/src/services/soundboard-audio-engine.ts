@@ -50,11 +50,7 @@ export class SoundboardAudioEngine {
   private getAudioContext(): AudioContext {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      try {
-        this.audioContext = new AudioCtx({ sampleRate: 48000 });
-      } catch {
-        this.audioContext = new AudioCtx();
-      }
+      this.audioContext = new AudioCtx();
     }
     return this.audioContext;
   }

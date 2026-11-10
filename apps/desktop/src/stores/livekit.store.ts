@@ -8,6 +8,7 @@ import {
   LocalParticipant,
   RemoteParticipant,
   ConnectionState,
+  DisconnectReason,
   LocalVideoTrack,
   TrackPublication,
   RemoteTrackPublication,
@@ -498,7 +499,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       // 25ms background interval ensures uninterrupted processing when minimized or unfocused
       localAudioInterval = setInterval(() => {
         processAudioSample();
-      }, 25);
+      }, 200);
     } catch (e) {
       console.warn('Could not setup local audio analyzer:', e);
       // Failsafe: if analyzer fails, never silence user
@@ -539,6 +540,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       ].filter(Boolean);
 
       for (const transport of candidates) {
+        if (audioRtt !== null) break;
         try {
           const stats: RTCStatsReport = await transport.getStats();
           if (!stats) continue;
@@ -692,22 +694,11 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   };
 
   class RemoteAudioGainEngine {
-    private ctx: AudioContext | null = null;
-    private masterGain: GainNode | null = null;
-    private limiter: DynamicsCompressorNode | null = null;
-    private nodes = new Map<string, { gain: GainNode; source: MediaStreamAudioSourceNode }>();
+    private masterLinear = Math.max(0, (useSettingsStore.getState().outputVolume ?? 100) / 100);
     private pending = new Map<string, { track: MediaStreamTrack; volume: number; muted: boolean; element: HTMLMediaElement | null }>();
 
     constructor() {
-      const unlockAudio = () => {
-        const ctx = this.ensureAudioContext();
-        const flush = () => this.flushPending();
-        if (ctx && ctx.state === 'suspended') {
-          ctx.resume().then(flush).catch(flush);
-        } else {
-          flush();
-        }
-      };
+      const unlockAudio = () => this.flushPending();
       if (typeof window !== 'undefined') {
         window.addEventListener('pointerdown', unlockAudio, { passive: true });
         window.addEventListener('keydown', unlockAudio, { passive: true });
@@ -715,111 +706,27 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     }
 
-    public ensureAudioContext(): AudioContext | null {
-      if (!this.ctx || this.ctx.state === 'closed') {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return null;
-        try {
-          this.ctx = new AudioCtx();
-        } catch {
-          return null;
-        }
-      }
-      if (this.ctx && !this.masterGain) {
-        try {
-          this.masterGain = this.ctx.createGain();
-          const masterVol = useSettingsStore.getState().outputVolume ?? 100;
-          this.masterGain.gain.setValueAtTime(Math.max(0, masterVol / 100), this.ctx.currentTime);
-
-          // Transparent broadcast limiter to prevent clipping when boosted
-          this.limiter = this.ctx.createDynamicsCompressor();
-          this.limiter.threshold.setValueAtTime(-1.0, this.ctx.currentTime); // -1 dBFS
-          this.limiter.knee.setValueAtTime(3.0, this.ctx.currentTime);
-          this.limiter.ratio.setValueAtTime(20.0, this.ctx.currentTime);
-          this.limiter.attack.setValueAtTime(0.003, this.ctx.currentTime);
-          this.limiter.release.setValueAtTime(0.05, this.ctx.currentTime);
-
-          this.masterGain.connect(this.limiter);
-          this.limiter.connect(this.ctx.destination);
-        } catch (e) {
-          console.warn('[RemoteAudioGainEngine] Error initializing master nodes:', e);
-        }
-      }
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
-      return this.ctx;
+    public isRouted(_trackKey: string): boolean {
+      return false;
     }
 
-    public isRouted(trackKey: string): boolean {
-      return this.nodes.has(trackKey);
-    }
-
-    // Helper to calculate linear gain from volume percentage (100% = calibrated baseline presence)
-    private calcGain(volumePercent: number, isMuted: boolean): number {
-      if (isMuted || volumePercent <= 0) return 0;
-      // 1.35x (+2.6 dB) clean presence boost so voices at 100% are loud, present, and never faint
-      const presenceMultiplier = 1.35;
-      return Math.max(0, (volumePercent / 100) * presenceMultiplier);
-    }
-
-    private applyElement(element: HTMLMediaElement | null, volumePercent: number, isMuted: boolean, takenByGraph: boolean) {
+    private applyElement(element: HTMLMediaElement | null, volumePercent: number, isMuted: boolean, _takenByGraph: boolean) {
       if (!element) return;
       try {
-        if (takenByGraph) {
-          element.muted = true;
-          element.volume = 0;
-          return;
-        }
-        const vol = isMuted ? 0 : Math.max(0, Math.min(1, volumePercent / 100));
+        const vol = isMuted ? 0 : Math.max(0, Math.min(1, (volumePercent / 100) * this.masterLinear));
         element.muted = vol === 0;
         element.volume = vol;
         if (vol > 0) element.play().catch(() => {});
       } catch {}
     }
 
-    private disconnectNode(trackKey: string) {
-      const entry = this.nodes.get(trackKey);
-      if (!entry) return;
-      try {
-        entry.source.disconnect();
-        entry.gain.disconnect();
-      } catch {}
-      this.nodes.delete(trackKey);
-    }
-
     private flushOne(trackKey: string): boolean {
       const item = this.pending.get(trackKey);
-      if (!item || !item.track) return false;
-      const ctx = this.ensureAudioContext();
-      if (!ctx) {
-        this.applyElement(item.element, item.volume, item.muted, false);
-        return false;
-      }
-      try {
-        this.disconnectNode(trackKey);
-        const stream = new MediaStream([item.track]);
-        const source = ctx.createMediaStreamSource(stream);
-        const gain = ctx.createGain();
-        const now = ctx.currentTime;
-        const gainVal = this.calcGain(item.volume, item.muted);
-        gain.gain.setValueAtTime(gainVal, now);
-        source.connect(gain);
-
-        if (this.masterGain) {
-          gain.connect(this.masterGain);
-        } else {
-          gain.connect(ctx.destination);
-        }
-
-        this.nodes.set(trackKey, { gain, source });
-        this.applyElement(item.element, item.volume, item.muted, true);
-        return true;
-      } catch (err) {
-        console.warn('Failed to route track through gain engine:', err);
-        this.applyElement(item.element, item.volume, item.muted, false);
-        return false;
-      }
+      if (!item?.track) return false;
+      // Play the remote track on its own <audio> element. A second Web Audio
+      // graph mutes that element and, in the browser, often stays silent.
+      this.applyElement(item.element, item.volume, item.muted, false);
+      return false;
     }
 
     private flushPending() {
@@ -845,118 +752,63 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     }
 
     public setMasterOutputVolume(volumePercent: number): void {
-      const ctx = this.ensureAudioContext();
-      if (!ctx || !this.masterGain) return;
-      const now = ctx.currentTime;
-      const gainVal = Math.max(0, volumePercent / 100);
-      try {
-        this.masterGain.gain.cancelScheduledValues(now);
-        this.masterGain.gain.setValueAtTime(gainVal, now);
-      } catch {}
+      this.masterLinear = Math.max(0, volumePercent / 100);
+      this.flushPending();
     }
 
     public async setSinkId(deviceId: string): Promise<void> {
       const id = deviceId && deviceId !== 'default' && deviceId !== 'communications' ? deviceId : '';
-      const ctx = this.ensureAudioContext() as (AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }) | null;
-      if (!ctx?.setSinkId) return;
-      try {
-        await ctx.setSinkId(id);
-      } catch (err) {
-        console.warn('[RemoteAudioGainEngine] Could not move playback to the selected output:', err);
-        if (id) {
-          try { await ctx.setSinkId(''); } catch {}
+      const elements = Array.from(this.pending.values())
+        .map((item) => item.element)
+        .filter((el): el is HTMLMediaElement => !!el && typeof el.setSinkId === 'function');
+      await Promise.all(elements.map(async (el) => {
+        try {
+          await el.setSinkId(id);
+        } catch (err) {
+          console.warn('[RemoteAudioGainEngine] Could not move playback to the selected output:', err);
+          if (id) {
+            try { await el.setSinkId(''); } catch {}
+          }
         }
-      }
+      }));
     }
 
     public updateSoundboardVolume(identity: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.ensureAudioContext();
-      const gainVal = isMuted ? 0 : Math.max(0, (volumePercent / 100) * 1.2);
       const prefix = `${identity}_soundboard`;
       this.pending.forEach((item, key) => {
         if (key.startsWith(prefix) || key.includes(prefix) || (key.startsWith(identity) && !key.includes('_mic_'))) {
           item.volume = volumePercent;
           item.muted = isMuted;
-          if (!ctx || ctx.state !== 'running') this.applyElement(item.element, item.volume, item.muted, false);
+          this.applyElement(item.element, item.volume, item.muted, false);
         }
       });
-      if (!ctx) return;
-      const now = ctx.currentTime;
-      let matched = false;
-
-      this.nodes.forEach((node, key) => {
-        if (key.startsWith(prefix) || key.includes(prefix)) {
-          matched = true;
-          try {
-            node.gain.gain.cancelScheduledValues(now);
-            node.gain.gain.setValueAtTime(gainVal, now);
-          } catch (e) {
-            console.warn('Failed to set soundboard gain:', e);
-          }
-        }
-      });
-
-      if (!matched) {
-        // Fallback: match any node belonging to identity that is not mic
-        this.nodes.forEach((node, key) => {
-          if (key.startsWith(identity) && !key.includes('_mic_')) {
-            try {
-              node.gain.gain.cancelScheduledValues(now);
-              node.gain.gain.setValueAtTime(gainVal, now);
-            } catch {}
-          }
-        });
-      }
     }
 
     public updateVolume(trackKey: string, volumePercent: number, isMuted: boolean): void {
-      const ctx = this.ensureAudioContext();
       const pendingItem = this.pending.get(trackKey);
       if (pendingItem) {
         pendingItem.volume = volumePercent;
         pendingItem.muted = isMuted;
-        if (!ctx || ctx.state !== 'running') {
-          this.applyElement(pendingItem.element, volumePercent, isMuted, false);
+        this.applyElement(pendingItem.element, volumePercent, isMuted, false);
+      }
+      const parts = trackKey.split('_');
+      const prefix = parts.length >= 2 ? `${parts[0]}_${parts[1]}` : trackKey;
+      this.pending.forEach((item, key) => {
+        if (key === trackKey) return;
+        if (key.startsWith(prefix)) {
+          item.volume = volumePercent;
+          item.muted = isMuted;
+          this.applyElement(item.element, volumePercent, isMuted, false);
         }
-      }
-      if (!ctx) return;
-      const gainVal = this.calcGain(volumePercent, isMuted);
-      const now = ctx.currentTime;
-      const entry = this.nodes.get(trackKey);
-      if (entry) {
-        try {
-          entry.gain.gain.cancelScheduledValues(now);
-          entry.gain.gain.setValueAtTime(gainVal, now);
-        } catch {}
-      } else {
-        // Robust prefix fallback: match participant and track type (e.g. "identity_soundboard" or "identity_mic")
-        const parts = trackKey.split('_');
-        const prefix = parts.length >= 2 ? `${parts[0]}_${parts[1]}` : trackKey;
-        this.nodes.forEach((node, key) => {
-          if (key === trackKey || key.startsWith(prefix) || trackKey.startsWith(prefix)) {
-            try {
-              node.gain.gain.cancelScheduledValues(now);
-              node.gain.gain.setValueAtTime(gainVal, now);
-            } catch {}
-          }
-        });
-      }
+      });
     }
 
     public unrouteTrack(trackKey: string): void {
       this.pending.delete(trackKey);
-      this.disconnectNode(trackKey);
     }
 
     public clear(): void {
       this.pending.clear();
-      this.nodes.forEach((entry) => {
-        try {
-          entry.source.disconnect();
-          entry.gain.disconnect();
-        } catch {}
-      });
-      this.nodes.clear();
     }
   }
 
@@ -988,20 +840,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           try {
             (pub.track as RemoteAudioTrack).setVolume(deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100)));
           } catch {}
-        }
-        if ((pub.track as any)?.attachedElements) {
-          (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
-            try {
-              if (remoteAudioGainEngine.isRouted(trackKey)) {
-                el.volume = 0;
-                el.muted = true;
-              } else {
-                const v = deafened || isLocallyMuted ? 0 : Math.max(0, Math.min(1, vol / 100));
-                el.volume = v;
-                el.muted = v === 0;
-              }
-            } catch {}
-          });
         }
       });
     });
@@ -1078,10 +916,39 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         sounds.playJoin();
       });
 
-      room.on(RoomEvent.Disconnected, () => {
+      room.on(RoomEvent.Disconnected, (reason) => {
         if (get().room && get().room !== room) return;
         clearReconnectWatchdog();
-        set({ connectionState: ConnectionState.Disconnected });
+        const code = typeof reason === 'number' ? reason : Number(reason);
+        let message: string | null = null;
+        if (code === DisconnectReason.DUPLICATE_IDENTITY) {
+          message = 'این حساب از یک پنجره یا برنامهٔ دیگر داخل ویس است. همان را ببند و دوباره وصل شو.';
+        } else if (code === DisconnectReason.PARTICIPANT_REMOVED) {
+          message = 'سرور تو را از ویس بیرون کرد.';
+        } else if (code === DisconnectReason.JOIN_FAILURE) {
+          message = 'اتصال به ویس برقرار نشد. یک بار دیگر وارد کانال شو.';
+        } else if (
+          code === DisconnectReason.SIGNAL_CLOSE ||
+          code === DisconnectReason.STATE_MISMATCH ||
+          code === DisconnectReason.SERVER_SHUTDOWN ||
+          code === DisconnectReason.ROOM_DELETED ||
+          code === DisconnectReason.ROOM_CLOSED ||
+          code === DisconnectReason.CONNECTION_TIMEOUT ||
+          code === DisconnectReason.MEDIA_FAILURE
+        ) {
+          message = 'ارتباط با سرور ویس قطع شد. اینترنت را چک کن و دوباره وصل شو.';
+        } else if (
+          Number.isFinite(code) &&
+          code !== DisconnectReason.CLIENT_INITIATED &&
+          code !== DisconnectReason.UNKNOWN_REASON &&
+          code !== DisconnectReason.MIGRATION
+        ) {
+          message = `اتصال ویس قطع شد (${code}).`;
+        }
+        set({
+          connectionState: ConnectionState.Disconnected,
+          ...(message ? { error: message } : {}),
+        });
       });
 
       room.on(RoomEvent.Connected, () => {
@@ -1098,7 +965,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         useRoomStore.getState().fetchRooms();
         measurePing(room);
         if (pingInterval) clearInterval(pingInterval);
-        pingInterval = setInterval(() => measurePing(room), 1000);
+        pingInterval = setInterval(() => measurePing(room), 8000);
 
         // Request active soundboard / music status from room members who are currently playing
         const requestSoundboardSync = () => {
@@ -1251,17 +1118,16 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           // Keep the <audio> element audible until the gain graph is actually running.
           // Muting it while AudioContext is still suspended is why voice stayed silent
           // until the next mute click.
-          const routed = track.mediaStreamTrack
-            ? remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isMutedTotal, element)
-            : false;
-          if (!routed) {
+          if (track.mediaStreamTrack) {
+            remoteAudioGainEngine.routeTrack(trackKey, track.mediaStreamTrack, savedVol, isMutedTotal, element);
+          } else {
             element.volume = targetVol;
             element.muted = targetVol === 0;
-            if (typeof (track as any).setVolume === 'function') {
-              try {
-                (track as any).setVolume(targetVol);
-              } catch {}
-            }
+          }
+          if (typeof (track as any).setVolume === 'function') {
+            try {
+              (track as any).setVolume(targetVol);
+            } catch {}
           }
 
           element.play().catch(() => {});
@@ -1514,22 +1380,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
         await outputApply;
 
-        void (async () => {
-          try {
-            const sbMediaTrack = soundboardAudioEngine.initializePipeline();
-            const sbTrack = new LocalAudioTrack(sbMediaTrack);
-            activeLocalSoundboardTrack = sbTrack;
-            await room.localParticipant.publishTrack(sbTrack, {
-              name: 'soundboard',
-              source: Track.Source.Unknown,
-              dtx: false,
-              audioPreset: AudioPresets.music,
-            });
-          } catch (sbErr) {
-            console.warn('[LiveKit] Soundboard track publish failed:', sbErr);
-          }
-        })();
-
         set({
           room,
           localParticipant: room.localParticipant,
@@ -1548,7 +1398,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           if (get().connectionState === ConnectionState.Connected && room) {
             measurePing(room);
           }
-        }, 2000);
+        }, 8000);
 
         sounds.playJoin();
         return true;
@@ -2501,16 +2351,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               try {
                 (pub.track as any).setVolume?.(targetVol);
               } catch {}
-              if ((pub.track as any).attachedElements) {
-                (pub.track as any).attachedElements.forEach((el: HTMLMediaElement) => {
-                  try {
-                    if (!remoteAudioGainEngine.isRouted(trackKey)) {
-                      el.volume = targetVol;
-                      el.muted = targetVol === 0;
-                    }
-                  } catch {}
-                });
-              }
             }
           }
         });

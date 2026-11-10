@@ -31,6 +31,7 @@ const MusicQueueModal = React.lazy(() =>
 import { useAuthStore } from './stores/auth.store';
 import { useServerStore } from './stores/server.store';
 import { useLiveKitStore } from './stores/livekit.store';
+import { ConnectionState } from 'livekit-client';
 import { useSettingsStore } from './stores/settings.store';
 import { useSoundboardStore } from './stores/soundboard.store';
 import { ShieldAlert, RefreshCw, Server, Check, Loader2 } from 'lucide-react';
@@ -54,7 +55,7 @@ export const App: React.FC = () => {
 
   const { user, isLoading: authLoading, initAuth } = useAuthStore();
   const { fetchServers } = useServerStore();
-  const { toggleMute, toggleDeafen, setPushToTalkActive, isReconnecting, reconnectSecondsLeft } = useLiveKitStore();
+  const { toggleMute, toggleDeafen, setPushToTalkActive, isReconnecting, reconnectSecondsLeft, error: voiceError, connectionState } = useLiveKitStore();
   const { inputMode, pushToTalkKey } = useSettingsStore();
 
   useEffect(() => {
@@ -405,6 +406,19 @@ export const App: React.FC = () => {
       <SoundboardActiveBar />
 
       {/* Reconnecting countdown notice */}
+      {voiceError && connectionState === ConnectionState.Disconnected && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-bg-elevated border border-border text-text-primary text-xs shadow-2xl max-w-[min(32rem,calc(100%-2rem))]">
+          <span className="leading-5">{voiceError}</span>
+          <button
+            type="button"
+            className="shrink-0 text-text-muted hover:text-text-primary"
+            onClick={() => useLiveKitStore.setState({ error: null })}
+          >
+            بستن
+          </button>
+        </div>
+      )}
+
       {isReconnecting && (
         <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-5 py-2.5 rounded-2xl bg-amber-500 text-black font-bold text-xs shadow-2xl backdrop-blur-md animate-pulse border border-amber-300">
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
