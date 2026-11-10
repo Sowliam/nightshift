@@ -57,17 +57,37 @@ export const App: React.FC = () => {
   const { toggleMute, toggleDeafen, setPushToTalkActive, isReconnecting, reconnectSecondsLeft } = useLiveKitStore();
   const { inputMode, pushToTalkKey } = useSettingsStore();
 
+  useEffect(() => {
+    let cancelled = false;
+    const bindDevices = async () => {
+      const changed = await useSettingsStore.getState().syncSystemDevices();
+      if (cancelled) return;
+      const live = useLiveKitStore.getState();
+      const { audioInputDeviceId, audioOutputDeviceId } = useSettingsStore.getState();
+      if (!live.room) return;
+      if (changed.inputChanged && audioInputDeviceId && audioInputDeviceId !== 'default') {
+        await live.setAudioInputDevice(audioInputDeviceId).catch(() => {});
+      }
+      if (audioOutputDeviceId && audioOutputDeviceId !== 'default') {
+        await live.setAudioOutputDevice(audioOutputDeviceId).catch(() => {});
+      }
+    };
+    bindDevices().catch(() => {});
+    const media = navigator.mediaDevices;
+    media?.addEventListener?.('devicechange', bindDevices);
+    return () => {
+      cancelled = true;
+      media?.removeEventListener?.('devicechange', bindDevices);
+    };
+  }, []);
+
   const handleOpenScreenShare = async () => {
     const livekit = useLiveKitStore.getState();
     if (livekit.isScreenSharing) {
       await livekit.stopScreenShare();
       return;
     }
-    if (window.nightshift?.isElectron) {
-      setIsScreenShareOpen(true);
-    } else {
-      await livekit.startScreenShare();
-    }
+    setIsScreenShareOpen(true);
   };
 
   useEffect(() => {
@@ -95,11 +115,7 @@ export const App: React.FC = () => {
                 if (parsed.serverId && useServerStore.getState().activeServerId !== parsed.serverId) {
                   await useServerStore.getState().selectServer(parsed.serverId);
                 }
-                useServerStore.getState().setActiveVoiceChannel(parsed.channelId);
-                useServerStore.getState().setJoiningVoiceChannel(parsed.channelId);
-                const joinData = await api.joinVoiceChannel(parsed.channelId);
-                const ok = await useLiveKitStore.getState().connect(joinData.livekitUrl, joinData.token);
-                useServerStore.getState().setJoiningVoiceChannel(null);
+                const ok = await useLiveKitStore.getState().moveToVoiceChannel(parsed.channelId);
                 if (!ok) {
                   sessionStorage.removeItem('nightshift_active_voice_session');
                 }
@@ -463,7 +479,7 @@ export const App: React.FC = () => {
 
       {/* Global Modals (Lazy Loaded on Demand) */}
       <React.Suspense fallback={null}>
-        {isScreenShareOpen && window.nightshift?.isElectron && (
+        {isScreenShareOpen && (
           <ScreenShareModal
             isOpen={isScreenShareOpen}
             onClose={() => setIsScreenShareOpen(false)}

@@ -8,10 +8,10 @@ import {
 } from '@nightshift/shared';
 import {
   generateLiveKitToken,
-  getLiveKitRoomParticipants,
   invalidateRoomParticipantCache,
   removeLiveKitParticipant,
 } from '../services/livekit.service.js';
+import { enterVoice, getVoice, leaveVoice, listVoice } from '../services/voice-presence.js';
 import { config } from '../config.js';
 import { requireAuth } from '../lib/auth.js';
 
@@ -62,18 +62,13 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(403).send({ error: 'You are banned from this server' });
     }
 
-    // One presence per person. Kick them out of every other voice room on this
-    // server before the new token is issued, so a move cannot leave a ghost.
-    const otherVoiceChannels = await prisma.channel.findMany({
-      where: { serverId: channel.serverId, type: 'voice', NOT: { id: channel.id } },
-      select: { id: true },
-    });
-    await Promise.all(
-      otherVoiceChannels.flatMap((other) => [
-        removeLiveKitParticipant(`ns_${channel.serverId}_${other.id}`, user.id),
-        removeLiveKitParticipant(`${channel.serverId}_${other.id}`, user.id),
-      ])
-    );
+    // Drop the previous seat in the background. The client already leaves the
+    // old room locally, so the move does not wait on every other channel.
+    const previous = getVoice(user.id);
+    if (previous && previous.channelId !== channel.id) {
+      const previousKey = `ns_${previous.serverId}_${previous.channelId}`;
+      void removeLiveKitParticipant(previousKey, user.id).catch(() => {});
+    }
 
     // LiveKit room key
     const roomKey = `ns_${channel.serverId}_${channel.id}`;
@@ -84,6 +79,12 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       const result = await generateLiveKitToken(roomKey, user.id, user.displayName);
       token = result.token;
       livekitUrl = result.livekitUrl;
+      enterVoice({
+        identity: user.id,
+        name: user.displayName || user.username,
+        channelId: channel.id,
+        serverId: channel.serverId,
+      });
       invalidateRoomParticipantCache(roomKey);
     } catch (err: any) {
       console.error('Failed to generate LiveKit token:', err);
@@ -93,7 +94,7 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const participants = await getLiveKitRoomParticipants(roomKey);
+    const participants = listVoice(channel.id);
 
     const channelDto: ChannelDto = {
       id: channel.id,
@@ -148,6 +149,7 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       where: { id: channelId },
     });
 
+    leaveVoice(user.id);
     if (channel) {
       const roomKey = `ns_${channel.serverId}_${channel.id}`;
       await removeLiveKitParticipant(roomKey, user.id);

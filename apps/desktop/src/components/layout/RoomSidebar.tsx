@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Hash,
   Volume2,
+  Mic,
   Music,
   Plus,
   ChevronDown,
@@ -66,8 +67,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
   } = useServerStore();
 
   const {
-    connect,
     disconnect,
+    moveToVoiceChannel,
     connectionState,
     isMuted,
     isDeafened,
@@ -152,11 +153,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
       return;
     }
 
-    // Immediately select channel to update UI view
-    selectChannel(channelId);
-
-    // If already connected to this voice channel, stay connected
     if (activeVoiceChannelId === channelId && connectionState === ConnectionState.Connected) {
+      selectChannel(channelId);
       return;
     }
 
@@ -164,31 +162,13 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     isJoiningRef.current = true;
 
     try {
-      if (activeVoiceChannelId && activeVoiceChannelId !== channelId && connectionState !== ConnectionState.Disconnected) {
-        await disconnect();
-      }
-
-      setJoiningVoiceChannel(channelId);
-      setActiveVoiceChannel(channelId);
-
-      const joinData = await api.joinVoiceChannel(channelId);
-      const ok = await connect(joinData.livekitUrl, joinData.token);
-      setJoiningVoiceChannel(null);
-      if (ok) {
-        try {
-          sessionStorage.setItem(
-            'nightshift_active_voice_session',
-            JSON.stringify({ channelId, serverId: activeServerId })
-          );
-        } catch {}
-      } else {
+      const ok = await moveToVoiceChannel(channelId);
+      if (!ok) {
         const lastErr = useLiveKitStore.getState().error;
         console.warn('LiveKit connect returned false:', lastErr);
       }
     } catch (err: any) {
       console.error('Failed to join voice channel:', err);
-      setJoiningVoiceChannel(null);
-      setActiveVoiceChannel(null);
       alert(err.message || 'Failed to join voice channel');
     } finally {
       isJoiningRef.current = false;
@@ -468,8 +448,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                   <span className="text-[11px] font-bold tracking-wider text-text-muted uppercase">
                     Text Channels
                   </span>
-                  {activeServer.role !== 'member' && (
+                  {isOwner && (
                     <button
+                      type="button"
                       onClick={() => setIsCreatingChannel('text')}
                       className="text-text-muted hover:text-highlight transition-colors p-0.5"
                       title="Create Text Channel"
@@ -514,8 +495,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                   <span className="text-[11px] font-bold tracking-wider text-text-muted uppercase">
                     Voice Channels
                   </span>
-                  {activeServer.role !== 'member' && (
+                  {isOwner && (
                     <button
+                      type="button"
                       onClick={() => setIsCreatingChannel('voice')}
                       className="text-text-muted hover:text-highlight transition-colors p-0.5"
                       title="Create Voice Channel"
@@ -531,13 +513,17 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                     const isConnected = connectionState === ConnectionState.Connected && activeVoiceChannelId === c.id;
                     const isConnecting = joiningVoiceChannelId === c.id || (activeVoiceChannelId === c.id && connectionState === ConnectionState.Connecting);
                     const isLocalSpeaking = isConnected && !isMuted && !isDeafened && (isLocallySpeaking || !!localParticipant?.isSpeaking || (localParticipant && activeSpeakers.has(localParticipant.identity)));
+                    const seen = new Set<string>();
                     const channelParticipants = (c.voiceParticipants || []).filter((vp) => {
+                      if (!vp?.identity || seen.has(vp.identity)) return false;
+                      seen.add(vp.identity);
                       const isSelf =
                         vp.identity === user?.id ||
                         vp.identity === user?.username ||
                         vp.identity === localParticipant?.identity;
-                      if (isSelf && activeVoiceChannelId !== c.id) return false;
+                      if (isSelf && activeVoiceChannelId && activeVoiceChannelId !== c.id) return false;
                       if (
+                        !isCurrentVoice &&
                         connectionState === ConnectionState.Connected &&
                         remoteParticipants.some((p) => p.identity === vp.identity)
                       ) {
@@ -586,15 +572,13 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
 
                         {/* Discord-style Participants List: Rendered directly underneath this voice channel */}
                         {isCurrentVoice ? (
-                          <div className="ml-3 pl-2.5 border-l-2 border-border-subtle my-1.5 space-y-1">
+                          <div className="ml-4 pl-2 border-l border-white/10 my-0.5 space-y-0.5">
                             {/* 1. Local Participant (Current User) */}
-                            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-bg-elevated/80 group transition-all text-sm">
-                              <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center justify-between px-1.5 py-0.5 rounded hover:bg-white/[0.04] group">
+                              <div className="flex items-center gap-2 min-w-0">
                                 <div
-                                  className={`relative w-8 h-8 rounded-full bg-highlight flex items-center justify-center text-xs font-black text-highlight-text shrink-0 shadow-sm transition-all overflow-hidden ${
-                                    isLocalSpeaking
-                                      ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
-                                      : ''
+                                  className={`relative w-6 h-6 rounded-full bg-[#1e1f22] flex items-center justify-center text-[10px] font-medium text-[#dbdee1] shrink-0 overflow-hidden ${
+                                    isLocalSpeaking ? 'shadow-[0_0_0_2px_#23a559]' : ''
                                   }`}
                                 >
                                   {user?.avatarUrl ? (
@@ -608,8 +592,8 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                   )}
                                 </div>
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="text-sm font-semibold text-text-primary truncate">
-                                    {user?.displayName || 'You'} <span className="text-xs text-text-muted font-normal">(you)</span>
+                                  <span className={`text-[13px] font-normal truncate ${isLocalSpeaking ? 'text-white' : 'text-[#949ba4] group-hover:text-[#dbdee1]'}`}>
+                                    {user?.displayName || 'You'} <span className="text-[11px] text-[#6d6f78]">(you)</span>
                                   </span>
                                   <PingIndicator ping={currentPing} />
                                 </div>
@@ -623,9 +607,9 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                   </span>
                                 )}
                                 {isDeafened ? (
-                                  <span title="Deafened"><VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" /></span>
+                                  <span title="Deafened"><VolumeX className="w-4 h-4 text-[#f23f43] shrink-0" strokeWidth={2.5} /></span>
                                 ) : isMuted ? (
-                                  <span title="Muted"><MicOff className="w-3.5 h-3.5 text-destructive shrink-0" /></span>
+                                  <span title="Muted"><MicOff className="w-4 h-4 text-[#f23f43] shrink-0" strokeWidth={2.5} /></span>
                                 ) : null}
                               </div>
                             </div>
@@ -657,20 +641,18 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                       },
                                     });
                                   }}
-                                  className="flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-bg-elevated/80 group transition-all text-sm cursor-context-menu"
+                                  className="flex items-center justify-between px-1.5 py-0.5 rounded hover:bg-white/[0.04] group cursor-context-menu"
                                 >
-                                  <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="flex items-center gap-2 min-w-0">
                                     <div
-                                      className={`relative w-8 h-8 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-xs font-bold text-text-primary shrink-0 shadow-sm transition-all ${
-                                        isSpeaking
-                                          ? 'ring-2 ring-online ring-offset-1 ring-offset-bg-secondary'
-                                          : ''
+                                      className={`relative w-6 h-6 rounded-full bg-[#1e1f22] flex items-center justify-center text-[10px] font-medium text-[#dbdee1] shrink-0 ${
+                                        isSpeaking ? 'shadow-[0_0_0_2px_#23a559]' : ''
                                       }`}
                                     >
                                       {getInitials(displayName)}
                                     </div>
                                     <div className="flex items-center gap-1.5 min-w-0">
-                                      <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                      <span className={`text-[13px] font-normal truncate ${isSpeaking ? 'text-white' : 'text-[#949ba4] group-hover:text-[#dbdee1]'}`}>
                                         {displayName}
                                       </span>
                                       <PingIndicator ping={participantPings[p.identity] ?? participantPings[p.name || '']} />
@@ -680,7 +662,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     {isLocallyMuted && (
                                       <span title="Muted for you (بی‌صدا شده برای شما)">
-                                        <VolumeX className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                        <VolumeX className="w-4 h-4 text-[#f23f43] shrink-0" strokeWidth={2.5} />
                                       </span>
                                     )}
                                     {isSharing && (
@@ -690,7 +672,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                       </span>
                                     )}
                                     {isRemoteMuted && (
-                                      <span title="Muted"><MicOff className="w-3.5 h-3.5 text-text-muted shrink-0" /></span>
+                                      <span title="Muted"><MicOff className="w-4 h-4 text-[#f23f43] shrink-0" strokeWidth={2.5} /></span>
                                     )}
                                   </div>
                                 </div>
@@ -700,21 +682,21 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                         ) : (
                           /* Non-connected participant list: shows users in that voice channel to anyone browsing */
                           channelParticipants.length > 0 && (
-                            <div className="ml-4 pl-2.5 border-l-2 border-border-subtle my-1 space-y-1">
+                            <div className="ml-4 pl-2 border-l border-white/10 my-0.5 space-y-0.5">
                               {channelParticipants.map((vp) => {
                                 const member = members.find(
                                   (m) => m.userId === vp.identity || m.username === vp.identity || m.displayName === vp.name
                                 );
-                                const displayName = member?.displayName || vp.name;
+                                const displayName = member?.displayName || vp.name || 'In voice';
                                 const avatarSrc = member?.avatarUrl ? getFullAvatarUrl(member.avatarUrl) : null;
 
                                 return (
                                   <div
                                     key={vp.identity}
-                                    className="flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-bg-elevated/60 group transition-all text-sm"
+                                    className="flex items-center justify-between px-1.5 py-0.5 rounded hover:bg-white/[0.04] group"
                                   >
-                                    <div className="flex items-center gap-2.5 min-w-0">
-                                      <div className="relative w-8 h-8 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-xs font-bold text-text-secondary shrink-0 shadow-sm overflow-hidden">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <div className="relative w-6 h-6 rounded-full bg-[#1e1f22] flex items-center justify-center text-[10px] font-medium text-[#949ba4] shrink-0 overflow-hidden">
                                         {avatarSrc ? (
                                           <img
                                             src={avatarSrc}
@@ -725,7 +707,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                           getInitials(displayName)
                                         )}
                                       </div>
-                                      <span className="text-sm font-medium text-text-secondary group-hover:text-text-primary truncate">
+                                      <span className="text-[13px] font-normal text-[#949ba4] group-hover:text-[#dbdee1] truncate">
                                         {displayName}
                                       </span>
                                     </div>
@@ -771,14 +753,14 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
           />
         )}
 
-        {/* User Identity Footer Profile (Upgraded with high contrast, animations & Discord styling) */}
-        <div className="p-2 mx-1.5 mb-1.5 bg-[#0e0f11] border border-[#232428] rounded-2xl flex items-center justify-between shrink-0 shadow-subtle backdrop-blur-sm select-none">
-          <div
+        <div className="bg-[#0e0f11] h-[52px] px-1.5 flex items-center shrink-0 select-none">
+          <button
+            type="button"
             onClick={onOpenSettings}
-            className="flex items-center gap-2.5 min-w-0 flex-1 mr-1 p-1 -ml-0.5 rounded-xl hover:bg-[#1f2024]/70 transition-all duration-150 cursor-pointer group"
+            className="flex items-center gap-2 min-w-0 flex-1 h-10 px-1 rounded text-left hover:bg-white/[0.04]"
             title="Open User Settings"
           >
-            <div className="w-9 h-9 rounded-full bg-[#18191c] border border-[#2b2d31] flex items-center justify-center text-xs font-black text-[#f2f3f5] shrink-0 shadow-sm relative group-hover:scale-105 transition-transform overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-[#18191c] flex items-center justify-center text-[11px] font-semibold text-[#f2f3f5] shrink-0 relative overflow-hidden">
               {user?.avatarUrl ? (
                 <img
                   src={getFullAvatarUrl(user.avatarUrl)!}
@@ -788,86 +770,57 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
               ) : (
                 user ? getInitials(user.displayName) : 'U'
               )}
-              {/* Online Presence Dot */}
-              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#23a55a] border-2 border-[#0e0f11] shadow-sm z-10" />
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#23a559] border-2 border-[#0e0f11]" />
             </div>
-            <div className="flex flex-col min-w-0 leading-tight">
-              <span className="text-[13.5px] font-bold text-[#f2f3f5] truncate group-hover:text-white transition-colors">
+            <div className="flex flex-col min-w-0 flex-1 leading-4">
+              <span className="text-[14px] font-semibold text-[#f2f3f5] truncate" title={user?.displayName || ''}>
                 {user?.displayName || 'Connecting...'}
               </span>
-              <span className="text-[11px] text-[#949ba4] truncate font-medium mt-0.5">
+              <span className="text-[12px] text-[#b5bac1] truncate" title={user?.username ? `@${user.username}` : ''}>
                 @{user?.username || 'user'}
               </span>
             </div>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Mic Toggle Button */}
+          <div className="flex items-center shrink-0">
             <button
               type="button"
-              onClick={() => {
-                toggleMute();
-              }}
-              className={`call-btn call-btn-xs ${isMuted ? 'is-active-danger' : ''}`}
+              onClick={() => toggleMute()}
+              className={`w-8 h-8 inline-flex items-center justify-center rounded hover:bg-white/10 ${isMuted ? 'text-[#f23f43]' : 'text-[#b5bac1] hover:text-white'}`}
               title={isMuted ? 'Unmute Microphone (Ctrl+Shift+M)' : 'Mute Microphone (Ctrl+Shift+M)'}
               aria-label={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
             >
-              <div className="call-icon-layer call-icon-on call-icon-bounce">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z" />
-                  <path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z" />
-                </svg>
-              </div>
-              <div className="call-icon-layer call-icon-off call-icon-bounce">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M13 8c0 .564-.094 1.107-.266 1.613l-.814-.814A4.02 4.02 0 0 0 12 8V7a.5.5 0 0 1 1 0v1zm-5 4c.818 0 1.578-.245 2.212-.667l.718.719a4.973 4.973 0 0 1-2.43.923V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 1 0v1a4 4 0 0 0 4 4zm3-9v4.879L5.158 2.037A3.001 3.001 0 0 1 11 3z" />
-                  <path d="M9.486 10.607 5 6.12V8a3 3 0 0 0 4.486 2.607zm-7.84-9.253 12 12 .708-.708-12-12-.708.708z" />
-                </svg>
-              </div>
+              {isMuted ? <MicOff className="w-[18px] h-[18px] ns-anim-mic" /> : <Mic className="w-[18px] h-[18px] ns-anim-mic" />}
             </button>
-
-            {/* Deafen Toggle Button */}
             <button
-              onClick={() => {
-                toggleDeafen();
-              }}
-              className={`call-btn call-btn-xs ${isDeafened ? 'is-active-danger' : ''}`}
+              type="button"
+              onClick={() => toggleDeafen()}
+              className={`w-8 h-8 inline-flex items-center justify-center rounded hover:bg-white/10 ${isDeafened ? 'text-[#f23f43]' : 'text-[#b5bac1] hover:text-white'}`}
               title={isDeafened ? 'Undeafen (Ctrl+Shift+D)' : 'Deafen (Ctrl+Shift+D)'}
               aria-label={isDeafened ? 'Undeafen' : 'Deafen'}
             >
-              <div className="call-icon-layer call-icon-on call-icon-bounce">
-                <Headphones className="w-3.5 h-3.5 stroke-[2.2]" />
-              </div>
-              <div className="call-icon-layer call-icon-off call-icon-bounce">
-                <VolumeX className="w-3.5 h-3.5 stroke-[2.2]" />
-              </div>
+              {isDeafened ? <VolumeX className="w-[18px] h-[18px] ns-anim-silence" /> : <Headphones className="w-[18px] h-[18px] ns-anim-headphones" />}
             </button>
-
-            {/* Soundboard Button */}
             <button
+              type="button"
               onClick={() => {
                 const current = useSoundboardStore.getState().isSoundboardOpen;
                 useSoundboardStore.getState().setSoundboardOpen(!current);
               }}
-              className="call-btn call-btn-xs"
+              className="w-8 h-8 inline-flex items-center justify-center rounded text-[#b5bac1] hover:bg-white/10 hover:text-white"
               title="Open Soundboard (Ctrl+Shift+S)"
               aria-label="Soundboard"
             >
-              <div className="call-icon-layer call-icon-on call-icon-bounce">
-                <Music className="w-3.5 h-3.5 stroke-[2.2]" />
-              </div>
+              <Music className="w-[18px] h-[18px] ns-anim-music" />
             </button>
-
-            {/* Settings Button */}
             <button
+              type="button"
               onClick={onOpenSettings}
-              className="call-btn call-btn-xs"
+              className="w-8 h-8 inline-flex items-center justify-center rounded text-[#b5bac1] hover:bg-white/10 hover:text-white"
               title="User Settings"
               aria-label="User Settings"
             >
-              <div className="call-icon-layer call-icon-on call-icon-spin">
-                <Settings className="w-3.5 h-3.5 stroke-[2.2]" />
-              </div>
+              <Settings className="w-[18px] h-[18px] ns-anim-gear" />
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { sounds } from '../services/sound.service';
+import { concreteDeviceId } from '../audio/devices';
 import { InputProfileType } from '@nightshift/shared';
 
 interface SettingsState {
@@ -9,6 +10,8 @@ interface SettingsState {
   sensitivityThreshold: number; // 0-100
   noiseSuppression: 'none' | 'standard' | 'krisp';
   echoCancellation: boolean;
+  noiseAmount: number;
+  echoAmount: number;
   pushToTalk: boolean;
   pushToTalkKey: string;
 
@@ -44,11 +47,14 @@ interface SettingsState {
 
   // Actions
   refreshDevices: () => Promise<void>;
+  syncSystemDevices: () => Promise<{ inputChanged: boolean; outputChanged: boolean }>;
   setInputProfile: (profile: InputProfileType) => void;
   setAutoSensitivity: (val: boolean) => void;
   setSensitivityThreshold: (val: number) => void;
   setNoiseSuppression: (val: 'none' | 'standard' | 'krisp') => void;
   setEchoCancellation: (val: boolean) => void;
+  setNoiseAmount: (val: number) => void;
+  setEchoAmount: (val: number) => void;
   setPushToTalk: (val: boolean) => void;
   setPushToTalkKey: (key: string) => void;
   setInputMode: (mode: 'voice-activity' | 'push-to-talk') => void;
@@ -89,6 +95,8 @@ function loadPersistedSettings() {
     sensitivityThreshold: 35,
     noiseSuppression: 'standard' as const,
     echoCancellation: true,
+    noiseAmount: 75,
+    echoAmount: 70,
     pushToTalk: false,
     pushToTalkKey: 'Space',
     audioInputDeviceId: 'default',
@@ -98,7 +106,7 @@ function loadPersistedSettings() {
     isSelfMuted: false,
     isSelfDeafened: false,
     soundEffectsEnabled: true,
-    soundVolume: 25,
+    soundVolume: 50,
     pttSoundEnabled: true,
     joinLeaveSoundEnabled: true,
     muteSoundEnabled: true,
@@ -110,11 +118,16 @@ function loadPersistedSettings() {
 
 export const useSettingsStore = create<SettingsState>((set, get) => {
   const initial = loadPersistedSettings();
+  const soundVolume = initial.soundVolumeDefault === 50 && typeof initial.soundVolume === 'number'
+    ? initial.soundVolume
+    : typeof initial.soundVolume !== 'number' || initial.soundVolume === 25
+      ? 50
+      : initial.soundVolume;
 
   // Initialize SoundService with persisted preferences
   sounds.updatePreferences({
     masterEnabled: initial.soundEffectsEnabled ?? true,
-    masterVolume: initial.soundVolume ?? 25,
+    masterVolume: soundVolume,
     pttSound: initial.pttSoundEnabled ?? true,
     joinLeaveSound: initial.joinLeaveSoundEnabled ?? true,
     muteSound: initial.muteSoundEnabled ?? true,
@@ -129,6 +142,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         sensitivityThreshold: get().sensitivityThreshold,
         noiseSuppression: get().noiseSuppression,
         echoCancellation: get().echoCancellation,
+        noiseAmount: get().noiseAmount,
+        echoAmount: get().echoAmount,
         pushToTalk: get().pushToTalk,
         pushToTalkKey: get().pushToTalkKey,
         audioInputDeviceId: get().audioInputDeviceId,
@@ -139,6 +154,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         isSelfDeafened: get().isSelfDeafened,
         soundEffectsEnabled: get().soundEffectsEnabled,
         soundVolume: get().soundVolume,
+        soundVolumeDefault: 50,
         pttSoundEnabled: get().pttSoundEnabled,
         joinLeaveSoundEnabled: get().joinLeaveSoundEnabled,
         muteSoundEnabled: get().muteSoundEnabled,
@@ -157,6 +173,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     sensitivityThreshold: initial.sensitivityThreshold ?? 35,
     noiseSuppression: initial.noiseSuppression || 'standard',
     echoCancellation: initial.echoCancellation ?? true,
+    noiseAmount: typeof initial.noiseAmount === 'number'
+      ? initial.noiseAmount
+      : initial.noiseSuppression === 'none'
+        ? 0
+        : initial.noiseSuppression === 'krisp'
+          ? 85
+          : 65,
+    echoAmount: typeof initial.echoAmount === 'number'
+      ? initial.echoAmount
+      : initial.echoCancellation === false
+        ? 0
+        : 70,
     pushToTalk: initial.pushToTalk ?? false,
     pushToTalkKey: initial.pushToTalkKey || 'Space',
     audioInputDeviceId: initial.audioInputDeviceId || 'default',
@@ -166,7 +194,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     isSelfMuted: initial.isSelfMuted ?? false,
     isSelfDeafened: initial.isSelfDeafened ?? false,
     soundEffectsEnabled: initial.soundEffectsEnabled ?? true,
-    soundVolume: initial.soundVolume ?? 25,
+    soundVolume,
     pttSoundEnabled: initial.pttSoundEnabled ?? true,
     joinLeaveSoundEnabled: initial.joinLeaveSoundEnabled ?? true,
     muteSoundEnabled: initial.muteSoundEnabled ?? true,
@@ -182,14 +210,41 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     localMutedSoundboards: initial.localMutedSoundboards || {},
 
     refreshDevices: async () => {
+      await get().syncSystemDevices();
+    },
+
+    syncSystemDevices: async () => {
       try {
-        if (!navigator.mediaDevices?.enumerateDevices) return;
+        if (!navigator.mediaDevices?.enumerateDevices) {
+          return { inputChanged: false, outputChanged: false };
+        }
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((d) => d.kind === 'audioinput');
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        set({ availableInputs: inputs, availableOutputs: outputs });
+        const inputId = concreteDeviceId(devices, 'audioinput', get().audioInputDeviceId);
+        const outputId = concreteDeviceId(devices, 'audiooutput', get().audioOutputDeviceId);
+        const inputChanged = !!inputId && inputId !== get().audioInputDeviceId;
+        const outputChanged = !!outputId && outputId !== get().audioOutputDeviceId;
+        set({
+          availableInputs: inputs,
+          availableOutputs: outputs,
+          ...(inputChanged ? { audioInputDeviceId: inputId } : {}),
+          ...(outputChanged ? { audioOutputDeviceId: outputId } : {}),
+        });
+        if (inputChanged || outputChanged) {
+          persist({
+            audioInputDeviceId: inputChanged ? inputId : get().audioInputDeviceId,
+            audioOutputDeviceId: outputChanged ? outputId : get().audioOutputDeviceId,
+          });
+        }
+        const sink = outputChanged ? outputId : get().audioOutputDeviceId;
+        if (sink && sink !== 'default' && sink !== 'communications') {
+          sounds.setOutputDevice(sink);
+        }
+        return { inputChanged, outputChanged };
       } catch (err) {
         console.warn('Device enumeration error:', err);
+        return { inputChanged: false, outputChanged: false };
       }
     },
 
@@ -224,13 +279,30 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
     },
 
     setNoiseSuppression: (noiseSuppression: 'none' | 'standard' | 'krisp') => {
-      set({ noiseSuppression });
-      persist({ noiseSuppression });
+      const noiseAmount = noiseSuppression === 'none' ? 0 : noiseSuppression === 'krisp' ? 85 : 65;
+      set({ noiseSuppression, noiseAmount });
+      persist({ noiseSuppression, noiseAmount });
     },
 
     setEchoCancellation: (echoCancellation: boolean) => {
-      set({ echoCancellation });
-      persist({ echoCancellation });
+      const echoAmount = echoCancellation ? Math.max(get().echoAmount, 70) : 0;
+      set({ echoCancellation, echoAmount });
+      persist({ echoCancellation, echoAmount });
+    },
+
+    setNoiseAmount: (noiseAmount: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(noiseAmount)));
+      set({
+        noiseAmount: clamped,
+        noiseSuppression: clamped <= 0 ? 'none' : 'standard',
+      });
+      persist({ noiseAmount: clamped, noiseSuppression: clamped <= 0 ? 'none' : 'standard' });
+    },
+
+    setEchoAmount: (echoAmount: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(echoAmount)));
+      set({ echoAmount: clamped, echoCancellation: clamped > 0 });
+      persist({ echoAmount: clamped, echoCancellation: clamped > 0 });
     },
 
     setPushToTalk: (pushToTalk: boolean) => {

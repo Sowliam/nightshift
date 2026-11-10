@@ -327,44 +327,61 @@ class LiveKitPoolManager {
     }
 
     const boundSlotNum = this.roomSlotMap.get(roomName);
-    const slot =
-      this.slots.find((s) => s.slot === boundSlotNum) || this.slots[this.activeSlotIndex] || this.slots[0];
-
-    if (!slot) return cached?.data || [];
-
-    const participants = await this.fetchParticipantsForSlot(slot, roomName);
-    if (!participants) return cached?.data || [];
-
-    this.participantCache.set(roomName, { data: participants, timestamp: now });
-
-    // A real empty list can release the slot. A failed lookup must not, or the
-    // next kick lands on the wrong LiveKit account and the user stays behind.
-    if (participants.length === 0) {
-      this.roomSlotMap.delete(roomName);
-    }
-
-    return participants;
-  }
-
-  public async removeParticipant(roomName: string, identity: string): Promise<boolean> {
-    const boundSlotNum = this.roomSlotMap.get(roomName);
     const ordered = [...this.slots].sort((a, b) => {
       if (a.slot === boundSlotNum) return -1;
       if (b.slot === boundSlotNum) return 1;
       return 0;
     });
+    if (ordered.length === 0) return cached?.data || [];
 
-    let removed = false;
+    let boundWasEmpty = false;
     for (const slot of ordered) {
-      const client = this.getClient(slot);
+      const participants = await this.fetchParticipantsForSlot(slot, roomName);
+      if (!participants) continue;
+      if (participants.length > 0) {
+        this.roomSlotMap.set(roomName, slot.slot);
+        this.participantCache.set(roomName, { data: participants, timestamp: now });
+        return participants;
+      }
+      if (slot.slot === boundSlotNum) boundWasEmpty = true;
+    }
+
+    // Only an empty reply from the slot that owns the room means nobody is there.
+    // A timeout or a lookup on the wrong account must not wipe the room.
+    if (boundWasEmpty) {
+      this.participantCache.set(roomName, { data: [], timestamp: now });
+      this.roomSlotMap.delete(roomName);
+      return [];
+    }
+
+    return cached?.data || [];
+  }
+
+  public async removeParticipant(roomName: string, identity: string): Promise<boolean> {
+    const boundSlotNum = this.roomSlotMap.get(roomName);
+    const bound = this.slots.find((s) => s.slot === boundSlotNum);
+    const active = this.slots[this.activeSlotIndex] || this.slots[0];
+    const first = bound || active;
+    if (!first) return false;
+
+    const trySlot = async (slot: LiveKitSlotState) => {
       try {
-        await client.removeParticipant(roomName, identity);
-        removed = true;
+        await this.getClient(slot).removeParticipant(roomName, identity);
+        return true;
       } catch (err: any) {
         if (isQuotaError(err)) {
           await this.rotateActiveSlot(err.message);
         }
+        return false;
       }
+    };
+
+    let removed = await trySlot(first);
+    if (!removed && !bound && this.slots.length > 1) {
+      const rest = await Promise.all(
+        this.slots.filter((slot) => slot !== first).map((slot) => trySlot(slot))
+      );
+      removed = rest.some(Boolean);
     }
 
     this.invalidateCache(roomName);

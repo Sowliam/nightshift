@@ -217,6 +217,8 @@ export const ParticipantPanel: React.FC<{ isMobile?: boolean }> = ({ isMobile })
             target: {
               identity: member.userId,
               name: member.displayName || member.username,
+              username: member.username,
+              avatarUrl: member.avatarUrl ?? undefined,
               isLocal: isMe,
               role: member.role,
               isServerMuted: member.isServerMuted,

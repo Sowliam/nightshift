@@ -13,13 +13,14 @@ import {
   Upload,
   Trash2,
   AlertCircle,
-  Music,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { ConnectionState } from 'livekit-client';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { sounds } from '../../services/sound.service';
+import { attachPreviewCleaner, type CleanerState } from '../../audio/voice-cleaner';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
 
@@ -32,14 +33,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [activeTab, setActiveTab] = useState<'voice' | 'sounds' | 'account' | 'about'>('voice');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [micLevel, setMicLevel] = useState(0);
+  const [micBreath, setMicBreath] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const {
-    inputProfile,
     autoSensitivity,
     sensitivityThreshold,
-    noiseSuppression,
-    echoCancellation,
+    noiseAmount,
+    echoAmount,
     pushToTalk,
     pushToTalkKey,
     audioInputDeviceId,
@@ -47,11 +48,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     availableInputs,
     availableOutputs,
     refreshDevices,
-    setInputProfile,
     setAutoSensitivity,
     setSensitivityThreshold,
-    setNoiseSuppression,
-    setEchoCancellation,
+    setNoiseAmount,
+    setEchoAmount,
     setPushToTalk,
     setPushToTalkKey,
     setInputDevice,
@@ -79,11 +79,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [voiceDraft, setVoiceDraft] = useState<{
     audioInputDeviceId: string;
     audioOutputDeviceId: string;
-    inputProfile: typeof inputProfile;
     autoSensitivity: boolean;
     sensitivityThreshold: number;
-    noiseSuppression: typeof noiseSuppression;
-    echoCancellation: boolean;
+    noiseAmount: number;
+    echoAmount: number;
     pushToTalk: boolean;
     pushToTalkKey: string;
   } | null>(null);
@@ -91,11 +90,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const savedVoice = {
     audioInputDeviceId,
     audioOutputDeviceId,
-    inputProfile,
     autoSensitivity,
     sensitivityThreshold,
-    noiseSuppression,
-    echoCancellation,
+    noiseAmount,
+    echoAmount,
     pushToTalk,
     pushToTalkKey,
   };
@@ -103,11 +101,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const voiceDirty = !!voiceDraft && (
     voiceDraft.audioInputDeviceId !== audioInputDeviceId ||
     voiceDraft.audioOutputDeviceId !== audioOutputDeviceId ||
-    voiceDraft.inputProfile !== inputProfile ||
     voiceDraft.autoSensitivity !== autoSensitivity ||
     voiceDraft.sensitivityThreshold !== sensitivityThreshold ||
-    voiceDraft.noiseSuppression !== noiseSuppression ||
-    voiceDraft.echoCancellation !== echoCancellation ||
+    voiceDraft.noiseAmount !== noiseAmount ||
+    voiceDraft.echoAmount !== echoAmount ||
     voiceDraft.pushToTalk !== pushToTalk ||
     voiceDraft.pushToTalkKey !== pushToTalkKey
   );
@@ -124,11 +121,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (!voiceDraft) return;
     setInputDevice(voiceDraft.audioInputDeviceId);
     setOutputDevice(voiceDraft.audioOutputDeviceId);
-    setInputProfile(voiceDraft.inputProfile);
     setAutoSensitivity(voiceDraft.autoSensitivity);
     setSensitivityThreshold(voiceDraft.sensitivityThreshold);
-    setNoiseSuppression(voiceDraft.noiseSuppression);
-    setEchoCancellation(voiceDraft.echoCancellation);
+    setNoiseAmount(voiceDraft.noiseAmount);
+    setEchoAmount(voiceDraft.echoAmount);
     setPushToTalk(voiceDraft.pushToTalk);
     setPushToTalkKey(voiceDraft.pushToTalkKey);
     await setAudioInputDevice(voiceDraft.audioInputDeviceId);
@@ -147,7 +143,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const filteredSourceRef = useRef<AudioNode | null>(null);
+  const previewLevelsRef = useRef<((next: CleanerState) => void) | null>(null);
   const micTestGainRef = useRef<GainNode | null>(null);
+  const micTestHeldDeafenRef = useRef(false);
 
   const [isMicTesting, setIsMicTesting] = useState(false);
   const [isSpeakerTesting, setIsSpeakerTesting] = useState(false);
@@ -236,31 +234,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setVoiceDraft(null);
       return;
     }
-    setVoiceDraft({
-      audioInputDeviceId,
-      audioOutputDeviceId,
-      inputProfile,
-      autoSensitivity,
-      sensitivityThreshold,
-      noiseSuppression,
-      echoCancellation,
-      pushToTalk,
-      pushToTalkKey,
-    });
+    let cancelled = false;
+    (async () => {
+      await useSettingsStore.getState().syncSystemDevices().catch(() => {});
+      if (cancelled) return;
+      const s = useSettingsStore.getState();
+      setVoiceDraft({
+        audioInputDeviceId: s.audioInputDeviceId,
+        audioOutputDeviceId: s.audioOutputDeviceId,
+        autoSensitivity: s.autoSensitivity,
+        sensitivityThreshold: s.sensitivityThreshold,
+        noiseAmount: s.noiseAmount,
+        echoAmount: s.echoAmount,
+        pushToTalk: s.pushToTalk,
+        pushToTalkKey: s.pushToTalkKey,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
+
+  const cleanerDraft = (): CleanerState => ({
+    noise: shownVoice.noiseAmount,
+    echo: shownVoice.echoAmount,
+    sensitivity: shownVoice.sensitivityThreshold,
+    auto: shownVoice.autoSensitivity,
+    ptt: shownVoice.pushToTalk,
+  });
+
+  const releaseMicTestPrivacy = async () => {
+    if (!micTestHeldDeafenRef.current) return;
+    micTestHeldDeafenRef.current = false;
+    const live = useLiveKitStore.getState();
+    if (live.isDeafened) {
+      await live.toggleDeafen();
+    }
+  };
 
   const startMicListener = async () => {
     try {
-      stopMicListener();
+      stopMicListener(true);
       const constraints: MediaStreamConstraints = {
         audio: {
           deviceId:
-            shownVoice.audioInputDeviceId && shownVoice.audioInputDeviceId !== 'default'
+            shownVoice.audioInputDeviceId &&
+            shownVoice.audioInputDeviceId !== 'default' &&
+            shownVoice.audioInputDeviceId !== 'communications'
               ? { exact: shownVoice.audioInputDeviceId }
               : undefined,
-          echoCancellation: shownVoice.echoCancellation,
-          noiseSuppression: shownVoice.noiseSuppression !== 'none',
-          autoGainControl: true,
+          echoCancellation: shownVoice.echoAmount > 0,
+          noiseSuppression: shownVoice.noiseAmount > 0,
+          autoGainControl: false,
         },
       };
 
@@ -268,50 +293,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       mediaStreamRef.current = stream;
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      let audioCtx: AudioContext;
-      try {
-        audioCtx = new AudioCtx({ sampleRate: 48000 });
-      } catch {
-        audioCtx = new AudioCtx();
-      }
+      const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
 
       if (audioCtx.state === 'suspended') {
         audioCtx.resume().catch(() => {});
       }
-
-      // Cascaded Vocal Bandpass Filtering (140 Hz 4th-order High-Pass + 3400 Hz Low-Pass)
-      const highpass1 = audioCtx.createBiquadFilter();
-      highpass1.type = 'highpass';
-      highpass1.frequency.setValueAtTime(140, audioCtx.currentTime);
-      highpass1.Q.setValueAtTime(1.0, audioCtx.currentTime);
-
-      const highpass2 = audioCtx.createBiquadFilter();
-      highpass2.type = 'highpass';
-      highpass2.frequency.setValueAtTime(140, audioCtx.currentTime);
-      highpass2.Q.setValueAtTime(1.0, audioCtx.currentTime);
-
-      const lowpass = audioCtx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(3400, audioCtx.currentTime);
-      lowpass.Q.setValueAtTime(0.7, audioCtx.currentTime);
+      const previewSink = shownVoice.audioOutputDeviceId;
+      if (
+        previewSink &&
+        previewSink !== 'default' &&
+        previewSink !== 'communications' &&
+        typeof (audioCtx as AudioContext & { setSinkId?: (id: string) => Promise<void> }).setSinkId === 'function'
+      ) {
+        await (audioCtx as AudioContext & { setSinkId: (id: string) => Promise<void> }).setSinkId(previewSink).catch(() => {});
+      }
 
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0.2;
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.25;
 
+      const track = stream.getAudioTracks()[0];
       const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(highpass1);
-      highpass1.connect(highpass2);
-      highpass2.connect(lowpass);
-      lowpass.connect(analyser);
-
-      filteredSourceRef.current = lowpass;
+      source.connect(analyser);
+      let monitor: AudioNode = source;
+      if (track) {
+        try {
+          const preview = await attachPreviewCleaner(audioCtx, track, cleanerDraft());
+          monitor = preview.output;
+          previewLevelsRef.current = preview.setLevels;
+        } catch {}
+      }
+      filteredSourceRef.current = monitor;
 
       const timeBuffer = new Uint8Array(analyser.fftSize);
+      const freqBuffer = new Uint8Array(analyser.frequencyBinCount);
 
       const updateMeter = () => {
         analyser.getByteTimeDomainData(timeBuffer);
+        analyser.getByteFrequencyData(freqBuffer);
         let sumSquares = 0;
         for (let i = 0; i < timeBuffer.length; i++) {
           const sample = (timeBuffer[i] - 128) / 128;
@@ -319,8 +339,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         }
         const rms = Math.sqrt(sumSquares / timeBuffer.length);
         const db = 20 * Math.log10(Math.max(0.00001, rms));
-        // Match live room calibrated scale: -50 dB (silence/breath) -> 0%, -20 dB (strong voice) -> 100%
         const normalized = Math.max(0, Math.min(100, Math.round(((db + 50) / 30) * 100)));
+        const binHz = (audioCtx.sampleRate || 48000) / analyser.fftSize;
+        const lowStop = Math.max(2, Math.round(220 / binHz));
+        const speechStart = Math.max(lowStop + 1, Math.round(300 / binHz));
+        const speechStop = Math.min(freqBuffer.length, Math.round(3200 / binHz));
+        let low = 0;
+        let speech = 0;
+        for (let i = 1; i < lowStop; i++) low += freqBuffer[i];
+        for (let i = speechStart; i < speechStop; i++) speech += freqBuffer[i];
+        low /= Math.max(1, lowStop - 1);
+        speech /= Math.max(1, speechStop - speechStart);
+        setMicBreath(low > 14 && low > speech * 1.3 && speech < 42);
         setMicLevel(normalized);
         animFrameRef.current = requestAnimationFrame(updateMeter);
       };
@@ -331,7 +361,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }
   };
 
-  const stopMicListener = () => {
+  const stopMicListener = (keepPrivacy = false) => {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -342,8 +372,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       } catch {}
       micTestGainRef.current = null;
     }
-    setIsMicTesting(false);
+    if (!keepPrivacy) {
+      setIsMicTesting(false);
+      void releaseMicTestPrivacy();
+    }
     filteredSourceRef.current = null;
+    previewLevelsRef.current = null;
 
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -354,6 +388,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       audioContextRef.current = null;
     }
     setMicLevel(0);
+    setMicBreath(false);
   };
 
   useEffect(() => {
@@ -369,7 +404,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     return () => {
       stopMicListener();
     };
-  }, [isOpen, shownVoice.audioInputDeviceId, shownVoice.echoCancellation, shownVoice.noiseSuppression]);
+  }, [isOpen, shownVoice.audioInputDeviceId, shownVoice.noiseAmount > 0, shownVoice.echoAmount > 0]);
+
+  useEffect(() => {
+    const draft = cleanerDraft();
+    previewLevelsRef.current?.(draft);
+    const savedPtt = useSettingsStore.getState().inputMode === 'push-to-talk';
+    const handle = window.setTimeout(() => {
+      useLiveKitStore.getState().syncCaptureToLevels({ ...draft, ptt: savedPtt }).catch(() => {});
+    }, 160);
+    return () => window.clearTimeout(handle);
+  }, [
+    shownVoice.noiseAmount,
+    shownVoice.echoAmount,
+    shownVoice.sensitivityThreshold,
+    shownVoice.autoSensitivity,
+  ]);
 
   const handleToggleMicTest = async () => {
     if (isMicTesting) {
@@ -380,27 +430,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         micTestGainRef.current = null;
       }
       setIsMicTesting(false);
+      await releaseMicTestPrivacy();
+      return;
+    }
+
+    const live = useLiveKitStore.getState();
+    if (live.connectionState === ConnectionState.Connected && live.room && !live.isDeafened) {
+      micTestHeldDeafenRef.current = true;
+      await live.toggleDeafen();
+    }
+
+    if (!audioContextRef.current || !filteredSourceRef.current) {
+      await startMicListener();
+    }
+    const ctx = audioContextRef.current;
+    const src = filteredSourceRef.current;
+    if (ctx && src) {
+      if (ctx.state === 'suspended') {
+        await ctx.resume().catch(() => {});
+      }
+      try {
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.9, ctx.currentTime);
+        src.connect(gain);
+        gain.connect(ctx.destination);
+        micTestGainRef.current = gain;
+        setIsMicTesting(true);
+      } catch (err) {
+        console.warn('Could not connect loopback mic test:', err);
+        await releaseMicTestPrivacy();
+      }
     } else {
-      if (!audioContextRef.current || !filteredSourceRef.current) {
-        await startMicListener();
-      }
-      const ctx = audioContextRef.current;
-      const src = filteredSourceRef.current;
-      if (ctx && src) {
-        if (ctx.state === 'suspended') {
-          await ctx.resume().catch(() => {});
-        }
-        try {
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(0.9, ctx.currentTime);
-          src.connect(gain);
-          gain.connect(ctx.destination);
-          micTestGainRef.current = gain;
-          setIsMicTesting(true);
-        } catch (err) {
-          console.warn('Could not connect loopback mic test:', err);
-        }
-      }
+      await releaseMicTestPrivacy();
     }
   };
 
@@ -413,6 +474,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const now = ctx.currentTime;
         const notes = [
           { freq: 523.25, time: 0, dur: 0.14 },    // C5
@@ -592,202 +654,98 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {/* Right Scrollable Content Area */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {activeTab === 'voice' && (
-              <div className="space-y-6">
-                {/* Voice Hardware Devices Selection */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Input Device */}
-                  <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
-                      Input Device (Microphone)
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={shownVoice.audioInputDeviceId}
-                        onChange={(e) => patchVoice({ audioInputDeviceId: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
-                      >
-                        <option value="default">Default Microphone</option>
-                        {availableInputs.map((d) => (
-                          <option key={d.deviceId} value={d.deviceId}>
-                            {d.label || `Microphone ${d.deviceId.substring(0, 5)}`}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-text-muted absolute right-3 top-3 pointer-events-none" />
-                    </div>
-                  </div>
-
-                  {/* Output Device */}
-                  <div>
-                    <label className="block text-xs font-bold text-text-secondary uppercase tracking-wider mb-2">
-                      Output Device (Headphones)
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={shownVoice.audioOutputDeviceId}
-                        onChange={(e) => patchVoice({ audioOutputDeviceId: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
-                      >
-                        <option value="default">Default Output</option>
-                        {availableOutputs.map((d) => (
-                          <option key={d.deviceId} value={d.deviceId}>
-                            {d.label || `Speaker ${d.deviceId.substring(0, 5)}`}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-text-muted absolute right-3 top-3 pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Output Volume & Test Sound */}
-                <div className={`p-3.5 rounded-xl bg-bg-elevated border transition-colors flex flex-col gap-3 ${
-                  isSpeakerTesting ? 'border-emerald-500/50 shadow-md shadow-emerald-500/10' : 'border-border-subtle'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Volume2 className={`w-5 h-5 transition-transform ${isSpeakerTesting ? 'text-emerald-400 scale-110' : 'text-highlight'}`} />
-                      <div>
-                        <div className="text-xs font-bold text-text-primary">Master Output Volume</div>
-                        <div className="text-[11px] text-text-muted">Master volume for all voices and sound effects</div>
+              <div className="space-y-4">
+                <section className="space-y-2">
+                  <h3 className="text-xs font-semibold text-text-muted">Devices</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1.5">
+                      <span className="block text-xs font-medium text-text-secondary">Microphone</span>
+                      <div className="relative">
+                        <select
+                          value={shownVoice.audioInputDeviceId}
+                          onChange={(e) => patchVoice({ audioInputDeviceId: e.target.value })}
+                          className="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
+                        >
+                          <option value="default">Default Microphone</option>
+                          {availableInputs
+                            .filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications')
+                            .map((d) => (
+                            <option key={d.deviceId} value={d.deviceId}>
+                              {d.label || `Microphone ${d.deviceId.substring(0, 5)}`}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-text-muted absolute right-2.5 top-2 pointer-events-none" />
                       </div>
-                    </div>
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="block text-xs font-medium text-text-secondary">Headphones</span>
+                      <div className="relative">
+                        <select
+                          value={shownVoice.audioOutputDeviceId}
+                          onChange={(e) => patchVoice({ audioOutputDeviceId: e.target.value })}
+                          className="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
+                        >
+                          <option value="default">Default Output</option>
+                          {availableOutputs
+                            .filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications')
+                            .map((d) => (
+                            <option key={d.deviceId} value={d.deviceId}>
+                              {d.label || `Speaker ${d.deviceId.substring(0, 5)}`}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-text-muted absolute right-2.5 top-2 pointer-events-none" />
+                      </div>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-text-primary">Output volume</span>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-highlight">
-                        {outputVolume}% {outputVolume === 100 ? '(0 dB)' : outputVolume > 100 ? `(+${(20 * Math.log10(outputVolume / 100)).toFixed(1)} dB)` : `(${(20 * Math.log10(Math.max(1, outputVolume) / 100)).toFixed(1)} dB)`}
-                      </span>
+                      <span className="font-mono text-xs text-text-secondary w-10 text-right">{outputVolume}%</span>
                       <button
                         type="button"
                         onClick={handleTestSpeaker}
                         disabled={isSpeakerTesting}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer ${
+                        className={`h-8 px-3 rounded-lg text-xs font-bold cursor-pointer ${
                           isSpeakerTesting
                             ? 'bg-emerald-500 text-white'
-                            : 'bg-highlight hover:bg-white text-highlight-text'
+                            : 'bg-highlight text-highlight-text hover:bg-white'
                         }`}
                       >
-                        {isSpeakerTesting ? (
-                          <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                            Playing...
-                          </>
-                        ) : (
-                          'Play Test Sound'
-                        )}
+                        {isSpeakerTesting ? 'Playing...' : 'Play Test Sound'}
                       </button>
                     </div>
                   </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="200"
+                    step="1"
+                    value={outputVolume}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setOutputVolume(val);
+                      setMasterOutputVolume(val);
+                    }}
+                    className="w-full accent-highlight cursor-pointer"
+                  />
+                </section>
 
-                  <div className="flex flex-col gap-1">
-                    <input
-                      type="range"
-                      min="0"
-                      max="200"
-                      step="1"
-                      value={outputVolume}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setOutputVolume(val);
-                        setMasterOutputVolume(val);
-                      }}
-                      className="w-full h-1.5 bg-bg-main rounded-lg accent-highlight cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[9px] text-text-muted px-0.5 font-mono">
-                      <span>0% (-∞ dB)</span>
-                      <span className="font-bold text-text-secondary">100% (0 dB)</span>
-                      <span>200% (+6.0 dB)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 1. Input Profile Section (Matching Screenshot) */}
-                <div className="space-y-3 pt-2">
-                  <h3 className="text-sm font-bold text-text-primary">Input Profile</h3>
-
-                  {/* Option 1: Voice Isolation */}
-                  <label
-                    onClick={() => patchVoice({ inputProfile: 'voice-isolation' })}
-                    className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
-                  >
-                    <input
-                      type="radio"
-                      name="inputProfile"
-                      checked={shownVoice.inputProfile === 'voice-isolation'}
-                      onChange={() => patchVoice({ inputProfile: 'voice-isolation' })}
-                      className="mt-0.5 accent-highlight cursor-pointer"
-                    />
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-xs font-bold text-text-primary group-hover:text-highlight transition-colors">
-                        Voice Isolation
-                      </div>
-                      <div className="text-[11px] text-text-secondary leading-relaxed">
-                        Just your beautiful voice: cut through the background noise
-                      </div>
+                      <div className="text-xs font-semibold text-text-primary">Input sensitivity</div>
+                      <div className="text-[11px] text-text-muted">Auto ignores breath and room noise.</div>
                     </div>
-                  </label>
-
-                  {/* Option 2: Studio */}
-                  <label
-                    onClick={() => patchVoice({ inputProfile: 'studio' })}
-                    className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
-                  >
-                    <input
-                      type="radio"
-                      name="inputProfile"
-                      checked={shownVoice.inputProfile === 'studio'}
-                      onChange={() => patchVoice({ inputProfile: 'studio' })}
-                      className="mt-0.5 accent-highlight cursor-pointer"
-                    />
-                    <div>
-                      <div className="text-xs font-bold text-text-primary group-hover:text-highlight transition-colors">
-                        Studio
-                      </div>
-                      <div className="text-[11px] text-text-secondary leading-relaxed">
-                        Pure audio: open mic with no post-processing
-                      </div>
-                    </div>
-                  </label>
-
-                  {/* Option 3: Custom */}
-                  <label
-                    onClick={() => patchVoice({ inputProfile: 'custom' })}
-                    className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-bg-elevated/60 transition-colors cursor-pointer group"
-                  >
-                    <input
-                      type="radio"
-                      name="inputProfile"
-                      checked={shownVoice.inputProfile === 'custom'}
-                      onChange={() => patchVoice({ inputProfile: 'custom' })}
-                      className="mt-0.5 accent-highlight cursor-pointer"
-                    />
-                    <div>
-                      <div className="text-xs font-bold text-text-primary group-hover:text-highlight transition-colors">
-                        Custom
-                      </div>
-                      <div className="text-[11px] text-text-secondary leading-relaxed">
-                        Advanced mode: give me all the buttons and dials!
-                      </div>
-                    </div>
-                  </label>
-                </div>
-
-                {/* 2. Automatically Adjust Input Sensitivity (Matching Screenshot) */}
-                <div className="space-y-3 pt-2 border-t border-border-subtle">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold text-text-primary">
-                        Automatically Adjust Input Sensitivity
-                      </div>
-                      <div className="text-[11px] text-text-secondary leading-relaxed max-w-md">
-                        Controls how much sound is transmitted from your mic. Speak to test your mic — if the meter is filled, your voice is transmitting.
-                      </div>
-                    </div>
-                    {/* Toggle Switch */}
                     <button
                       type="button"
                       onClick={() => patchVoice({ autoSensitivity: !shownVoice.autoSensitivity })}
                       className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                        shownVoice.autoSensitivity ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                        shownVoice.autoSensitivity ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
                       }`}
                     >
                       <span
@@ -800,37 +758,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </button>
                   </div>
 
-                  {/* Live Mic Meter Bar with Cutoff Threshold Marker */}
-                  <div className="space-y-1">
-                    <div className="relative w-full h-3 rounded-full bg-bg-elevated border border-border-subtle overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-75 ${
-                          micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold)
-                            ? 'bg-emerald-500'
-                            : 'bg-highlight/50'
-                        }`}
-                        style={{ width: `${micLevel}%` }}
-                      />
-                      {/* Threshold Cutoff Line */}
-                      <div
-                        className="absolute top-0 bottom-0 w-1 bg-amber-400 z-10 shadow-sm transition-all"
-                        style={{ left: `${Math.min(99, Math.max(1, shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold))}%` }}
-                        title={`Gate Threshold: ${shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold}%`}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[10px]">
-                      <span className="text-text-muted">Mic Input: <b className="text-text-primary">{micLevel}%</b> (Cutoff: {shownVoice.autoSensitivity ? '18% Auto' : `${shownVoice.sensitivityThreshold}%`})</span>
-                      <span className={`font-semibold ${micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold) ? 'text-emerald-400' : 'text-text-muted'}`}>
-                        {micLevel > (shownVoice.autoSensitivity ? 18 : shownVoice.sensitivityThreshold) ? 'Transmitting Audio (Gate Open)' : 'Gate Closed (Breath Blocked)'}
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const cutoff = shownVoice.autoSensitivity ? 32 : shownVoice.sensitivityThreshold;
+                    const sending = !micBreath && micLevel >= cutoff;
+                    return (
+                      <div className="space-y-1">
+                        <div className="relative w-full h-1.5 rounded-full bg-bg-main overflow-hidden">
+                          <div
+                            className={`h-full ${sending ? 'bg-emerald-500' : 'bg-highlight/60'}`}
+                            style={{ width: `${micLevel}%` }}
+                          />
+                          {!shownVoice.autoSensitivity && (
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-amber-400"
+                              style={{ left: `${Math.min(99, Math.max(1, shownVoice.sensitivityThreshold))}%` }}
+                            />
+                          )}
+                        </div>
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-text-muted">{micLevel}%</span>
+                          <span className={sending ? 'text-emerald-400' : 'text-text-muted'}>
+                            {micBreath ? 'Breath' : sending ? 'Open' : 'Closed'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {!shownVoice.autoSensitivity && (
-                    <div className="pt-2">
-                      <div className="flex justify-between text-xs text-text-secondary mb-1">
-                        <span>Manual Sensitivity Threshold</span>
-                        <span className="font-mono font-bold text-highlight">{shownVoice.sensitivityThreshold}%</span>
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[11px] text-text-secondary">
+                        <span>Threshold</span>
+                        <span className="font-mono">{shownVoice.sensitivityThreshold}%</span>
                       </div>
                       <input
                         type="range"
@@ -840,122 +799,66 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         onChange={(e) => patchVoice({ sensitivityThreshold: Number(e.target.value) })}
                         className="w-full accent-highlight cursor-pointer"
                       />
-                      <div className="text-[10px] text-text-muted mt-1">
-                        The green ring follows this level. The microphone stays open so people hear you as soon as you join.
-                      </div>
                     </div>
                   )}
 
-                  {/* Mic Test Card (Real-time Audio Loopback & Hear Yourself) */}
-                  <div className={`p-3.5 rounded-xl border transition-all mt-3 ${
-                    isMicTesting
-                      ? 'bg-emerald-500/10 border-emerald-500/40 shadow-md shadow-emerald-500/10'
-                      : 'bg-bg-elevated/70 border-border-subtle'
-                  }`}>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Mic className={`w-4 h-4 ${isMicTesting ? 'text-emerald-400 animate-pulse' : 'text-highlight'}`} />
-                          <span className="text-xs font-bold text-text-primary">Mic Test</span>
-                          {isMicTesting && (
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold tracking-wider animate-pulse">
-                              LIVE LOOPBACK
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-text-secondary mt-1">
-                          {isMicTesting
-                            ? 'Speak now — you can hear your microphone in your headphones live.'
-                            : 'Having mic issues? Click "Let\'s Check" to hear how your voice sounds to other users.'}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleToggleMicTest}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm shrink-0 flex items-center justify-center gap-2 cursor-pointer ${
-                          isMicTesting
-                            ? 'bg-rose-500 hover:bg-rose-600 text-white'
-                            : 'bg-highlight hover:bg-white text-highlight-text'
-                        }`}
-                      >
-                        {isMicTesting ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
-                            Stop Testing
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 className="w-3.5 h-3.5" />
-                            Let's Check
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Noise Suppression */}
-                <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
-                  <div>
-                    <div className="text-xs font-bold text-text-primary">Noise Suppression</div>
-                    <div className="text-[11px] text-text-secondary">
-                      Advanced real-time noise cancellation and typing reduction
-                    </div>
-                    <div className="text-xs font-black tracking-wider text-highlight mt-1">Ultra Noise Gate</div>
-                  </div>
-                  <div className="relative">
-                    <select
-                      value={shownVoice.noiseSuppression}
-                      onChange={(e) => patchVoice({ noiseSuppression: e.target.value as typeof noiseSuppression })}
-                      className="px-4 py-2 rounded-xl bg-bg-elevated border border-border-subtle text-xs text-text-primary focus:outline-none focus:border-highlight appearance-none pr-8 cursor-pointer"
-                    >
-                      <option value="krisp">Ultra Voice Isolation (Krisp + Highpass)</option>
-                      <option value="standard">Standard WebRTC Suppression</option>
-                      <option value="none">Disabled (Raw Audio)</option>
-                    </select>
-                    <ChevronDown className="w-4 h-4 text-text-muted absolute right-2.5 top-2.5 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* 4. Echo Cancellation */}
-                <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
-                  <div>
-                    <div className="text-xs font-bold text-text-primary">Echo Cancellation</div>
-                    <div className="text-[11px] text-text-secondary">
-                      Hardware & software acoustic echo cancellation for open speakers
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                      onClick={() => patchVoice({ echoCancellation: !shownVoice.echoCancellation })}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                      shownVoice.echoCancellation ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
-                    }`}
-                  >
-                    <span
-                      className={`block w-5 h-5 rounded-full transition-transform ${
-                        shownVoice.echoCancellation
-                          ? 'bg-highlight-text translate-x-5'
-                          : 'bg-text-muted translate-x-0'
+                  <div className="flex items-center justify-between gap-3 pt-1 border-t border-border-subtle">
+                    <span className="text-[11px] text-text-muted">
+                      {isMicTesting ? 'Muted in the channel' : 'Hear yourself'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleToggleMicTest}
+                      className={`h-8 px-3 rounded-lg text-xs font-bold cursor-pointer shrink-0 ${
+                        isMicTesting
+                          ? 'bg-rose-500 text-white hover:bg-rose-600'
+                          : 'bg-highlight text-highlight-text hover:bg-white'
                       }`}
-                    />
-                  </button>
-                </div>
+                    >
+                      {isMicTesting ? 'Stop Testing' : "Let's Check"}
+                    </button>
+                  </div>
+                </section>
 
-                {/* 5. Push to Talk (Matching Screenshot) */}
-                <div className="space-y-2 pt-2 border-t border-border-subtle">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs font-bold text-text-primary">Push to Talk</div>
-                      <div className="text-[11px] text-text-secondary">
-                        Only transmit voice while holding down a dedicated key
-                      </div>
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated p-3 space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-text-primary">Noise</span>
+                      <span className="font-mono text-text-muted">{shownVoice.noiseAmount <= 0 ? 'Off' : `${shownVoice.noiseAmount}%`}</span>
                     </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={shownVoice.noiseAmount}
+                      onChange={(e) => patchVoice({ noiseAmount: Number(e.target.value) })}
+                      className="w-full accent-highlight cursor-pointer"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-text-primary">Echo</span>
+                      <span className="font-mono text-text-muted">{shownVoice.echoAmount <= 0 ? 'Off' : `${shownVoice.echoAmount}%`}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={shownVoice.echoAmount}
+                      onChange={(e) => patchVoice({ echoAmount: Number(e.target.value) })}
+                      className="w-full accent-highlight cursor-pointer"
+                    />
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-text-primary">Push to talk</span>
                     <button
                       type="button"
                       onClick={() => patchVoice({ pushToTalk: !shownVoice.pushToTalk })}
                       className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 ${
-                        shownVoice.pushToTalk ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                        shownVoice.pushToTalk ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
                       }`}
                     >
                       <span
@@ -969,70 +872,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </div>
 
                   {shownVoice.pushToTalk && (
-                    <div className="space-y-2.5 mt-2">
-                      {/* PTT Keybind Shortcut (Auto-record keyboard or mouse button) */}
-                      <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
-                        <div>
-                          <span className="text-xs font-bold text-text-primary block">PTT Keybind Shortcut</span>
-                          <span className="text-[11px] text-text-muted">
-                            {isRecordingPttKey
-                              ? 'Press any keyboard key or mouse button (except Left Click / Esc)...'
-                              : 'Click button to rebind any keyboard key or mouse button'}
-                          </span>
-                        </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] text-text-muted">
+                          {isRecordingPttKey ? 'Press a key or mouse button' : 'Hold this key to talk'}
+                        </span>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setIsRecordingPttKey(true)}
-                            className={`px-3.5 py-1.5 rounded-lg border font-mono text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm ${
+                            className={`h-8 min-w-16 px-3 rounded-lg border font-mono text-xs font-bold cursor-pointer ${
                               isRecordingPttKey
-                                ? 'bg-highlight text-highlight-text border-highlight animate-pulse ring-2 ring-highlight/50'
-                                : 'bg-bg-main hover:bg-bg-hover text-highlight border-border-subtle hover:border-highlight/60'
+                                ? 'bg-highlight text-highlight-text border-highlight'
+                                : 'bg-bg-main text-text-primary border-border-subtle'
                             }`}
-                            title="Click to automatically record any key or mouse button"
                           >
-                            {isRecordingPttKey ? (
-                              <>
-                                <span className="w-2 h-2 rounded-full bg-current animate-ping" />
-                                <span>Listening...</span>
-                              </>
-                            ) : (
-                              <span>{shownVoice.pushToTalkKey || 'Space'}</span>
-                            )}
+                            {isRecordingPttKey ? 'Listening...' : (shownVoice.pushToTalkKey || 'Space')}
                           </button>
                           {isRecordingPttKey && (
                             <button
                               type="button"
                               onClick={() => setIsRecordingPttKey(false)}
-                              className="px-2 py-1 text-[11px] rounded bg-bg-main hover:bg-bg-hover text-text-muted hover:text-text-primary border border-border-subtle cursor-pointer transition-colors"
+                              className="h-8 px-2 rounded-lg text-[11px] text-text-muted hover:text-text-primary cursor-pointer"
                             >
                               Cancel
                             </button>
                           )}
                         </div>
                       </div>
-
-                      {/* PTT Activation Audio Cue Toggle */}
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-bg-elevated border border-border-subtle">
-                        <div>
-                          <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                            <span>PTT Activation Sound</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                              pttSoundEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-main text-text-muted'
-                            }`}>
-                              {pttSoundEnabled ? 'Enabled' : 'Muted'}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-text-muted">
-                            Play sound cue when pressing and releasing Push-to-Talk
-                          </div>
-                        </div>
+                      <div className="flex items-center justify-between gap-3 border-t border-border-subtle pt-2">
+                        <span className="text-xs text-text-secondary">
+                          PTT sound {pttSoundEnabled ? 'on' : 'off'}
+                        </span>
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => sounds.previewPtt(true)}
-                            title="Preview PTT activate sound"
-                            className="px-2 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
+                            className="h-8 px-2.5 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer"
                           >
                             Test
                           </button>
@@ -1045,69 +921,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           >
                             <span
                               className={`block w-5 h-5 rounded-full transition-transform ${
-                                pttSoundEnabled
-                                  ? 'bg-highlight-text translate-x-5'
-                                  : 'bg-text-muted translate-x-0'
+                                pttSoundEnabled ? 'bg-highlight-text translate-x-5' : 'bg-text-muted translate-x-0'
                               }`}
                             />
                           </button>
                         </div>
                       </div>
-
-                      {/* Desktop App vs Browser Global PTT Status Notice */}
-                      <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                        typeof window !== 'undefined' && !!(window.nightshift?.isElectron || window.nightshift?.setGlobalPttKey)
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                          : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-                      }`}>
-                        {typeof window !== 'undefined' && !!(window.nightshift?.isElectron || window.nightshift?.setGlobalPttKey) ? (
-                          <div className="flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                            <span>
-                              <strong>Global PTT Active:</strong> Works across all games and background applications in Windows.
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 font-bold text-amber-300">
-                              <AlertCircle className="w-4 h-4 shrink-0" />
-                              <span>Browser Security Notice</span>
-                            </div>
-                            <p className="text-[11px] text-amber-200/90">
-                              Web browsers do not allow web pages to listen to background keys when minimized or out-of-focus (security sandbox). For Global Push-to-Talk inside full-screen games and other apps, run the <strong>NIGHTSHIFT Desktop App</strong>.
-                            </p>
-                          </div>
-                        )}
-                      </div>
                     </div>
                   )}
-                </div>
+                  {shownVoice.pushToTalk && (
+                    <p className="text-[11px] text-text-muted">
+                      {window.nightshift?.isElectron || window.nightshift?.setGlobalPttKey
+                        ? 'Works in games.'
+                        : 'In the browser, only while this tab is focused.'}
+                    </p>
+                  )}
+                </section>
 
-                {/* 6. Music & Soundboard Transmission When Muted */}
-                <div className="flex items-center justify-between pt-3 border-t border-border-subtle">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-xl bg-highlight/10 text-highlight mt-0.5">
-                      <Music className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                        <span>Play while muted</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          allowWhileMuted ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-elevated text-text-muted'
-                        }`}>
-                          {allowWhileMuted ? 'Enabled' : 'Disabled'}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-text-secondary leading-relaxed max-w-md mt-0.5">
-                        Keep transmitting music and soundboard audio to room listeners even when your microphone is muted.
-                      </div>
-                    </div>
-                  </div>
+                <section className="flex items-center justify-between gap-3 rounded-xl border border-border-subtle bg-bg-elevated px-3 py-2.5">
+                  <span className="text-xs font-semibold text-text-primary">Soundboard while muted</span>
                   <button
                     type="button"
                     onClick={() => setAllowWhileMuted(!allowWhileMuted)}
                     className={`w-11 h-6 rounded-full transition-colors relative p-0.5 shrink-0 cursor-pointer ${
-                      allowWhileMuted ? 'bg-highlight' : 'bg-bg-elevated border border-border-subtle'
+                      allowWhileMuted ? 'bg-highlight' : 'bg-bg-main border border-border-subtle'
                     }`}
                   >
                     <span
@@ -1118,7 +955,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       }`}
                     />
                   </button>
-                </div>
+                </section>
               </div>
             )}
 
@@ -1127,7 +964,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div>
                   <h3 className="text-sm font-bold text-text-primary mb-1">Sound Effects & Audio Cues</h3>
                   <p className="text-xs text-text-secondary">
-                    Customize which sound cues you want to hear. Turn off specific alerts like Push-to-Talk or button clicks while keeping voice channel join/leave notifications active.
+                    Master volume and the cues you want to hear.
                   </p>
                 </div>
 
@@ -1144,7 +981,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         </span>
                       </div>
                       <div className="text-[11px] text-text-secondary mt-0.5">
-                        Enable or completely silence all sound effects and notifications in the application
+                        Turns every cue on or off.
                       </div>
                     </div>
                     <button
@@ -1190,35 +1027,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   )}
                 </div>
 
-                {/* Individual Sound Categories */}
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <h4 className="text-xs font-bold text-text-secondary uppercase tracking-wider">
                     Individual Audio Cues
                   </h4>
 
-                  {/* 1. Push-to-Talk Sounds */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                        <span>Push-to-Talk Cues</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          pttSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
-                        }`}>
-                          {pttSoundEnabled ? '● On' : '○ Muted'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary">
-                        Plays a subtle audio cue when holding down and releasing your PTT key.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewPtt(true)}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Preview
-                      </button>
+                  <div className="rounded-xl bg-bg-elevated border border-border-subtle p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-text-primary">Push to talk</span>
                       <button
                         type="button"
                         onClick={() => setPttSoundEnabled(!pttSoundEnabled)}
@@ -1233,56 +1049,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         />
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => sounds.previewPtt(true)}
+                      className="h-8 w-full rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer"
+                    >
+                      Preview
+                    </button>
                   </div>
 
-                  {/* 2. Voice Channel Join & Leave */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                        <span>Voice Channel Join & Leave</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          joinLeaveSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
-                        }`}>
-                          {joinLeaveSoundEnabled ? '● On' : '○ Muted'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary">
-                        Plays a sound when you or another user joins or leaves a voice channel.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('join')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                        title="Self Join Voice Channel"
-                      >
-                        Join (Me)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('leave')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                        title="Self Leave Voice Channel"
-                      >
-                        Leave (Me)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('userconnected')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-emerald-400 hover:text-emerald-300 border border-border-subtle transition-colors cursor-pointer"
-                        title="Another user connects to voice"
-                      >
-                        User Connected
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('userdisconnected')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-rose-400 hover:text-rose-300 border border-border-subtle transition-colors cursor-pointer"
-                        title="Another user disconnects from voice"
-                      >
-                        User Disconnected
-                      </button>
+                  <div className="rounded-xl bg-bg-elevated border border-border-subtle p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-text-primary">Join and leave</span>
                       <button
                         type="button"
                         onClick={() => setJoinLeaveSoundEnabled(!joinLeaveSoundEnabled)}
@@ -1297,52 +1075,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         />
                       </button>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => sounds.previewCue('join')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Join (Me)</button>
+                      <button type="button" onClick={() => sounds.previewCue('leave')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Leave (Me)</button>
+                      <button type="button" onClick={() => sounds.previewCue('userconnected')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-emerald-400 hover:text-emerald-300 cursor-pointer">User Connected</button>
+                      <button type="button" onClick={() => sounds.previewCue('userdisconnected')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-rose-400 hover:text-rose-300 cursor-pointer">User Disconnected</button>
+                    </div>
                   </div>
 
-                  {/* 3. Mute & Deafen Cues */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                        <span>Mute & Deafen Cues</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          muteSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
-                        }`}>
-                          {muteSoundEnabled ? '● On' : '○ Muted'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary">
-                        Plays a sound when toggling microphone mute or headset deafen.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('mute')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Mute
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('unmute')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Unmute
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('deafen')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Deafen
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewCue('undeafen')}
-                        className="px-2 py-1 text-[10px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Undeafen
-                      </button>
+                  <div className="rounded-xl bg-bg-elevated border border-border-subtle p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-text-primary">Mute and deafen</span>
                       <button
                         type="button"
                         onClick={() => setMuteSoundEnabled(!muteSoundEnabled)}
@@ -1357,31 +1100,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         />
                       </button>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => sounds.previewCue('mute')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Mute</button>
+                      <button type="button" onClick={() => sounds.previewCue('unmute')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Unmute</button>
+                      <button type="button" onClick={() => sounds.previewCue('deafen')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Deafen</button>
+                      <button type="button" onClick={() => sounds.previewCue('undeafen')} className="h-8 rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer">Undeafen</button>
+                    </div>
                   </div>
 
-                  {/* 4. App UI & Button Clicks */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-bg-elevated border border-border-subtle">
-                    <div className="space-y-0.5">
-                      <div className="text-xs font-bold text-text-primary flex items-center gap-2">
-                        <span>Application Button Clicks</span>
-                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                          uiSoundEnabled ? 'text-emerald-400' : 'text-text-muted'
-                        }`}>
-                          {uiSoundEnabled ? '● On' : '○ Muted'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-text-secondary">
-                        Plays subtle acoustic click feedback when pressing buttons throughout the app.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => sounds.previewButtonClick()}
-                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-bg-main hover:bg-bg-hover text-text-secondary hover:text-text-primary border border-border-subtle transition-colors cursor-pointer"
-                      >
-                        Preview
-                      </button>
+                  <div className="rounded-xl bg-bg-elevated border border-border-subtle p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-text-primary">Button clicks</span>
                       <button
                         type="button"
                         onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
@@ -1396,6 +1125,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         />
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => sounds.previewButtonClick()}
+                      className="h-8 w-full rounded-lg border border-border-subtle bg-bg-main text-[11px] font-bold text-text-secondary hover:text-text-primary cursor-pointer"
+                    >
+                      Preview
+                    </button>
                   </div>
                 </div>
               </div>

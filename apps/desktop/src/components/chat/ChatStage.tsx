@@ -371,12 +371,8 @@ export const ChatStage: React.FC<ChatStageProps> = ({
             ) : filteredMessages.length === 0 ? (
               /* Sleek Discord-Native Empty State (No AI Sparkles) */
               <div className="h-full flex flex-col items-center justify-center text-center select-none pb-12 animate-in fade-in duration-200">
-                <div className="relative mb-4">
-                  <div className="w-20 h-20 rounded-3xl bg-[#14161f] border border-white/10 flex items-center justify-center shadow-xl relative group">
-                    <div className="w-13 h-13 rounded-2xl bg-highlight/15 border border-highlight/30 flex items-center justify-center text-highlight shadow-[0_0_24px_rgba(35,165,90,0.3)]">
-                      <Hash className="w-8 h-8 stroke-[2.5]" />
-                    </div>
-                  </div>
+                <div className="mb-4 text-highlight">
+                  <Hash className="w-10 h-10 stroke-[2.5]" />
                 </div>
 
                 <h3 className="text-lg font-black text-white tracking-wide mb-1">

@@ -529,6 +529,61 @@ async function createWindow() {
   });
 
 
+  const ownWindowSourceId = () => {
+    try {
+      return mainWindow && !mainWindow.isDestroyed() ? mainWindow.getMediaSourceId() : '';
+    } catch {
+      return '';
+    }
+  };
+
+  // Discord hides shells, overlays, widgets and path-titled skins (Rainmeter).
+  const isShareableSource = (source: Electron.DesktopCapturerSource) => {
+    if (source.id.startsWith('screen:')) return true;
+    if (source.id === ownWindowSourceId()) return false;
+    const name = (source.name || '').trim();
+    if (!name) return false;
+    if (/^[a-zA-Z]:\\/.test(name) || name.endsWith('.ini')) return false;
+    const lower = name.toLowerCase();
+    if (lower === 'nightshift' || lower.startsWith('nightshift ')) return false;
+    const blocked = [
+      'program manager',
+      'windows input experience',
+      'windows shell experience host',
+      'microsoft text input application',
+      'windows default lock screen',
+      'shellexperiencehost',
+      'searchhost',
+      'startmenuexperiencehost',
+      'textinputhost',
+      'lockapp',
+      'rainmeter',
+      'wallpaper engine',
+      'wallpaperengine',
+      'nvidia geforce overlay',
+      'nvidia share',
+      'nvidia overlay',
+      'steam overlay',
+      'discord overlay',
+      'xbox game bar',
+      'gamebar',
+      'task view',
+      'task switching',
+      'popuphost',
+      'action center',
+      'notification center',
+      'jump list',
+      'desktopwindowxamlsource',
+      'system tray',
+      'msctfime ui',
+      'default ime',
+      'gdi+ window',
+      'translucenttb',
+    ];
+    if (lower === 'widgets' || lower === 'game bar') return false;
+    return !blocked.some((entry) => lower.includes(entry));
+  };
+
   // Desktop Screen and Window capture sources handler
   ipcMain.handle('get-screen-sources', async () => {
     try {
@@ -562,7 +617,7 @@ async function createWindow() {
         }
       }
 
-      return allSources.map((s) => {
+      return allSources.filter(isShareableSource).map((s) => {
         let thumbnailUrl = '';
         try {
           thumbnailUrl = s.thumbnail ? s.thumbnail.toDataURL() : '';

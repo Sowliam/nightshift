@@ -526,19 +526,19 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
 
                   {p.isDeafened && (
                     <div
-                      className="w-6 h-6 rounded-lg bg-destructive/20 border border-destructive/40 flex items-center justify-center text-destructive"
+                      className="w-7 h-7 rounded-full bg-[#da373c] flex items-center justify-center text-white shadow-[0_2px_8px_rgba(0,0,0,0.45)]"
                       title="Deafened"
                     >
-                      <Headphones className="w-3.5 h-3.5" />
+                      <Headphones className="w-4 h-4" strokeWidth={2.4} />
                     </div>
                   )}
 
                   {p.isMuted && (
                     <div
-                      className="w-6 h-6 rounded-lg bg-destructive/20 border border-destructive/40 flex items-center justify-center text-destructive"
+                      className="w-7 h-7 rounded-full bg-[#da373c] flex items-center justify-center text-white shadow-[0_2px_8px_rgba(0,0,0,0.45)]"
                       title="Muted"
                     >
-                      <MicOff className="w-3.5 h-3.5" />
+                      <MicOff className="w-4 h-4" strokeWidth={2.4} />
                     </div>
                   )}
                 </div>

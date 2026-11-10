@@ -23,6 +23,7 @@ import { useRoomStore } from './room.store';
 import { useServerStore } from './server.store';
 import { soundboardAudioEngine } from '../services/soundboard-audio-engine';
 import { api } from '../lib/api';
+import { captureConstraintFlags, createVoiceProcessor, readCleanerState, setVoiceCleanerState, type CleanerState } from '../audio/voice-cleaner';
 
 export interface ActiveScreenShare {
   participantIdentity: string;
@@ -58,7 +59,8 @@ interface LiveKitState {
   error: string | null;
 
   connect: (url: string, token: string) => Promise<boolean>;
-  disconnect: (notifyServer?: boolean | any) => Promise<void>;
+  disconnect: (notifyServer?: boolean | { notifyServer?: boolean; playSound?: boolean; keepChannel?: boolean }) => Promise<void>;
+  moveToVoiceChannel: (channelId: string) => Promise<boolean>;
   toggleMute: () => Promise<void>;
   toggleDeafen: () => Promise<void>;
   startScreenShare: (sourceId?: string, options?: ScreenShareOptions) => Promise<boolean>;
@@ -76,6 +78,7 @@ interface LiveKitState {
   stopWatchingStream: (participantIdentity: string) => void;
   setFocusedScreenShare: (participantIdentity: string | null) => void;
   applyAudioProcessingSettings: () => Promise<void>;
+  syncCaptureToLevels: (levels: CleanerState) => Promise<void>;
   setAudioInputDevice: (deviceId: string) => Promise<void>;
   setAudioOutputDevice: (deviceId: string) => Promise<void>;
   setPushToTalkActive: (active: boolean, seq?: number) => Promise<void>;
@@ -106,6 +109,52 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectCountdownInterval: ReturnType<typeof setInterval> | null = null;
   let lastPingBroadcastTime = 0;
+  let voiceMove: Promise<boolean> | null = null;
+  let voiceProcessContext: AudioContext | null = null;
+  let browserCapture = { echo: true, noise: true };
+
+  const cleanerFromSettings = (): CleanerState => {
+    const settings = useSettingsStore.getState();
+    return {
+      noise: Number.isFinite(settings.noiseAmount) ? settings.noiseAmount : 0,
+      echo: Number.isFinite(settings.echoAmount) ? settings.echoAmount : 0,
+      sensitivity: Number.isFinite(settings.sensitivityThreshold) ? settings.sensitivityThreshold : 35,
+      auto: settings.autoSensitivity !== false,
+      ptt: settings.inputMode === 'push-to-talk',
+    };
+  };
+
+  const micConstraints = () => {
+    const settings = useSettingsStore.getState();
+    const levels = cleanerFromSettings();
+    const flags = captureConstraintFlags(levels.noise, levels.echo);
+    const deviceId = settings.audioInputDeviceId;
+    return {
+      ...flags,
+      deviceId:
+        deviceId && deviceId !== 'default' && deviceId !== 'communications'
+          ? deviceId
+          : undefined,
+    };
+  };
+
+  const ensureVoiceCleaner = async (localAudio: LocalAudioTrack, useSaved = true) => {
+    if (useSaved) setVoiceCleanerState(cleanerFromSettings());
+    if ((localAudio as any).processor?.name === 'nightshift-voice-cleaner') return;
+
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!voiceProcessContext || voiceProcessContext.state === 'closed') {
+      voiceProcessContext = new AudioCtx();
+    }
+    if (voiceProcessContext.state === 'suspended') {
+      await voiceProcessContext.resume().catch(() => {});
+    }
+    await (localAudio as any).setAudioContext(voiceProcessContext);
+    await localAudio.setProcessor(
+      createVoiceProcessor(() => readCleanerState()),
+    );
+  };
   let localAudioContext: AudioContext | null = null;
   let localAudioSource: MediaStreamAudioSourceNode | null = null;
   let localAnalyser: AnalyserNode | null = null;
@@ -805,6 +854,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       } catch {}
     }
 
+    public async setSinkId(deviceId: string): Promise<void> {
+      const id = deviceId && deviceId !== 'default' && deviceId !== 'communications' ? deviceId : '';
+      if (!id) return;
+      const ctx = this.ensureAudioContext() as (AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }) | null;
+      if (ctx?.setSinkId) {
+        try {
+          await ctx.setSinkId(id);
+        } catch (err) {
+          console.warn('[RemoteAudioGainEngine] Could not move playback to the selected output:', err);
+        }
+      }
+    }
+
     public updateSoundboardVolume(identity: string, volumePercent: number, isMuted: boolean): void {
       const ctx = this.ensureAudioContext();
       const gainVal = isMuted ? 0 : Math.max(0, (volumePercent / 100) * 1.2);
@@ -977,10 +1039,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         adaptiveStream: false, // Ensure full original stream resolution is never downscaled
         dynacast: false,
         audioCaptureDefaults: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-          channelCount: 1,
+          ...captureConstraintFlags(
+            Number.isFinite(useSettingsStore.getState().noiseAmount) ? useSettingsStore.getState().noiseAmount : 0,
+            Number.isFinite(useSettingsStore.getState().echoAmount) ? useSettingsStore.getState().echoAmount : 0,
+          ),
         },
         publishDefaults: {
           simulcast: false,
@@ -992,6 +1054,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       });
 
       room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
+        if (get().room && get().room !== room) return;
         set({ connectionState: state });
         if (state === ConnectionState.Connected) {
           clearReconnectWatchdog();
@@ -1001,22 +1064,26 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       });
 
       room.on(RoomEvent.Reconnecting, () => {
+        if (get().room && get().room !== room) return;
         set({ connectionState: ConnectionState.Reconnecting });
         startReconnectWatchdog();
       });
 
       room.on(RoomEvent.Reconnected, () => {
+        if (get().room && get().room !== room) return;
         clearReconnectWatchdog();
         set({ connectionState: ConnectionState.Connected, error: null });
         sounds.playJoin();
       });
 
       room.on(RoomEvent.Disconnected, () => {
+        if (get().room && get().room !== room) return;
         clearReconnectWatchdog();
         set({ connectionState: ConnectionState.Disconnected });
       });
 
       room.on(RoomEvent.Connected, () => {
+        if (get().room && get().room !== room) return;
         clearReconnectWatchdog();
         set({
           connectionState: ConnectionState.Connected,
@@ -1362,6 +1429,8 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         }
       });
 
+      const deviceSync = useSettingsStore.getState().syncSystemDevices().catch(() => null);
+
       try {
         await room.connect(url, token, {
           autoSubscribe: false,
@@ -1384,53 +1453,49 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           console.warn('Audio playback pending user gesture:', audioErr);
         }
 
+        await deviceSync;
         const settings = useSettingsStore.getState();
 
         // Ensure microphone track is acquired and published to LiveKit
         const isPtt = settings.inputMode === 'push-to-talk';
-        const isNoiseSuppressed = settings.noiseSuppression !== 'none';
-        const isEchoCancelled = settings.echoCancellation;
+        const capture = micConstraints();
+        browserCapture = { echo: capture.echoCancellation, noise: capture.noiseSuppression };
+
+        const outputId = settings.audioOutputDeviceId;
+        const outputApply =
+          outputId && outputId !== 'default' && outputId !== 'communications'
+            ? Promise.all([
+                Promise.resolve(sounds.setOutputDevice(outputId)),
+                remoteAudioGainEngine.setSinkId(outputId),
+                room.switchActiveDevice('audiooutput', outputId).catch(() => {}),
+              ]).catch(() => {})
+            : Promise.resolve();
 
         try {
           const startMuted = isPtt || settings.isSelfMuted;
           if (startMuted) set({ isMuted: true, isLocallySpeaking: false });
 
-          // Always publish the microphone track with hardware audio constraints
-          await room.localParticipant.setMicrophoneEnabled(true, {
-            echoCancellation: isEchoCancelled,
-            noiseSuppression: isNoiseSuppressed,
-            autoGainControl: true,
-            channelCount: 1,
-            deviceId:
-              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
-                ? settings.audioInputDeviceId
-                : undefined,
-          });
+          await room.localParticipant.setMicrophoneEnabled(true, capture);
 
           let micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
             (p) => p.source === Track.Source.Microphone
           );
-          let mediaTrack = micPub?.track
-            ? (micPub.track as LocalAudioTrack).mediaStreamTrack
-            : null;
-          if (mediaTrack && mediaTrack.readyState !== 'live') {
-            await room.localParticipant.setMicrophoneEnabled(true, {
-              echoCancellation: isEchoCancelled,
-              noiseSuppression: isNoiseSuppressed,
-              autoGainControl: true,
-              channelCount: 1,
-              deviceId:
-                settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
-                  ? settings.audioInputDeviceId
-                  : undefined,
-            });
+          if (micPub?.track && (micPub.track as LocalAudioTrack).mediaStreamTrack?.readyState !== 'live') {
+            await room.localParticipant.setMicrophoneEnabled(true, capture);
             micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
               (p) => p.source === Track.Source.Microphone
             );
-            mediaTrack = micPub?.track
-              ? (micPub.track as LocalAudioTrack).mediaStreamTrack
-              : null;
           }
+          if (micPub?.track) {
+            try {
+              await ensureVoiceCleaner(micPub.track as LocalAudioTrack);
+            } catch (cleanErr) {
+              console.warn('[LiveKit] Voice cleaner failed, using browser processing only:', cleanErr);
+            }
+          }
+          let mediaTrack = micPub?.track
+            ? (micPub.track as LocalAudioTrack).mediaStreamTrack
+            : null;
           if (mediaTrack) {
             setupAudioAnalyser(mediaTrack);
           }
@@ -1448,21 +1513,23 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
           set({ isMuted: true, error: 'Could not access microphone: ' + (micErr.message || 'Permission denied') });
         }
 
-        // Publish dedicated Soundboard audio track (Separate from microphone stream)
-        try {
-          const sbMediaTrack = soundboardAudioEngine.initializePipeline();
-          const sbTrack = new LocalAudioTrack(sbMediaTrack);
-          activeLocalSoundboardTrack = sbTrack;
-          await room.localParticipant.publishTrack(sbTrack, {
-            name: 'soundboard',
-            source: Track.Source.Unknown,
-            dtx: false,
-            audioPreset: AudioPresets.music,
-          });
-          console.log('[LiveKit] Dedicated Soundboard audio track published successfully');
-        } catch (sbErr) {
-          console.warn('[LiveKit] Soundboard track publish failed:', sbErr);
-        }
+        await outputApply;
+
+        void (async () => {
+          try {
+            const sbMediaTrack = soundboardAudioEngine.initializePipeline();
+            const sbTrack = new LocalAudioTrack(sbMediaTrack);
+            activeLocalSoundboardTrack = sbTrack;
+            await room.localParticipant.publishTrack(sbTrack, {
+              name: 'soundboard',
+              source: Track.Source.Unknown,
+              dtx: false,
+              audioPreset: AudioPresets.music,
+            });
+          } catch (sbErr) {
+            console.warn('[LiveKit] Soundboard track publish failed:', sbErr);
+          }
+        })();
 
         set({
           room,
@@ -1497,8 +1564,15 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       }
     },
 
-    disconnect: async (notifyServer: boolean | any = true) => {
-      const shouldNotify = typeof notifyServer === 'boolean' ? notifyServer : true;
+    disconnect: async (notifyServer: boolean | { notifyServer?: boolean; playSound?: boolean; keepChannel?: boolean } = true) => {
+      const options =
+        notifyServer && typeof notifyServer === 'object' && !('preventDefault' in notifyServer)
+          ? notifyServer
+          : { notifyServer: typeof notifyServer === 'boolean' ? notifyServer : true };
+      const shouldNotify = options.notifyServer !== false;
+      const playSound = options.playSound !== false && shouldNotify;
+      const keepChannel = options.keepChannel === true;
+      const leaving = get().room;
       clearReconnectWatchdog();
       try {
         sessionStorage.removeItem('nightshift_active_voice_session');
@@ -1533,14 +1607,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
       if (shouldNotify) {
         const activeChannel = useServerStore.getState().activeVoiceChannelId;
         if (activeChannel) {
-          try {
-            await api.leaveVoiceChannel(activeChannel);
-          } catch {}
+          void api.leaveVoiceChannel(activeChannel).catch(() => {});
         }
       }
 
       if (room) {
-        if (shouldNotify) {
+        if (playSound) {
           sounds.playDisconnect();
         }
         try {
@@ -1556,33 +1628,93 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         clearAudioContainer('nightshift-soundboard-audio-container');
       } catch {}
 
-      set({
-        room: null,
-        localParticipant: null,
-        remoteParticipants: [],
-        activeSpeakers: new Set(),
-        activeSoundboardPlayers: {},
-        availableScreenShares: [],
-        watchedScreenShareIds: new Set(),
-        focusedScreenShareId: null,
-        activeScreenTrack: null,
-        screenSharerIdentity: null,
-        screenSharerName: null,
-        currentScreenOptions: null,
-        isScreenSharing: false,
-        isLocallySpeaking: false,
-        currentPing: null,
-        participantPings: {},
-        isReconnecting: false,
-        reconnectSecondsLeft: 0,
-        connectionState: ConnectionState.Disconnected,
-      });
+      if (!get().room || get().room === leaving) {
+        set({
+          room: null,
+          localParticipant: null,
+          remoteParticipants: [],
+          activeSpeakers: new Set(),
+          activeSoundboardPlayers: {},
+          availableScreenShares: [],
+          watchedScreenShareIds: new Set(),
+          focusedScreenShareId: null,
+          activeScreenTrack: null,
+          screenSharerIdentity: null,
+          screenSharerName: null,
+          currentScreenOptions: null,
+          isScreenSharing: false,
+          isLocallySpeaking: false,
+          currentPing: null,
+          participantPings: {},
+          isReconnecting: false,
+          reconnectSecondsLeft: 0,
+          connectionState: ConnectionState.Disconnected,
+        });
+      }
 
       useRoomStore.getState().setActiveRoom(null);
       useRoomStore.getState().setJoiningRoom(null);
-      useServerStore.getState().setActiveVoiceChannel(null);
-      useServerStore.getState().setJoiningVoiceChannel(null);
-      useRoomStore.getState().fetchRooms();
+      if (!keepChannel) {
+        useServerStore.getState().setActiveVoiceChannel(null);
+        useServerStore.getState().setJoiningVoiceChannel(null);
+        useRoomStore.getState().fetchRooms();
+      }
+    },
+
+    moveToVoiceChannel: async (channelId: string) => {
+      const server = useServerStore.getState();
+      const current = server.activeVoiceChannelId;
+      const state = get().connectionState;
+      if (current === channelId && state === ConnectionState.Connected) {
+        server.selectChannel(channelId);
+        return true;
+      }
+      if (voiceMove) {
+        try { await voiceMove; } catch {}
+        if (useServerStore.getState().activeVoiceChannelId === channelId && get().connectionState === ConnectionState.Connected) {
+          return true;
+        }
+      }
+
+      const run = (async () => {
+        const switching =
+          !!current &&
+          current !== channelId &&
+          state !== ConnectionState.Disconnected;
+        useServerStore.getState().selectChannel(channelId);
+        useServerStore.getState().setJoiningVoiceChannel(channelId);
+        useServerStore.getState().setActiveVoiceChannel(channelId);
+
+        const joinPromise = api.joinVoiceChannel(channelId);
+        if (switching) {
+          await get().disconnect({ notifyServer: false, playSound: false, keepChannel: true });
+        }
+        const joinData = await joinPromise;
+        const ok = await get().connect(joinData.livekitUrl, joinData.token);
+        useServerStore.getState().setJoiningVoiceChannel(null);
+        if (!ok) return false;
+        try {
+          sessionStorage.setItem(
+            'nightshift_active_voice_session',
+            JSON.stringify({
+              channelId,
+              serverId: useServerStore.getState().activeServerId,
+            })
+          );
+        } catch {}
+        return true;
+      })();
+
+      voiceMove = run;
+      try {
+        return await run;
+      } catch (err) {
+        useServerStore.getState().setJoiningVoiceChannel(null);
+        useServerStore.getState().setActiveVoiceChannel(null);
+        throw err;
+      } finally {
+        if (voiceMove === run) voiceMove = null;
+      }
     },
 
     toggleMute: async () => {
@@ -1608,20 +1740,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         );
 
         if (!micPub?.track && !newMuted) {
-          const settings = useSettingsStore.getState();
-          await room.localParticipant.setMicrophoneEnabled(true, {
-            echoCancellation: settings.echoCancellation,
-            noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: true,
-            channelCount: 1,
-            deviceId:
-              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
-                ? settings.audioInputDeviceId
-                : undefined,
-          });
+          await room.localParticipant.setMicrophoneEnabled(true, micConstraints());
           const opened = Array.from(room.localParticipant.audioTrackPublications.values()).find(
             (p) => p.source === Track.Source.Microphone
           );
+          if (opened?.track) {
+            try { await ensureVoiceCleaner(opened.track as LocalAudioTrack); } catch {}
+          }
           const openedTrack = opened?.track
             ? (opened.track as LocalAudioTrack).mediaStreamTrack
             : null;
@@ -1688,25 +1813,18 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             (p) => p.source === Track.Source.Microphone
           );
 
-          const settings = useSettingsStore.getState();
-          const micConstraints = {
-            echoCancellation: settings.echoCancellation,
-            noiseSuppression: settings.noiseSuppression !== 'none',
-            autoGainControl: true,
-            deviceId:
-              settings.audioInputDeviceId && settings.audioInputDeviceId !== 'default'
-                ? settings.audioInputDeviceId
-                : undefined,
-          };
+          const capture = micConstraints();
 
           // Fail-safe: if mic track was somehow not published yet, publish it now
           if (!micPub || !micPub.track) {
-            await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+            await room.localParticipant.setMicrophoneEnabled(true, capture);
             micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
               (p) => p.source === Track.Source.Microphone
             );
-            if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-              setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
+            if (micPub?.track) {
+              try { await ensureVoiceCleaner(micPub.track as LocalAudioTrack); } catch {}
+              const opened = (micPub.track as LocalAudioTrack).mediaStreamTrack;
+              if (opened) setupAudioAnalyser(opened);
             }
           }
 
@@ -1719,10 +1837,13 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
             window.nightshift?.logPtt?.(`Mic capturer stalled (ready=${mediaTrack.readyState}, muted=${mediaTrack.muted}). Restarting.`);
             try {
               await room.localParticipant.setMicrophoneEnabled(false);
-              await room.localParticipant.setMicrophoneEnabled(true, micConstraints);
+              await room.localParticipant.setMicrophoneEnabled(true, capture);
               micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
                 (p) => p.source === Track.Source.Microphone
               );
+              if (micPub?.track) {
+                try { await ensureVoiceCleaner(micPub.track as LocalAudioTrack); } catch {}
+              }
               const restarted = micPub?.track
                 ? (micPub.track as LocalAudioTrack).mediaStreamTrack
                 : null;
@@ -2026,17 +2147,23 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         } else {
           const isMobileDevice =
             typeof navigator !== 'undefined' &&
-            (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-              (typeof window !== 'undefined' && window.innerWidth < 768));
+            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
           if (isMobileDevice) {
-            // Mobile devices (Android/iOS): getDisplayMedia does not support system audio or fixed 16:9 dimensions
             try {
               await room.localParticipant.setScreenShareEnabled(true, {
                 audio: false,
                 contentHint: opts.preset === 'detail' ? 'detail' : 'motion',
               });
-            } catch (mobErr) {
+            } catch (mobErr: any) {
+              const name = String(mobErr?.name || '');
+              const msg = String(mobErr?.message || '').toLowerCase();
+              const cancelled =
+                name === 'NotAllowedError' ||
+                name === 'AbortError' ||
+                msg.includes('permission denied') ||
+                msg.includes('cancel');
+              if (cancelled) throw mobErr;
               console.warn('Mobile screen share initial call failed, retrying minimal:', mobErr);
               await room.localParticipant.setScreenShareEnabled(true);
             }
@@ -2086,9 +2213,21 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               screenShareConfig.video = { displaySurface };
             }
 
+            const cancelledByUser = (err: any) => {
+              const name = String(err?.name || '');
+              const msg = String(err?.message || '').toLowerCase();
+              return (
+                name === 'NotAllowedError' ||
+                name === 'AbortError' ||
+                msg.includes('permission denied') ||
+                msg.includes('cancel')
+              );
+            };
+
             try {
               await room.localParticipant.setScreenShareEnabled(true, screenShareConfig);
             } catch (browserErr) {
+              if (cancelledByUser(browserErr) || !screenShareConfig.audio) throw browserErr;
               console.warn('Browser screen share with audio failed, falling back to video only:', browserErr);
               screenShareConfig.audio = false;
               await room.localParticipant.setScreenShareEnabled(true, screenShareConfig);
@@ -2100,8 +2239,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         updateScreenShareState(room);
         return true;
       } catch (err: any) {
+        const name = String(err?.name || '');
+        const msg = String(err?.message || '').toLowerCase();
+        const cancelled =
+          name === 'NotAllowedError' ||
+          name === 'AbortError' ||
+          msg.includes('permission denied') ||
+          msg.includes('cancel');
+        if (cancelled) {
+          set({ error: null });
+          return false;
+        }
         console.error('Failed to start screen share:', err);
-        set({ error: err.message || 'Screen sharing cancelled or failed' });
+        set({ error: err.message || 'Screen sharing failed' });
         return false;
       }
     },
@@ -2242,45 +2392,88 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     applyAudioProcessingSettings: async () => {
-      const settings = useSettingsStore.getState();
-      const isNoiseSuppressed = settings.noiseSuppression !== 'none';
-      const isEchoCancelled = settings.echoCancellation;
+      await get().syncCaptureToLevels(cleanerFromSettings());
+    },
 
-      const constraints: MediaTrackConstraints = {
-        echoCancellation: isEchoCancelled,
-        noiseSuppression: isNoiseSuppressed,
-        autoGainControl: true,
-        channelCount: 1,
-      };
+    syncCaptureToLevels: async (levels: CleanerState) => {
+      const noise = Number.isFinite(levels.noise) ? levels.noise : 0;
+      const echo = Number.isFinite(levels.echo) ? levels.echo : 0;
+      setVoiceCleanerState({ ...levels, noise, echo });
 
-      if (activeLocalMicTrack) {
+      const { room } = get();
+      const micPub = room
+        ? Array.from(room.localParticipant.audioTrackPublications.values()).find(
+            (p) => p.source === Track.Source.Microphone
+          )
+        : undefined;
+      const localAudio = micPub?.track as LocalAudioTrack | undefined;
+      if (!localAudio) return;
+
+      const next = { echo: echo > 0, noise: noise > 0 };
+      if (next.echo !== browserCapture.echo || next.noise !== browserCapture.noise) {
+        browserCapture = next;
+        const deviceId = micConstraints().deviceId;
+        const capture = {
+          ...captureConstraintFlags(noise, echo),
+          ...(deviceId ? { deviceId } : {}),
+        };
         try {
-          await activeLocalMicTrack.applyConstraints(constraints);
-          console.log('[LiveKit] Applied Ultra voice audio constraints to active mic track');
+          const defaults = room?.options?.audioCaptureDefaults as Record<string, unknown> | undefined;
+          if (defaults) {
+            defaults.echoCancellation = next.echo;
+            defaults.noiseSuppression = next.noise;
+            defaults.autoGainControl = false;
+          }
+          await localAudio.restartTrack(capture);
         } catch (err) {
-          console.warn('[LiveKit] Could not apply dynamic audio constraints:', err);
+          console.warn('[LiveKit] Capture restart failed, applying constraints:', err);
+          try {
+            await localAudio.applyConstraints({
+              echoCancellation: next.echo,
+              noiseSuppression: next.noise,
+              autoGainControl: false,
+            });
+          } catch (constraintErr) {
+            console.warn('[LiveKit] Could not apply capture constraints:', constraintErr);
+          }
         }
+      }
+      try {
+        await ensureVoiceCleaner(localAudio, false);
+      } catch (err) {
+        console.warn('[LiveKit] Voice cleaner was not reattached:', err);
       }
     },
 
     setAudioInputDevice: async (deviceId: string) => {
+      let id = deviceId;
+      if (!id || id === 'default' || id === 'communications') {
+        await useSettingsStore.getState().syncSystemDevices();
+        id = useSettingsStore.getState().audioInputDeviceId;
+      }
       const { room } = get();
-      if (room) {
-        await room.switchActiveDevice('audioinput', deviceId);
-        const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
-          (p) => p.source === Track.Source.Microphone
-        );
-        if (micPub && micPub.track && (micPub.track as LocalAudioTrack).mediaStreamTrack) {
-          setupAudioAnalyser((micPub.track as LocalAudioTrack).mediaStreamTrack!);
-          await get().applyAudioProcessingSettings();
-        }
+      if (!room || !id || id === 'default' || id === 'communications') return;
+      await room.switchActiveDevice('audioinput', id);
+      const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+        (p) => p.source === Track.Source.Microphone
+      );
+      if (micPub?.track) {
+        try { await ensureVoiceCleaner(micPub.track as LocalAudioTrack); } catch {}
+        const media = (micPub.track as LocalAudioTrack).mediaStreamTrack;
+        if (media) setupAudioAnalyser(media);
+        await get().applyAudioProcessingSettings();
       }
     },
 
     setAudioOutputDevice: async (deviceId: string) => {
+      const id = !deviceId || deviceId === 'default' || deviceId === 'communications'
+        ? useSettingsStore.getState().audioOutputDeviceId
+        : deviceId;
+      sounds.setOutputDevice(id);
+      await remoteAudioGainEngine.setSinkId(id);
       const { room } = get();
-      if (room) {
-        await room.switchActiveDevice('audiooutput', deviceId);
+      if (room && id && id !== 'default' && id !== 'communications') {
+        await room.switchActiveDevice('audiooutput', id);
       }
     },
 

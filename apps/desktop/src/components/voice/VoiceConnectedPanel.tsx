@@ -119,14 +119,6 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
     return 'text-destructive';
   };
 
-  const getStatusTextColor = () => {
-    if (isConnecting) return 'text-amber-400';
-    if (currentPing === null) return 'text-accent-bright';
-    if (currentPing > 350) return 'text-destructive';
-    if (currentPing >= 140) return 'text-amber-400';
-    return 'text-accent-bright';
-  };
-
   const handleDisconnect = () => {
     useServerStore.getState().setJoiningVoiceChannel(null);
     useServerStore.getState().setActiveVoiceChannel(null);
@@ -138,88 +130,53 @@ export const VoiceConnectedPanel: React.FC<VoiceConnectedPanelProps> = ({
     }
   };
 
+  const iconBtn =
+    'w-8 h-8 inline-flex items-center justify-center rounded text-[#b5bac1] hover:bg-white/10 hover:text-white';
+
   return (
-    <div className="border-t border-border-subtle bg-bg-secondary/95 px-3 py-2 flex flex-col gap-2 select-none shrink-0 transition-all duration-200">
-      {/* Top Status & Controls Row */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Signal Indicator with dynamic rows and color */}
-          <div className="relative shrink-0 flex items-center justify-center">
-            <SignalBarsIcon ping={currentPing} isConnecting={isConnecting} />
+    <div className="bg-[#0e0f11] px-2 pt-1.5 flex items-center gap-1 select-none shrink-0">
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <div className="shrink-0 flex items-center justify-center w-5">
+          <SignalBarsIcon ping={currentPing} isConnecting={isConnecting} />
+        </div>
+        <div className="min-w-0 flex-1 leading-4">
+          <div className={`text-[13px] font-semibold truncate transition-colors duration-200 ${isConnecting ? 'text-amber-400' : currentPing === null ? 'text-[#23a559]' : getPingColor(currentPing)}`}>
+            {isConnecting ? 'Connecting...' : 'Voice Connected'}
           </div>
-
-          {/* Connection Status & Channel Info */}
-          <div className="flex flex-col min-w-0 leading-tight">
+          <div className="flex items-center gap-1.5 min-w-0 text-[12px]" title={roomName}>
+            <span className="text-[#b5bac1] truncate">{roomName}</span>
             <span
-              className={`text-xs font-bold tracking-tight truncate transition-colors duration-200 ${getStatusTextColor()}`}
+              className={`shrink-0 tabular-nums ${getPingColor(currentPing)}`}
+              title={currentPing !== null ? `Latency: ${currentPing}ms` : 'Measuring latency...'}
             >
-              {isConnecting ? 'RTC Connecting...' : 'Voice Connected'}
-            </span>
-            <span className="text-[10px] text-text-muted truncate">
-              {roomName} / NIGHTSHIFT
+              {currentPing !== null ? `${currentPing}ms` : '—'}
             </span>
           </div>
         </div>
+      </div>
 
-        {/* Right Info: WebRTC Real Ping + Screen Share Button + Disconnect Hangup Button */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* RTC Ping Indicator */}
-          <div
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-bg-elevated/80 border border-border-subtle/60 text-[10px] font-mono cursor-help"
-            title={
-              currentPing !== null
-                ? `WebRTC Latency: ${currentPing}ms`
-                : 'Measuring WebRTC connection stats...'
-            }
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                isConnecting
-                  ? 'bg-amber-400 animate-pulse'
-                  : currentPing !== null && currentPing < 140
-                  ? 'bg-accent-bright'
-                  : currentPing !== null && currentPing <= 350
-                  ? 'bg-amber-400'
-                  : currentPing !== null
-                  ? 'bg-destructive'
-                  : 'bg-text-muted animate-ping'
-              }`}
-            />
-            <span className={getPingColor(currentPing)}>
-              {currentPing !== null ? `${currentPing}ms` : '— ms'}
-            </span>
-          </div>
-
-          {/* Screen Share Button */}
-          <button
-            onClick={() => {
-              if (isScreenSharing) {
-                stopScreenShare();
-              } else {
-                onOpenScreenShareModal();
-              }
-            }}
-            className={`call-btn call-btn-xs ${isScreenSharing ? 'is-active-success' : ''}`}
-            title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
-            aria-label={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
-          >
-            <div className="call-icon-layer call-icon-on call-icon-bounce">
-              <Monitor className="w-3.5 h-3.5 stroke-[2.2]" />
-            </div>
-          </button>
-
-          {/* Red Disconnect Button (Always available to cancel/disconnect) */}
-          <button
-            onClick={handleDisconnect}
-            className="call-btn call-btn-xs call-btn-danger"
-            title={isConnecting ? 'Cancel Connection' : 'Disconnect from Voice Channel'}
-            aria-label="Disconnect"
-          >
-            <div className="call-icon-layer call-icon-on call-icon-tilt">
-              <PhoneOff className="w-3.5 h-3.5 stroke-[2.2]" />
-            </div>
-          </button>
-        </div>
+      <div className="flex items-center shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            if (isScreenSharing) stopScreenShare();
+            else onOpenScreenShareModal();
+          }}
+          className={`${iconBtn} ${isScreenSharing ? 'text-[#23a559] hover:text-[#23a559]' : ''}`}
+          title={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
+          aria-label={isScreenSharing ? 'Stop Screen Sharing' : 'Share Your Screen'}
+        >
+          <Monitor className="w-[18px] h-[18px] ns-anim-screen" />
+        </button>
+        <button
+          type="button"
+          onClick={handleDisconnect}
+          className="w-8 h-8 inline-flex items-center justify-center rounded text-[#f23f43] hover:bg-[#f23f43]/15"
+          title={isConnecting ? 'Cancel Connection' : 'Disconnect'}
+          aria-label="Disconnect"
+        >
+          <PhoneOff className="w-[18px] h-[18px] ns-anim-phone" />
+        </button>
       </div>
     </div>
   );

@@ -8,18 +8,21 @@ import {
   EyeOff,
   MicOff,
   Headphones,
-  Shield,
   RotateCcw,
   Music,
   Square,
+  UserMinus,
+  Ban,
 } from 'lucide-react';
 import { useLiveKitStore } from '../../stores/livekit.store';
 import { useSettingsStore } from '../../stores/settings.store';
 import { useSoundboardStore } from '../../stores/soundboard.store';
+import { getFullAvatarUrl } from '../../lib/api';
 
 export interface UserContextMenuTarget {
   identity: string;
   name: string;
+  username?: string;
   avatarUrl?: string;
   isLocal?: boolean;
   isScreenSharing?: boolean;
@@ -110,8 +113,8 @@ export const UserContextMenu: React.FC<UserContextMenuProps> = ({
   const soundboardVol = !isLocal ? (soundboardVolumes[target.identity] ?? 100) : 100;
 
   // Clamp coordinates within the viewport
-  const menuWidth = 270;
-  const menuHeight = 460;
+  const menuWidth = 272;
+  const menuHeight = 440;
   const posX = Math.max(8, Math.min(x, window.innerWidth - menuWidth - 12));
   const posY = Math.max(8, Math.min(y, window.innerHeight - menuHeight - 12));
 
@@ -150,344 +153,263 @@ export const UserContextMenu: React.FC<UserContextMenuProps> = ({
       .toUpperCase();
   };
 
+  const avatarSrc = getFullAvatarUrl(target.avatarUrl);
+
+  const row =
+    'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary';
+
   return (
     <div
       ref={menuRef}
       style={{ left: `${posX}px`, top: `${posY}px` }}
-      className="fixed z-50 w-[260px] rounded-2xl bg-bg-secondary/95 backdrop-blur-xl border border-border-subtle shadow-2xl p-2 select-none animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-1 text-xs"
+      className="fixed z-50 w-[260px] rounded-2xl bg-bg-secondary border border-border shadow-2xl p-2 select-none animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-1.5"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Header: User Profile Info */}
-      <div className="flex items-center gap-2.5 p-2 rounded-xl bg-bg-elevated/70 border border-border-subtle/50 mb-1">
-        <div className="w-9 h-9 rounded-full bg-bg-main border border-border-subtle flex items-center justify-center font-bold text-text-primary text-xs shrink-0 shadow-sm">
-          {getInitials(target.name)}
+      <div className="flex items-center gap-3 px-2 py-1.5">
+        <div className="w-9 h-9 rounded-full bg-bg-elevated border border-border-strong flex items-center justify-center text-xs font-black text-text-primary shrink-0 overflow-hidden">
+          {avatarSrc ? (
+            <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
+          ) : (
+            getInitials(target.name)
+          )}
         </div>
-        <div className="flex flex-col min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-text-primary truncate">
-              {target.name}
-            </span>
-            {isLocal && (
-              <span className="text-[10px] text-text-muted font-normal bg-bg-main px-1.5 py-0.2 rounded border border-border-subtle">
-                You
-              </span>
-            )}
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-semibold text-text-primary leading-5 truncate">
+            {target.name}
           </div>
-          <span className="text-[10px] font-mono text-text-muted truncate">
-            {target.identity}
-          </span>
+          <div className="text-[11.5px] text-text-muted leading-4 truncate">
+            {isLocal ? 'You' : target.username ? `@${target.username}` : 'Member'}
+          </div>
         </div>
       </div>
 
-      {/* Remote Participant Playing Soundboard Banner */}
       {!isLocal && remoteSoundPlaying && (
-        <div className="flex items-center justify-between p-2 rounded-xl bg-accent-bright/15 border border-accent-bright/30 text-accent-bright mb-1 animate-pulse">
-          <div className="flex items-center gap-2 min-w-0">
-            <Music className="w-4 h-4 shrink-0 animate-bounce" />
-            <div className="flex flex-col min-w-0">
-              <span className="text-[9px] uppercase font-bold tracking-wider text-accent-bright/80">
-                Playing Sound / Music
-              </span>
-              <span className="font-semibold text-xs truncate text-white">
-                {remoteSoundPlaying.soundName}
-              </span>
-            </div>
-          </div>
+        <div className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-accent-bright/10 border border-accent-bright/20 text-accent-bright">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent-bright animate-pulse shrink-0" />
+          <Music className="w-3.5 h-3.5 shrink-0" />
+          <span className="text-xs font-medium truncate">{remoteSoundPlaying.soundName}</span>
         </div>
       )}
 
-      {/* Local User Active Playing Sounds */}
       {isLocal && localActiveSounds.length > 0 && (
-        <div className="p-2 rounded-xl bg-accent-bright/15 border border-accent-bright/30 flex flex-col gap-1.5 mb-1">
-          <div className="flex items-center justify-between text-[11px] font-bold text-accent-bright">
-            <div className="flex items-center gap-1.5">
-              <Music className="w-3.5 h-3.5 animate-bounce" />
-              <span>Playing on Soundboard</span>
-            </div>
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-accent-bright/20 font-mono">
-              {localActiveSounds.length} active
-            </span>
-          </div>
+        <div className="flex flex-col gap-1">
           {localActiveSounds.map((snd) => (
-            <div key={snd.soundId} className="flex items-center justify-between bg-black/40 px-2 py-1.5 rounded-lg border border-border-subtle/50 text-xs">
-              <span className="text-white truncate font-medium mr-2">{snd.name}</span>
+            <div key={snd.soundId} className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-accent-bright/10 border border-accent-bright/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-bright animate-pulse shrink-0" />
+              <span className="text-xs font-medium text-text-primary truncate flex-1">{snd.name}</span>
               <button
+                type="button"
                 onClick={() => stopSound(snd.soundId)}
-                className="px-2 py-0.5 rounded bg-destructive hover:bg-destructive/90 text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer shrink-0"
-                title="Stop sound immediately"
+                className="w-6 h-6 inline-flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/15"
+                title="Stop sound"
               >
-                <Square className="w-2.5 h-2.5 fill-current" />
-                <span>Stop</span>
+                <Square className="w-3 h-3 fill-current" />
               </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Local User Sound Controls (Only for other participants) */}
       {!isLocal && (
-        <>
-          {/* Mute for myself Toggle Button */}
+        <div className="rounded-xl bg-bg-elevated border border-border-subtle p-2 space-y-2.5">
           <button
+            type="button"
             onClick={handleToggleLocalMute}
-            className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl transition-all cursor-pointer ${
-              isLocallyMuted
-                ? 'bg-destructive/15 text-destructive border border-destructive/30 hover:bg-destructive/25'
-                : 'hover:bg-bg-hover text-text-primary border border-transparent'
-            }`}
-            title="Mute this person's microphone voice only for yourself (صدای میکروفون این شخص فقط برای شما قطع می‌شود)"
+            className={`${row} ${isLocallyMuted ? 'text-destructive hover:text-destructive' : ''}`}
+            title="Mute this person's microphone only for you"
           >
-            <div className="flex items-center gap-2">
-              {isLocallyMuted ? (
-                <VolumeX className="w-4 h-4 text-destructive shrink-0" />
-              ) : (
-                <Volume2 className="w-4 h-4 text-text-secondary shrink-0" />
-              )}
-              <div className="flex flex-col text-left">
-                <span className="font-medium text-[11px]">
-                  Mute Voice for Myself
-                </span>
-                <span className="text-[9px] text-text-muted">
-                  قطع صدای میکروفون شخص
-                </span>
-              </div>
-            </div>
-
-            <span
-              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                isLocallyMuted
-                  ? 'bg-destructive text-white'
-                  : 'bg-bg-elevated text-text-muted'
-              }`}
-            >
-              {isLocallyMuted ? 'MUTED' : 'OFF'}
+            {isLocallyMuted ? (
+              <VolumeX className="w-4 h-4 shrink-0" />
+            ) : (
+              <Volume2 className="w-4 h-4 text-text-muted shrink-0" />
+            )}
+            <span className="flex-1 text-left">{isLocallyMuted ? 'Muted for me' : 'Mute for me'}</span>
+            <span className={`w-8 h-[18px] rounded-full relative shrink-0 transition-colors ${isLocallyMuted ? 'bg-destructive' : 'bg-bg-hover'}`}>
+              <span className={`absolute top-[2px] w-3.5 h-3.5 rounded-full bg-text-primary shadow-sm transition-all ${isLocallyMuted ? 'left-[16px]' : 'left-[2px]'}`} />
             </span>
           </button>
 
-          {/* User Voice Volume Slider */}
-          <div className="px-2.5 py-2 rounded-xl bg-bg-elevated/40 border border-border-subtle/40 flex flex-col gap-1.5 my-0.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-text-secondary font-medium">Voice (Mic) Volume</span>
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[10px] font-bold text-text-primary">
-                  {isLocallyMuted
-                    ? 'MUTED'
-                    : userVolume === 0
-                      ? '0% (-∞ dB)'
-                      : userVolume === 100
-                        ? '100% (0 dB)'
-                        : userVolume > 100
-                          ? `${userVolume}% (+${(20 * Math.log10(userVolume / 100)).toFixed(1)} dB)`
-                          : `${userVolume}% (${(20 * Math.log10(userVolume / 100)).toFixed(1)} dB)`}
-                </span>
-                {userVolume !== 100 && (
+          <div className="px-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted">Voice</span>
+              <span className="flex items-center gap-1 text-[11px] font-semibold tabular-nums text-text-primary">
+                {isLocallyMuted ? 'Muted' : `${userVolume}%`}
+                {userVolume !== 100 && !isLocallyMuted && (
                   <button
+                    type="button"
                     onClick={handleResetVolume}
-                    className="p-0.5 rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                    title="Reset to 100% (0 dB)"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="0"
-                max="300"
-                step="1"
-                disabled={isLocallyMuted}
-                value={isLocallyMuted ? 0 : userVolume}
-                onChange={handleVolumeChange}
-                className="w-full h-1.5 bg-bg-main rounded-lg accent-highlight cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                title={`Adjust mic volume: ${userVolume}%`}
-              />
-            </div>
-
-            <div className="flex justify-between text-[8px] text-text-muted px-0.5 font-mono">
-              <span>0%</span>
-              <span className="font-bold text-text-secondary">100% (0 dB)</span>
-              <span>200% (+6 dB)</span>
-              <span className="text-highlight font-bold">300% (+9.5 dB)</span>
-            </div>
-          </div>
-
-          {/* Soundboard / Music Audio Controls (Separate from user's voice!) */}
-          <div className="px-2.5 py-2 rounded-xl bg-bg-elevated/40 border border-border-subtle/40 flex flex-col gap-1.5 my-0.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-1.5 text-text-secondary font-medium">
-                <Music className="w-3.5 h-3.5 text-accent-bright" />
-                <span>Music & Sounds Volume</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[10px] font-bold text-accent-bright">
-                  {isSoundboardMuted ? '0%' : `${soundboardVol}%`}
-                </span>
-                {soundboardVol !== 100 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setParticipantSoundboardVolume(target.identity, 100);
-                    }}
-                    className="p-0.5 rounded text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                    className="w-5 h-5 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover"
                     title="Reset to 100%"
                   >
                     <RotateCcw className="w-3 h-3" />
                   </button>
                 )}
-              </div>
+              </span>
             </div>
+            <input
+              type="range"
+              min="0"
+              max="300"
+              step="1"
+              disabled={isLocallyMuted}
+              value={isLocallyMuted ? 0 : userVolume}
+              onChange={handleVolumeChange}
+              className="w-full h-1.5 rounded-full accent-highlight cursor-pointer disabled:opacity-40"
+              title={`Voice volume ${userVolume}%`}
+            />
+          </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="0"
-                max="200"
-                step="1"
-                disabled={isSoundboardMuted}
-                value={isSoundboardMuted ? 0 : soundboardVol}
-                onChange={(e) => setParticipantSoundboardVolume(target.identity, Number(e.target.value))}
-                className="w-full h-1.5 bg-bg-main rounded-lg accent-accent-bright cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                title={`Soundboard volume: ${soundboardVol}%`}
-              />
+          <div className="px-2.5 pb-1">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+                <Music className="w-3.5 h-3.5 text-accent-bright" />
+                Sounds
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold tabular-nums text-text-primary">
+                  {isSoundboardMuted ? 'Muted' : `${soundboardVol}%`}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleMuteSoundboardForMyself(target.identity);
+                  }}
+                  className={`h-6 px-2 rounded-lg text-[11px] font-bold ${
+                    isSoundboardMuted
+                      ? 'bg-destructive text-white'
+                      : 'bg-bg-hover text-text-secondary hover:text-text-primary'
+                  }`}
+                  title="Mute only this person's music and sounds"
+                >
+                  {isSoundboardMuted ? 'Unmute' : 'Mute'}
+                </button>
+              </span>
             </div>
-
-            <div className="flex justify-between items-center pt-0.5">
-              <div className="flex justify-between text-[8px] text-text-muted px-0.5 flex-1 mr-2">
-                <span>0%</span>
-                <span className="font-bold text-text-secondary">100%</span>
-                <span>200%</span>
-              </div>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              step="1"
+              disabled={isSoundboardMuted}
+              value={isSoundboardMuted ? 0 : soundboardVol}
+              onChange={(e) => setParticipantSoundboardVolume(target.identity, Number(e.target.value))}
+              className="w-full h-1.5 rounded-full accent-accent-bright cursor-pointer disabled:opacity-40"
+              title={`Sounds volume ${soundboardVol}%`}
+            />
+            {soundboardVol !== 100 && !isSoundboardMuted && (
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleMuteSoundboardForMyself(target.identity);
+                  setParticipantSoundboardVolume(target.identity, 100);
                 }}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                  isSoundboardMuted
-                    ? 'bg-destructive text-white shadow-sm'
-                    : 'bg-bg-hover hover:bg-bg-active text-text-muted hover:text-text-primary'
-                }`}
-                title="Mute only music/sound effects from this user"
+                className="mt-1.5 text-[11px] font-medium text-text-muted hover:text-text-primary"
               >
-                {isSoundboardMuted ? 'UNMUTE SOUNDS' : 'MUTE SOUNDS'}
+                Reset sounds
               </button>
-            </div>
+            )}
           </div>
-        </>
+        </div>
       )}
 
-      {/* Screen Share Quick Actions */}
-      {target.isScreenSharing && !isLocal && (
-        <div className="my-0.5 border-t border-border-subtle/50 pt-1">
-          {isWatchingThisStream ? (
+      <div className="rounded-xl bg-bg-elevated border border-border-subtle p-1">
+        {target.isScreenSharing && !isLocal && (
+          isWatchingThisStream ? (
             <button
+              type="button"
               onClick={() => {
                 stopWatchingStream(target.identity);
                 onClose();
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-destructive/15 text-text-secondary hover:text-destructive transition-colors cursor-pointer"
+              className={`${row} text-destructive hover:text-destructive hover:bg-destructive/10`}
             >
-              <EyeOff className="w-4 h-4 text-destructive shrink-0" />
-              <span>Stop Watching Stream</span>
+              <EyeOff className="w-4 h-4 shrink-0" />
+              <span>Stop watching</span>
             </button>
           ) : (
             <button
+              type="button"
               onClick={() => {
                 startWatchingStream(target.identity);
                 onClose();
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-400 font-semibold border border-red-500/30 transition-colors cursor-pointer"
+              className={row}
             >
-              <Play className="w-4 h-4 fill-current shrink-0" />
-              <span>Watch Live Stream</span>
+              <Play className="w-4 h-4 fill-current text-destructive shrink-0" />
+              <span>Watch stream</span>
             </button>
-          )}
-        </div>
-      )}
+          )
+        )}
 
-      {/* Server Moderation Actions (Owner / Admin) */}
-      {canModerate && !isLocal && (
-        <div className="my-0.5 border-t border-border-subtle/50 pt-1 flex flex-col gap-0.5">
-          <div className="px-2 py-0.5 text-[9px] font-bold uppercase text-text-muted tracking-wider flex items-center gap-1">
-            <Shield className="w-3 h-3 text-highlight" />
-            <span>Moderation</span>
-          </div>
-
-          {onServerMute && (
-            <button
-              onClick={() => {
-                onServerMute(target.identity);
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-            >
-              <MicOff className="w-3.5 h-3.5 text-destructive shrink-0" />
-              <span>
-                {target.isServerMuted ? 'Server Unmute' : 'Server Mute'}
-              </span>
-            </button>
-          )}
-
-          {onServerDeafen && (
-            <button
-              onClick={() => {
-                onServerDeafen(target.identity);
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-            >
-              <Headphones className="w-3.5 h-3.5 text-destructive shrink-0" />
-              <span>
-                {target.isServerDeafened ? 'Server Undeafen' : 'Server Deafen'}
-              </span>
-            </button>
-          )}
-
-          {onKick && (
-            <button
-              onClick={() => {
-                onKick(target.identity);
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-destructive/15 text-destructive transition-colors cursor-pointer"
-            >
-              <span>Kick Member</span>
-            </button>
-          )}
-
-          {onBan && (
-            <button
-              onClick={() => {
-                onBan(target.identity);
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-destructive/15 text-destructive transition-colors cursor-pointer"
-            >
-              <span>Ban Member</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Footer Utilities */}
-      <div className="mt-0.5 border-t border-border-subtle/50 pt-1">
-        <button
-          onClick={handleCopyId}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-2">
-            {copied ? (
-              <Check className="w-3.5 h-3.5 text-accent-bright shrink-0" />
-            ) : (
-              <Copy className="w-3.5 h-3.5 shrink-0" />
+        {canModerate && !isLocal && (
+          <>
+            <div className="px-2.5 pt-1.5 pb-0.5 text-[11px] font-bold uppercase tracking-wider text-text-muted">
+              Moderation
+            </div>
+            {onServerMute && (
+              <button
+                type="button"
+                onClick={() => {
+                  onServerMute(target.identity);
+                  onClose();
+                }}
+                className={row}
+              >
+                <MicOff className="w-4 h-4 text-destructive shrink-0" />
+                <span>{target.isServerMuted ? 'Server unmute' : 'Server mute'}</span>
+              </button>
             )}
-            <span>{copied ? 'Copied ID!' : 'Copy User ID'}</span>
-          </div>
-          <span className="text-[9px] font-mono text-text-muted">ID</span>
+            {onServerDeafen && (
+              <button
+                type="button"
+                onClick={() => {
+                  onServerDeafen(target.identity);
+                  onClose();
+                }}
+                className={row}
+              >
+                <Headphones className="w-4 h-4 text-destructive shrink-0" />
+                <span>{target.isServerDeafened ? 'Server undeafen' : 'Server deafen'}</span>
+              </button>
+            )}
+            {onKick && (
+              <button
+                type="button"
+                onClick={() => {
+                  onKick(target.identity);
+                  onClose();
+                }}
+                className={`${row} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+              >
+                <UserMinus className="w-4 h-4 shrink-0" />
+                <span>Kick</span>
+              </button>
+            )}
+            {onBan && (
+              <button
+                type="button"
+                onClick={() => {
+                  onBan(target.identity);
+                  onClose();
+                }}
+                className={`${row} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+              >
+                <Ban className="w-4 h-4 shrink-0" />
+                <span>Ban</span>
+              </button>
+            )}
+          </>
+        )}
+
+        <button type="button" onClick={handleCopyId} className={row}>
+          {copied ? (
+            <Check className="w-4 h-4 text-accent-bright shrink-0" />
+          ) : (
+            <Copy className="w-4 h-4 text-text-muted shrink-0" />
+          )}
+          <span>{copied ? 'Copied' : 'Copy user ID'}</span>
         </button>
       </div>
     </div>

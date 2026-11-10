@@ -473,8 +473,8 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     connectionState,
     currentPing,
     isLocallySpeaking,
-    connect,
     disconnect,
+    moveToVoiceChannel,
   } = useLiveKitStore();
 
   const { inputMode, pushToTalkKey } = useSettingsStore();
@@ -549,18 +549,7 @@ export const ScreenStage: React.FC<ScreenStageProps> = ({
     if (!targetId) return;
 
     try {
-      if (
-        activeVoiceChannelId &&
-        activeVoiceChannelId !== targetId &&
-        connectionState !== ConnectionState.Disconnected
-      ) {
-        await disconnect();
-      }
-      setJoiningVoiceChannel(targetId);
-      const joinData = await api.joinVoiceChannel(targetId);
-      setActiveVoiceChannel(targetId);
-      const ok = await connect(joinData.livekitUrl, joinData.token);
-      setJoiningVoiceChannel(null);
+      const ok = await moveToVoiceChannel(targetId);
       if (!ok) {
         const lastErr = useLiveKitStore.getState().error;
         console.warn('LiveKit connect returned false:', lastErr);

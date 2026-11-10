@@ -17,6 +17,7 @@ import {
 } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
 import { getLiveKitRoomParticipants, removeLiveKitParticipant } from '../services/livekit.service.js';
+import { listVoice, syncVoice } from '../services/voice-presence.js';
 
 export const serversRoutes: FastifyPluginAsync = async (fastify) => {
   // 1. List all servers current user belongs to
@@ -229,6 +230,11 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
             const legacyParts = await getLiveKitRoomParticipants(`${serverId}_${c.id}`);
             if (legacyParts.length > 0) parts = legacyParts;
           }
+          if (parts.length > 0) {
+            syncVoice(serverId, c.id, parts);
+          }
+          const remembered = listVoice(c.id);
+          if (remembered.length > 0) parts = remembered;
           participantCount = parts.length;
           voiceParticipants = parts;
         }
@@ -251,7 +257,8 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
     for (const dto of channelDtos) {
       if (dto.type !== 'voice' || !dto.voiceParticipants) continue;
       for (const person of dto.voiceParticipants) {
-        const joinedAt = (person as { joinedAt?: number }).joinedAt || 0;
+        const rawJoined = (person as { joinedAt?: number }).joinedAt || 0;
+        const joinedAt = rawJoined > 0 && rawJoined < 1e12 ? rawJoined * 1000 : rawJoined;
         const prev = newest.get(person.identity);
         if (!prev || joinedAt >= prev.joinedAt) {
           newest.set(person.identity, { channelId: dto.id, joinedAt });
@@ -291,8 +298,12 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
       where: { serverId_userId: { serverId, userId: user.id } },
     });
 
-    if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-      return reply.status(403).send({ error: 'Permission denied: Administrator rights required to create channels' });
+    const server = await prisma.server.findUnique({
+      where: { id: serverId },
+      select: { ownerId: true },
+    });
+    if (!membership || !server || server.ownerId !== user.id) {
+      return reply.status(403).send({ error: 'Only the server owner can create channels' });
     }
 
     const parseResult = CreateChannelSchema.safeParse(request.body);

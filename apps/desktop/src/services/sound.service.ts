@@ -13,14 +13,14 @@ export interface SoundPreferences {
 class SoundService {
   private ctx: AudioContext | null = null;
   private isEnabled: boolean = true;
-  private masterGain: number = 0.25;
+  private masterGain: number = 0.5;
   private cues = new Map<string, Promise<AudioBuffer>>();
   private players = new Map<string, HTMLAudioElement>();
   private lastCueTrigger = new Map<string, number>();
 
   private prefs: SoundPreferences = {
     masterEnabled: true,
-    masterVolume: 25,
+    masterVolume: 50,
     pttSound: true,
     joinLeaveSound: true,
     muteSound: true,
@@ -49,6 +49,15 @@ class SoundService {
   public setVolume(volPercent: number) {
     this.masterGain = Math.max(0, Math.min(1, volPercent / 100));
     this.prefs.masterVolume = volPercent;
+  }
+
+  public setOutputDevice(_deviceId: string) {
+    this.players.forEach((audio) => {
+      const sink = (audio as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId;
+      if (sink) sink.call(audio, '').catch(() => {});
+    });
+    const ctx = this.ctx as (AudioContext & { setSinkId?: (id: string) => Promise<void> }) | null;
+    if (ctx?.setSinkId) ctx.setSinkId('').catch(() => {});
   }
 
   public setPttSoundEnabled(enabled: boolean) {
@@ -308,15 +317,18 @@ class SoundService {
 
   // Preview methods that play even if temporarily disabled so the user can test the sound
   public previewPtt(isActivate: boolean = true) {
+    void this.unlock();
     if (isActivate) this.playPttActivate(true);
     else this.playPttDeactivate(true);
   }
 
   public previewCue(name: 'join' | 'leave' | 'mute' | 'unmute' | 'deafen' | 'undeafen' | 'userconnected' | 'userdisconnected') {
+    void this.unlock();
     this.playCue(name, true);
   }
 
   public previewButtonClick() {
+    void this.unlock();
     this.playButtonClick(true);
   }
 }
