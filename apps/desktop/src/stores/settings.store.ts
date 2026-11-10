@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { sounds } from '../services/sound.service';
-import { concreteDeviceId } from '../audio/devices';
 import { InputProfileType } from '@nightshift/shared';
 
 interface SettingsState {
@@ -87,7 +86,18 @@ const SETTINGS_KEY = 'nightshift_user_voice_settings_v2';
 function loadPersistedSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // The automatic device picker stored a guessed device and left some
+      // people with no audio. Return everyone to the system default once.
+      if (!localStorage.getItem('nightshift_devices_reset_v1')) {
+        parsed.audioInputDeviceId = 'default';
+        parsed.audioOutputDeviceId = 'default';
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(parsed));
+        localStorage.setItem('nightshift_devices_reset_v1', '1');
+      }
+      return parsed;
+    }
   } catch {}
   return {
     inputProfile: 'custom' as InputProfileType,
@@ -221,10 +231,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((d) => d.kind === 'audioinput');
         const outputs = devices.filter((d) => d.kind === 'audiooutput');
-        const inputId = concreteDeviceId(devices, 'audioinput', get().audioInputDeviceId);
-        const outputId = concreteDeviceId(devices, 'audiooutput', get().audioOutputDeviceId);
-        const inputChanged = !!inputId && inputId !== get().audioInputDeviceId;
-        const outputChanged = !!outputId && outputId !== get().audioOutputDeviceId;
+        const keep = (id: string, list: MediaDeviceInfo[]) => {
+          if (!id || id === 'default' || id === 'communications') return 'default';
+          return list.some((d) => d.deviceId === id) ? id : 'default';
+        };
+        const inputId = keep(get().audioInputDeviceId, inputs);
+        const outputId = keep(get().audioOutputDeviceId, outputs);
+        const inputChanged = inputId !== get().audioInputDeviceId;
+        const outputChanged = outputId !== get().audioOutputDeviceId;
         set({
           availableInputs: inputs,
           availableOutputs: outputs,
@@ -233,13 +247,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
         });
         if (inputChanged || outputChanged) {
           persist({
-            audioInputDeviceId: inputChanged ? inputId : get().audioInputDeviceId,
-            audioOutputDeviceId: outputChanged ? outputId : get().audioOutputDeviceId,
+            audioInputDeviceId: inputId,
+            audioOutputDeviceId: outputId,
           });
-        }
-        const sink = outputChanged ? outputId : get().audioOutputDeviceId;
-        if (sink && sink !== 'default' && sink !== 'communications') {
-          sounds.setOutputDevice(sink);
         }
         return { inputChanged, outputChanged };
       } catch (err) {

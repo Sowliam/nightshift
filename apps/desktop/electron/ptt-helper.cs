@@ -63,9 +63,6 @@ class PttRawInputForm : Form
     [DllImport("user32.dll", SetLastError = true)]
     static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand, IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
 
-    [DllImport("user32.dll")]
-    static extern short GetAsyncKeyState(int vKey);
-
     const int RIDEV_INPUTSINK = 0x00000100;
     const int WM_INPUT = 0x00FF;
     const uint RID_INPUT = 0x10000003;
@@ -85,9 +82,6 @@ class PttRawInputForm : Form
     public static volatile bool isRecording = false;
     public static volatile bool isPttActive = false;
 
-    // Release hangover delay in milliseconds (like Discord/TeamSpeak PTT Release Delay)
-    private const int RELEASE_DELAY_MS = 150;
-    private static System.Threading.Timer releaseTimer = null;
     private static readonly object lockObj = new object();
 
     private static readonly string logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ptt_debug.log");
@@ -250,13 +244,6 @@ class PttRawInputForm : Form
         {
             if (isDown)
             {
-                // Cancel any pending release timer immediately
-                if (releaseTimer != null)
-                {
-                    releaseTimer.Dispose();
-                    releaseTimer = null;
-                }
-
                 if (!isPttActive)
                 {
                     isPttActive = true;
@@ -266,45 +253,13 @@ class PttRawInputForm : Form
                     Log(string.Format("PTT ACTIVATED ({0}) -> {1}", source, pttLine));
                 }
             }
-            else
-            {
-                // Key released: apply release hangover delay (150ms) to prevent audio cut-offs
-                if (isPttActive && releaseTimer == null)
-                {
-                    releaseTimer = new System.Threading.Timer(OnReleaseTimeout, null, RELEASE_DELAY_MS, Timeout.Infinite);
-                }
-            }
-        }
-    }
-
-    private static void OnReleaseTimeout(object state)
-    {
-        lock (lockObj)
-        {
-            if (releaseTimer != null)
-            {
-                releaseTimer.Dispose();
-                releaseTimer = null;
-            }
-
-            // Double check physical state via GetAsyncKeyState to ensure it wasn't re-pressed
-            if (isEnabled && targetVKey > 0)
-            {
-                short asyncState = GetAsyncKeyState(targetVKey);
-                if ((asyncState & 0x8000) != 0)
-                {
-                    // Still held physically
-                    return;
-                }
-            }
-
-            if (isPttActive)
+            else if (isPttActive)
             {
                 isPttActive = false;
                 string pttLine = string.Format("PTT:0:{0}", CurrentTimestamp());
                 Console.WriteLine(pttLine);
                 Console.Out.Flush();
-                Log("PTT DEACTIVATED (Release timeout) -> " + pttLine);
+                Log("PTT DEACTIVATED (" + source + ") -> " + pttLine);
             }
         }
     }
@@ -313,11 +268,6 @@ class PttRawInputForm : Form
     {
         lock (lockObj)
         {
-            if (releaseTimer != null)
-            {
-                releaseTimer.Dispose();
-                releaseTimer = null;
-            }
             if (isPttActive)
             {
                 isPttActive = false;

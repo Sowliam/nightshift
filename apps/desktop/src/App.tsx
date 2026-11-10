@@ -65,10 +65,10 @@ export const App: React.FC = () => {
       const live = useLiveKitStore.getState();
       const { audioInputDeviceId, audioOutputDeviceId } = useSettingsStore.getState();
       if (!live.room) return;
-      if (changed.inputChanged && audioInputDeviceId && audioInputDeviceId !== 'default') {
+      if (changed.inputChanged) {
         await live.setAudioInputDevice(audioInputDeviceId).catch(() => {});
       }
-      if (audioOutputDeviceId && audioOutputDeviceId !== 'default') {
+      if (changed.outputChanged) {
         await live.setAudioOutputDevice(audioOutputDeviceId).catch(() => {});
       }
     };
@@ -209,6 +209,19 @@ export const App: React.FC = () => {
     }
   }, [user?.id]);
 
+  // Keep the click sound awake while a game covers the window.
+  useEffect(() => {
+    const warm = () => sounds.warm();
+    window.addEventListener('blur', warm);
+    const id = window.setInterval(() => {
+      if (!document.hasFocus()) warm();
+    }, 800);
+    return () => {
+      window.removeEventListener('blur', warm);
+      window.clearInterval(id);
+    };
+  }, []);
+
   // Register global PTT hotkey with Electron main process (for background & games)
   useEffect(() => {
     if (window.nightshift?.setGlobalPttKey) {
@@ -221,6 +234,8 @@ export const App: React.FC = () => {
     if (!window.nightshift?.onGlobalPttChange) return;
 
     const cleanup = window.nightshift.onGlobalPttChange((data: any) => {
+      // While this window is focused, the key listener below owns the shortcut.
+      if (document.hasFocus()) return;
       const isDown = typeof data === 'boolean' ? data : !!data?.isDown;
       const seq = typeof data === 'object' && data?.seq ? Number(data.seq) : undefined;
       const currentMode = useSettingsStore.getState().inputMode;
@@ -267,12 +282,12 @@ export const App: React.FC = () => {
       );
     };
 
-    // The desktop app has a global listener. Handling the same key here as well
-    // races it: a late keyup from this window mutes the mic while the key is still held in a game.
-    const globalPttOwnsKey = !!window.nightshift?.onGlobalPttChange;
+    // Outside the window the global hook owns the key. Inside it, this listener does,
+    // so a missing helper cannot leave push-to-talk dead while the app is focused.
+    const windowOwnsPtt = () => document.hasFocus();
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (globalPttOwnsKey) return;
+      if (!windowOwnsPtt()) return;
       if (inputMode === 'push-to-talk' && matchesPttMouseButton(e.button)) {
         e.preventDefault();
         setPushToTalkActive(true);
@@ -280,7 +295,7 @@ export const App: React.FC = () => {
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (globalPttOwnsKey) return;
+      if (!windowOwnsPtt()) return;
       if (inputMode === 'push-to-talk' && matchesPttMouseButton(e.button)) {
         e.preventDefault();
         setPushToTalkActive(false);
@@ -315,8 +330,7 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Push-to-Talk KeyDown. Desktop uses the global raw-input listener instead.
-      if (!globalPttOwnsKey && inputMode === 'push-to-talk' && !e.repeat && matchesPttKey(e)) {
+      if (windowOwnsPtt() && inputMode === 'push-to-talk' && !e.repeat && matchesPttKey(e)) {
         e.preventDefault();
         setPushToTalkActive(true);
         return;
@@ -339,8 +353,7 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Push-to-Talk KeyUp. Desktop uses the global raw-input listener instead.
-      if (!globalPttOwnsKey && inputMode === 'push-to-talk' && matchesPttKey(e)) {
+      if (windowOwnsPtt() && inputMode === 'push-to-talk' && matchesPttKey(e)) {
         e.preventDefault();
         setPushToTalkActive(false);
       }

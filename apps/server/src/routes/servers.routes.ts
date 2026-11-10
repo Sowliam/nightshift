@@ -17,7 +17,7 @@ import {
 } from '@nightshift/shared';
 import { requireAuth } from '../lib/auth.js';
 import { getLiveKitRoomParticipants, removeLiveKitParticipant } from '../services/livekit.service.js';
-import { listVoice, syncVoice } from '../services/voice-presence.js';
+import { getVoice, listVoice, syncVoice } from '../services/voice-presence.js';
 
 export const serversRoutes: FastifyPluginAsync = async (fastify) => {
   // 1. List all servers current user belongs to
@@ -219,6 +219,7 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: [{ type: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
     });
 
+    const staleRemovals: Promise<unknown>[] = [];
     const channelDtos: ChannelDto[] = await Promise.all(
       channels.map(async (c) => {
         let participantCount = 0;
@@ -230,11 +231,18 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
             const legacyParts = await getLiveKitRoomParticipants(`${serverId}_${c.id}`);
             if (legacyParts.length > 0) parts = legacyParts;
           }
-          if (parts.length > 0) {
-            syncVoice(serverId, c.id, parts);
-          }
+          const here = parts.filter((person) => {
+            const home = getVoice(person.identity);
+            if (home && home.channelId !== c.id) {
+              staleRemovals.push(removeLiveKitParticipant(roomKey, person.identity));
+              return false;
+            }
+            return true;
+          });
+          if (here.length > 0) syncVoice(serverId, c.id, here);
           const remembered = listVoice(c.id);
           if (remembered.length > 0) parts = remembered;
+          else parts = here;
           participantCount = parts.length;
           voiceParticipants = parts;
         }
@@ -266,7 +274,6 @@ export const serversRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    const staleRemovals: Promise<unknown>[] = [];
     for (const dto of channelDtos) {
       if (dto.type !== 'voice' || !dto.voiceParticipants) continue;
       const kept = [];

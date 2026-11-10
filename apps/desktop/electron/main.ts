@@ -165,17 +165,29 @@ function resolveWinVk(keyStr: string): number {
 let pttHelperProcess: ChildProcess | null = null;
 let globalPttKeyString = 'Space';
 
+function isSpawnableExecutable(candidate: string) {
+  if (!candidate) return false;
+  const normalized = candidate.replace(/\\/g, '/');
+  // Electron reports files inside app.asar as existing, but Windows cannot spawn them.
+  if (normalized.includes('/app.asar/') && !normalized.includes('/app.asar.unpacked/')) return false;
+  try {
+    return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function initNativePttHelper() {
   if (process.platform !== 'win32') return;
 
   try {
     const helperPaths = [
-      path.join(__dirname, 'ptt-helper.exe'),
-      path.join(__dirname, '../electron/ptt-helper.exe'),
       path.join(process.resourcesPath || '', 'ptt-helper.exe'),
       path.join(process.resourcesPath || '', 'app.asar.unpacked', 'dist-electron', 'ptt-helper.exe'),
+      path.join(__dirname, 'ptt-helper.exe'),
+      path.join(__dirname, '../electron/ptt-helper.exe'),
     ];
-    const helperPath = helperPaths.find((p) => fs.existsSync(p));
+    const helperPath = helperPaths.find((p) => isSpawnableExecutable(p));
 
     if (!helperPath) {
       pttLog('[PTT Helper] Native Win32 helper binary not found in candidate paths');
@@ -230,6 +242,7 @@ function initNativePttHelper() {
     pttHelperProcess.on('error', (err) => {
       pttLog(`[PTT Helper] Native helper process error: ${err}`);
       console.error('[PTT Helper] Native helper process error:', err);
+      pttHelperProcess = null;
       if (isGlobalPttDown) {
         isGlobalPttDown = false;
         const seq = ++globalPttSeq;

@@ -55,6 +55,15 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "asarUnpack": [
+      "dist-electron/ptt-helper.exe"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-electron/ptt-helper.exe",
+        "to": "ptt-helper.exe"
+      }
+    ],
     "win": {
       "target": [
         {

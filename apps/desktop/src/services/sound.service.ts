@@ -41,6 +41,10 @@ class SoundService {
     return this.ctx;
   }
 
+  public warm() {
+    this.getAudioContext();
+  }
+
   public setEnabled(enabled: boolean) {
     this.isEnabled = enabled;
     this.prefs.masterEnabled = enabled;

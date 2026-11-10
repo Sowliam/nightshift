@@ -110,6 +110,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
   let reconnectCountdownInterval: ReturnType<typeof setInterval> | null = null;
   let lastPingBroadcastTime = 0;
   let voiceMove: Promise<boolean> | null = null;
+  let connectedVoiceChannelId: string | null = null;
   let voiceProcessContext: AudioContext | null = null;
   let browserCapture = { echo: true, noise: true };
 
@@ -856,13 +857,14 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     public async setSinkId(deviceId: string): Promise<void> {
       const id = deviceId && deviceId !== 'default' && deviceId !== 'communications' ? deviceId : '';
-      if (!id) return;
       const ctx = this.ensureAudioContext() as (AudioContext & { setSinkId?: (sinkId: string) => Promise<void> }) | null;
-      if (ctx?.setSinkId) {
-        try {
-          await ctx.setSinkId(id);
-        } catch (err) {
-          console.warn('[RemoteAudioGainEngine] Could not move playback to the selected output:', err);
+      if (!ctx?.setSinkId) return;
+      try {
+        await ctx.setSinkId(id);
+      } catch (err) {
+        console.warn('[RemoteAudioGainEngine] Could not move playback to the selected output:', err);
+        if (id) {
+          try { await ctx.setSinkId(''); } catch {}
         }
       }
     }
@@ -1461,15 +1463,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         const capture = micConstraints();
         browserCapture = { echo: capture.echoCancellation, noise: capture.noiseSuppression };
 
-        const outputId = settings.audioOutputDeviceId;
-        const outputApply =
-          outputId && outputId !== 'default' && outputId !== 'communications'
-            ? Promise.all([
-                Promise.resolve(sounds.setOutputDevice(outputId)),
-                remoteAudioGainEngine.setSinkId(outputId),
-                room.switchActiveDevice('audiooutput', outputId).catch(() => {}),
-              ]).catch(() => {})
-            : Promise.resolve();
+        const outputId = settings.audioOutputDeviceId || 'default';
+        const outputApply = Promise.all([
+          Promise.resolve(sounds.setOutputDevice(outputId)),
+          remoteAudioGainEngine.setSinkId(outputId),
+          room.switchActiveDevice('audiooutput', outputId === 'communications' ? 'default' : outputId).catch(() => {}),
+        ]).catch(() => {});
 
         try {
           const startMuted = isPtt || settings.isSelfMuted;
@@ -1604,11 +1603,10 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         activeCustomScreenTrack = null;
       }
 
-      if (shouldNotify) {
-        const activeChannel = useServerStore.getState().activeVoiceChannelId;
-        if (activeChannel) {
-          void api.leaveVoiceChannel(activeChannel).catch(() => {});
-        }
+      const channelToLeave = connectedVoiceChannelId;
+      connectedVoiceChannelId = null;
+      if (shouldNotify && channelToLeave) {
+        void api.leaveVoiceChannel(channelToLeave).catch(() => {});
       }
 
       if (room) {
@@ -1663,7 +1661,7 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
     moveToVoiceChannel: async (channelId: string) => {
       const server = useServerStore.getState();
-      const current = server.activeVoiceChannelId;
+      const current = connectedVoiceChannelId || server.activeVoiceChannelId;
       const state = get().connectionState;
       if (current === channelId && state === ConnectionState.Connected) {
         server.selectChannel(channelId);
@@ -1685,12 +1683,17 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
         useServerStore.getState().setJoiningVoiceChannel(channelId);
         useServerStore.getState().setActiveVoiceChannel(channelId);
 
+        const previousChannelId = current !== channelId ? current : null;
+        if (previousChannelId) {
+          void api.leaveVoiceChannel(previousChannelId).catch(() => {});
+        }
         const joinPromise = api.joinVoiceChannel(channelId);
         if (switching) {
           await get().disconnect({ notifyServer: false, playSound: false, keepChannel: true });
         }
         const joinData = await joinPromise;
         const ok = await get().connect(joinData.livekitUrl, joinData.token);
+        if (ok) connectedVoiceChannelId = channelId;
         useServerStore.getState().setJoiningVoiceChannel(null);
         if (!ok) return false;
         try {
@@ -1791,6 +1794,19 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
 
       targetPttActive = active;
 
+      const { room, isDeafened } = get();
+      if (!isDeafened && room?.localParticipant) {
+        const micNow = Array.from(room.localParticipant.audioTrackPublications.values()).find(
+          (p) => p.source === Track.Source.Microphone
+        );
+        const liveNow = micNow?.track
+          ? (micNow.track as LocalAudioTrack).mediaStreamTrack
+          : null;
+        if (liveNow && liveNow.readyState === 'live') liveNow.enabled = active;
+        if (active) sounds.playPttActivate();
+        else sounds.playPttDeactivate();
+      }
+
       // Sequential promise serialization queue: guarantees no overlapping mute/unmute calls
       pttQueue = pttQueue.then(async () => {
         const { room, isDeafened } = get();
@@ -1886,12 +1902,6 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
               activeSpeakers: updated,
             };
           });
-
-          if (!desiredMuted) {
-            sounds.playPttActivate();
-          } else {
-            sounds.playPttDeactivate();
-          }
         } catch (err) {
           window.nightshift?.logPtt?.(`Error during PTT state update: ${err}`);
           console.warn('[LiveKit PTT] Error during PTT state update:', err);
@@ -2446,13 +2456,9 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     setAudioInputDevice: async (deviceId: string) => {
-      let id = deviceId;
-      if (!id || id === 'default' || id === 'communications') {
-        await useSettingsStore.getState().syncSystemDevices();
-        id = useSettingsStore.getState().audioInputDeviceId;
-      }
+      const id = !deviceId || deviceId === 'communications' ? 'default' : deviceId;
       const { room } = get();
-      if (!room || !id || id === 'default' || id === 'communications') return;
+      if (!room) return;
       await room.switchActiveDevice('audioinput', id);
       const micPub = Array.from(room.localParticipant.audioTrackPublications.values()).find(
         (p) => p.source === Track.Source.Microphone
@@ -2466,14 +2472,12 @@ export const useLiveKitStore = create<LiveKitState>((set, get) => {
     },
 
     setAudioOutputDevice: async (deviceId: string) => {
-      const id = !deviceId || deviceId === 'default' || deviceId === 'communications'
-        ? useSettingsStore.getState().audioOutputDeviceId
-        : deviceId;
+      const id = !deviceId || deviceId === 'communications' ? 'default' : deviceId;
       sounds.setOutputDevice(id);
       await remoteAudioGainEngine.setSinkId(id);
       const { room } = get();
-      if (room && id && id !== 'default' && id !== 'communications') {
-        await room.switchActiveDevice('audiooutput', id);
+      if (room) {
+        await room.switchActiveDevice('audiooutput', id).catch(() => {});
       }
     },
 

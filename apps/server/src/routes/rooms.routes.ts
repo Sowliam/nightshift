@@ -149,7 +149,10 @@ export const roomsRoutes: FastifyPluginAsync = async (fastify) => {
       where: { id: channelId },
     });
 
-    leaveVoice(user.id);
+    const seat = getVoice(user.id);
+    if (!seat || seat.channelId === channelId) {
+      leaveVoice(user.id);
+    }
     if (channel) {
       const roomKey = `ns_${channel.serverId}_${channel.id}`;
       await removeLiveKitParticipant(roomKey, user.id);
