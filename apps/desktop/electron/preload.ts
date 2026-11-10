@@ -25,6 +25,16 @@ export interface NightshiftDesktopApi {
   getPttDebugLog?: () => Promise<string>;
   logPtt?: (msg: string) => void;
   measurePing?: (targetHost: string, port?: number) => Promise<number>;
+  checkForUpdate?: () => Promise<void>;
+  installUpdate?: () => Promise<void>;
+  onUpdateStatus?: (callback: (status: {
+    state: 'idle' | 'checking' | 'available' | 'current' | 'downloading' | 'ready' | 'error' | 'dev';
+    version?: string;
+    percent?: number;
+    transferred?: number;
+    total?: number;
+    message?: string;
+  }) => void) => () => void;
 }
 
 const api: NightshiftDesktopApi = {
@@ -55,6 +65,13 @@ const api: NightshiftDesktopApi = {
   getPttDebugLog: () => ipcRenderer.invoke('get-ptt-debug-log'),
   logPtt: (msg: string) => ipcRenderer.send('ptt-renderer-log', msg),
   measurePing: (targetHost: string, port?: number) => ipcRenderer.invoke('measure-ping', targetHost, port),
+  checkForUpdate: () => ipcRenderer.invoke('update-check'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateStatus: (callback) => {
+    const handler = (_event: any, status: any) => callback(status);
+    ipcRenderer.on('update-status', handler);
+    return () => ipcRenderer.removeListener('update-status', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('nightshift', api);

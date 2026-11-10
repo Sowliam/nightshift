@@ -51,6 +51,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     activeSoundboardPlayers,
     currentPing,
     participantPings,
+    participantAvatars,
     canPlaybackAudio,
     startAudio,
   } = useLiveKitStore();
@@ -95,7 +96,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     participants.push({
       identity: localIdentity,
       name: user?.displayName || localParticipant.name || 'You',
-      avatarUrl: user?.avatarUrl || localMember?.avatarUrl,
+      avatarUrl: participantAvatars[localIdentity] || user?.avatarUrl || localMember?.avatarUrl,
       isLocal: true,
       isSpeaking: !isMuted && localSpeaking,
       isMuted: isMuted,
@@ -118,7 +119,7 @@ export const VoiceGrid: React.FC<VoiceGridProps> = ({
     participants.push({
       identity: p.identity,
       name: p.name || p.identity,
-      avatarUrl: remoteMember?.avatarUrl,
+      avatarUrl: participantAvatars[p.identity] || remoteMember?.avatarUrl,
       isLocal: false,
       isSpeaking: activeSpeakers.has(p.identity) || p.isSpeaking,
       isMuted: isRemoteMuted,

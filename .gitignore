@@ -42,3 +42,4 @@ Thumbs.db
 scratch/
 apps/server/uploads/*
 !apps/server/uploads/.gitkeep
+.vercel

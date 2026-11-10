@@ -26,6 +26,7 @@ class NightshiftCleaner extends AudioWorkletProcessor {
     this.floor = 0.003;
     this.gain = 1;
     this.breath = 0;
+    this.hold = 0;
     this.x1 = 0;
     this.y1 = 0;
     this.port.onmessage = (event) => {
@@ -50,6 +51,9 @@ class NightshiftCleaner extends AudioWorkletProcessor {
     const hpA = hpCut > 0 ? Math.exp((-2 * Math.PI * hpCut) / sampleRate) : 0;
     const attack = Math.exp(-1 / (sampleRate * 0.008));
     const release = Math.exp(-1 / (sampleRate * 0.09));
+    const holdMax = (sampleRate * 0.28) | 0;
+    const manualThresh = Math.pow(10, (-50 + this.sensitivity * 30) / 20);
+    const autoThresh = Math.pow(10, (-50 + 9.6) / 20);
 
     for (let i = 0; i < input.length; i++) {
       const x = input[i];
@@ -68,17 +72,24 @@ class NightshiftCleaner extends AudioWorkletProcessor {
       this.breath = breathLike ? Math.min(1, this.breath + 0.018) : this.breath * 0.965;
       const isBreath = this.breath > 0.42;
 
-      if (!isBreath && this.speechEnv < this.floor * 1.2) {
-        this.floor = this.floor * 0.99 + this.speechEnv * 0.01;
+      if (!isBreath && this.speechEnv < 0.012) {
+        this.floor += (this.speechEnv - this.floor) * 0.004;
       }
 
-      let gate = 1;
       if (!this.ptt) {
         const thresh = this.auto
-          ? Math.max(0.011, this.floor * 5.2)
-          : Math.pow(10, (-50 + this.sensitivity * 30) / 20);
-        const openness = thresh <= 0.00001 ? 1 : this.speechEnv / thresh;
-        gate = openness >= 1 ? 1 : Math.pow(Math.max(0, openness), 1.65);
+          ? Math.min(0.045, Math.max(autoThresh, this.floor * 6.5))
+          : manualThresh;
+        if (this.speechEnv >= thresh && !isBreath) this.hold = holdMax;
+        else if (this.hold > 0) this.hold--;
+        const open = this.hold > 0;
+        if (!open) {
+          this.gain = 0;
+          this.x1 = x;
+          this.y1 = 0;
+          output[i] = 0;
+          continue;
+        }
       }
 
       let noiseGain = 1;
@@ -101,8 +112,8 @@ class NightshiftCleaner extends AudioWorkletProcessor {
       if (isBreath) sample = speech * 0.12;
 
       const breathDuck = isBreath ? 0.05 : 1;
-      const target = gate * noiseGain * breathDuck;
-      const coeff = target > this.gain ? 0.42 : 0.018;
+      const target = noiseGain * breathDuck;
+      const coeff = target > this.gain ? 0.42 : 0.08;
       this.gain += (target - this.gain) * coeff;
       output[i] = sample * this.gain;
     }

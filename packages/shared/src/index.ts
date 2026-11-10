@@ -5,7 +5,7 @@ import { z } from 'zod';
 // ==========================================
 
 export const APP_NAME = 'NIGHTSHIFT';
-export const APP_VERSION = '0.1.3';
+export const APP_VERSION = '0.1.4';
 
 export const THEME = {
   bgMain: '#0A0908',

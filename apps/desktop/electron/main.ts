@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, session, powerSaveBlocker, Tray, Menu, nativeImage } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
@@ -833,7 +834,119 @@ function createTray() {
   });
 }
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+function revealMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+if (!hasSingleInstanceLock) {
+  app.exit(0);
+} else {
+  app.on('second-instance', () => {
+    revealMainWindow();
+  });
+}
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.disableDifferentialDownload = false;
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'Sowliam',
+  repo: 'nightshift',
+});
+
+let updateCheckId = 0;
+let updateCheckTimer: ReturnType<typeof setTimeout> | null = null;
+let updateDownloadStarted = false;
+
+function sendUpdate(payload: Record<string, unknown>) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', payload);
+  }
+}
+
+function clearUpdateCheckTimer() {
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+}
+
+function runUpdateCheck() {
+  const id = ++updateCheckId;
+  clearUpdateCheckTimer();
+  sendUpdate({ state: 'checking' });
+  if (!app.isPackaged) {
+    sendUpdate({ state: 'dev' });
+    return Promise.resolve();
+  }
+  updateCheckTimer = setTimeout(() => {
+    if (id !== updateCheckId) return;
+    sendUpdate({ state: 'error', message: 'Could not confirm the latest version. Try again.' });
+  }, 10000);
+  return autoUpdater.checkForUpdates()
+    .then(() => {
+      if (id === updateCheckId) clearUpdateCheckTimer();
+    })
+    .catch((err: unknown) => {
+      if (id !== updateCheckId) return;
+      clearUpdateCheckTimer();
+      const message = err instanceof Error ? err.message : 'Update failed';
+      sendUpdate({ state: 'error', message });
+    });
+}
+
+autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
+autoUpdater.on('update-available', (info) => {
+  clearUpdateCheckTimer();
+  updateCheckId++;
+  sendUpdate({ state: 'downloading', version: info.version, percent: 0, transferred: 0, total: 0 });
+  if (updateDownloadStarted) return;
+  updateDownloadStarted = true;
+  autoUpdater.downloadUpdate().catch((err: Error) => {
+    updateDownloadStarted = false;
+    sendUpdate({ state: 'error', message: err.message || 'Download failed' });
+  });
+});
+autoUpdater.on('update-not-available', () => {
+  clearUpdateCheckTimer();
+  updateCheckId++;
+  sendUpdate({ state: 'current' });
+});
+autoUpdater.on('download-progress', (progress) => {
+  sendUpdate({
+    state: 'downloading',
+    percent: progress.percent,
+    transferred: progress.transferred,
+    total: progress.total,
+  });
+});
+autoUpdater.on('update-downloaded', (info) => {
+  updateDownloadStarted = false;
+  sendUpdate({ state: 'ready', version: info.version, percent: 100 });
+});
+autoUpdater.on('error', (err) => {
+  clearUpdateCheckTimer();
+  updateCheckId++;
+  updateDownloadStarted = false;
+  sendUpdate({ state: 'error', message: err.message || 'Update failed' });
+});
+
+ipcMain.handle('update-check', () => runUpdateCheck());
+
+ipcMain.handle('update-install', () => {
+  if (!app.isPackaged) return { state: 'dev' };
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  return { state: 'ready' };
+});
+
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
   try {
     const blockerId = powerSaveBlocker.start('prevent-app-suspension');
     pttLog(`powerSaveBlocker started (prevent-app-suspension, id: ${blockerId})`);
@@ -842,6 +955,11 @@ app.whenReady().then(() => {
   }
   createWindow();
   createTray();
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void runUpdateCheck();
+    }, 8000);
+  }
   initGlobalPttHook();
   initNativePttHelper();
 });
@@ -864,10 +982,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (mainWindow) {
-    mainWindow.show();
-    mainWindow.focus();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    revealMainWindow();
   } else if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    void createWindow();
   }
 });

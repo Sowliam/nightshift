@@ -35,6 +35,7 @@ interface ServerState {
   setJoiningVoiceChannel: (channelId: string | null) => void;
 
   fetchMembers: (serverId: string) => Promise<void>;
+  patchMemberAvatar: (userId: string, avatarUrl: string | null) => void;
   moderateMember: (
     serverId: string,
     targetUserId: string,
@@ -199,6 +200,16 @@ export const useServerStore = create<ServerState>((set, get) => ({
     } catch (err: any) {
       console.warn('Failed to fetch members:', err);
     }
+  },
+
+  patchMemberAvatar: (userId: string, avatarUrl: string | null) => {
+    set((state) => ({
+      members: state.members.map((member) =>
+        member.userId === userId || member.username === userId
+          ? { ...member, avatarUrl }
+          : member,
+      ),
+    }));
   },
 
   moderateMember: async (

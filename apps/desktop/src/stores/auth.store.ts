@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { UserDto } from '@nightshift/shared';
 import { api } from '../lib/api';
+import { useServerStore } from './server.store';
 
 interface AuthState {
   user: UserDto | null;
@@ -89,6 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         const res = await api.uploadAvatar(fileOrUrl);
         set({ user: res.user, isLoading: false });
+        useServerStore.getState().patchMemberAvatar(res.user.id, res.user.avatarUrl ?? null);
         return true;
       } catch {
         // Fallback to base64 data URL

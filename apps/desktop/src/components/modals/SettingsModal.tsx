@@ -10,6 +10,8 @@ import {
   LogOut,
   ChevronDown,
   Camera,
+  Download,
+  Loader2,
   Upload,
   Trash2,
   AlertCircle,
@@ -17,12 +19,19 @@ import {
 import { useSettingsStore } from '../../stores/settings.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLiveKitStore } from '../../stores/livekit.store';
+import { useUpdateStore } from '../../stores/update.store';
 import { ConnectionState } from 'livekit-client';
 import { useSoundboardStore } from '../../stores/soundboard.store';
 import { sounds } from '../../services/sound.service';
 import { attachPreviewCleaner, type CleanerState } from '../../audio/voice-cleaner';
 import { APP_VERSION, APP_NAME } from '@nightshift/shared';
 import { getFullAvatarUrl } from '../../lib/api';
+
+function formatUpdateSize(bytes?: number) {
+  if (!bytes || !Number.isFinite(bytes)) return '0 MB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -135,6 +144,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const { allowWhileMuted, setAllowWhileMuted } = useSoundboardStore();
 
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const updateStatus = useUpdateStore((s) => s.status);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -352,7 +362,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         speech /= Math.max(1, speechStop - speechStart);
         setMicBreath(low > 14 && low > speech * 1.3 && speech < 42);
         setMicLevel(normalized);
-        animFrameRef.current = requestAnimationFrame(updateMeter);
+        animFrameRef.current = window.setTimeout(updateMeter, 100);
       };
 
       updateMeter();
@@ -363,6 +373,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const stopMicListener = (keepPrivacy = false) => {
     if (animFrameRef.current) {
+      clearTimeout(animFrameRef.current);
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
@@ -1309,6 +1320,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <span>Theme</span>
                     <span className="text-text-primary font-medium">True Pitch Black (#0A0908) & Ivory Snow</span>
                   </div>
+                </div>
+                <div className="p-4 rounded-xl bg-bg-elevated border border-border-subtle space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                        {(updateStatus.state === 'checking' || updateStatus.state === 'downloading') && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        )}
+                        Check for update
+                      </div>
+                      <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                        {updateStatus.state === 'checking' && 'Checking for updates…'}
+                        {updateStatus.state === 'downloading' && `Updating… ${formatUpdateSize(updateStatus.transferred)} of ${formatUpdateSize(updateStatus.total)} (${Math.round(updateStatus.percent || 0)}%).`}
+                        {updateStatus.state === 'ready' && 'Update ready. Restart to finish.'}
+                        {updateStatus.state === 'current' && 'You are up to date.'}
+                        {updateStatus.state === 'available' && 'Updating…'}
+                        {updateStatus.state === 'error' && (updateStatus.message || 'Could not check for an update.')}
+                        {updateStatus.state === 'dev' && 'Updates run from the installed app.'}
+                        {updateStatus.state === 'idle' && 'Checks this install against the latest release.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (updateStatus.state === 'ready') {
+                          void useUpdateStore.getState().install();
+                          return;
+                        }
+                        void useUpdateStore.getState().check();
+                      }}
+                      disabled={updateStatus.state === 'checking' || updateStatus.state === 'downloading'}
+                      className="shrink-0 px-3.5 py-2 rounded-xl bg-highlight hover:bg-white text-highlight-text text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {updateStatus.state === 'checking' || updateStatus.state === 'downloading' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      {updateStatus.state === 'ready' ? 'Restart' : updateStatus.state === 'checking' ? 'Checking…' : updateStatus.state === 'downloading' ? 'Updating…' : 'Check for update'}
+                    </button>
+                  </div>
+                  {(updateStatus.state === 'downloading' || updateStatus.state === 'ready') && (
+                    <div className="h-1.5 rounded-full bg-bg-main overflow-hidden">
+                      <div
+                        className="h-full bg-highlight"
+                        style={{ width: `${updateStatus.state === 'ready' ? 100 : Math.max(2, updateStatus.percent || 0)}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}

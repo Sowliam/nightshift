@@ -64,6 +64,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     setJoiningVoiceChannel,
     unreadMentions,
     members,
+    fetchMembers,
   } = useServerStore();
 
   const {
@@ -83,6 +84,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     screenSharerIdentity,
     currentPing,
     participantPings,
+    participantAvatars,
   } = useLiveKitStore();
 
   // useSettingsStore state managed directly
@@ -139,9 +141,10 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
     if (!activeServerId) return;
     const interval = setInterval(() => {
       fetchChannels(activeServerId);
+      fetchMembers(activeServerId);
     }, 12000);
     return () => clearInterval(interval);
-  }, [activeServerId, fetchChannels]);
+  }, [activeServerId, fetchChannels, fetchMembers]);
 
   const handleJoinVoiceChannel = async (channelId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -622,6 +625,7 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                               const isLocallyMuted = !!localMutedUsers[p.identity];
                               const serverMember = members.find((m) => m.userId === p.identity || m.username === p.identity);
                               const displayName = p.name || serverMember?.displayName || p.identity;
+                              const avatarSrc = getFullAvatarUrl(participantAvatars[p.identity] || serverMember?.avatarUrl);
 
                               return (
                                 <div
@@ -645,11 +649,15 @@ export const RoomSidebar: React.FC<RoomSidebarProps> = ({
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
                                     <div
-                                      className={`relative w-6 h-6 rounded-full bg-[#1e1f22] flex items-center justify-center text-[10px] font-medium text-[#dbdee1] shrink-0 ${
+                                      className={`relative w-6 h-6 rounded-full bg-[#1e1f22] flex items-center justify-center text-[10px] font-medium text-[#dbdee1] shrink-0 overflow-hidden ${
                                         isSpeaking ? 'shadow-[0_0_0_2px_#23a559]' : ''
                                       }`}
                                     >
-                                      {getInitials(displayName)}
+                                      {avatarSrc ? (
+                                        <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
+                                      ) : (
+                                        getInitials(displayName)
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5 min-w-0">
                                       <span className={`text-[13px] font-normal truncate ${isSpeaking ? 'text-white' : 'text-[#949ba4] group-hover:text-[#dbdee1]'}`}>

@@ -1,6 +1,6 @@
 {
   "name": "@nightshift/desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "NIGHTSHIFT - Ultra-low latency voice and communication platform for gaming",
   "author": "NIGHTSHIFT",
   "private": true,
@@ -20,6 +20,7 @@
     "@livekit/components-react": "^2.6.4",
     "@nightshift/shared": "*",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.11",
     "livekit-client": "^2.5.8",
     "lucide-react": "^0.447.0",
     "react": "^18.3.1",
@@ -100,10 +101,15 @@
       "installerHeader": "build/installerHeader.bmp",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "differentialPackage": false
+      "differentialPackage": true
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Sowliam",
+      "repo": "nightshift"
     }
   }
 }
