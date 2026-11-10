@@ -1,0 +1,4 @@
+release
+apps/desktop/release
+apps/desktop/dist-electron
+**/*.exe
